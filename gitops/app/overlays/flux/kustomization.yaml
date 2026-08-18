@@ -1,5 +1,6 @@
-# Deployed by FLUX. See the Argo CD overlay -- deliberately identical apart from
-# namespace and banner.
+# Deployed by Flux. Identical base to the other overlay -- the only
+# differences are namespace, banner and NodePort, so anything you observe
+# between the two is a property of the CONTROLLER, not the manifests.
 apiVersion: kustomize.config.k8s.io/v1beta1
 kind: Kustomization
 namespace: demo-flux
@@ -9,6 +10,13 @@ labels:
   - pairs:
       app.kubernetes.io/managed-by: flux
     includeSelectors: false
+
+replicas:
+  - name: podinfo
+    count: 3
+
+# ONE patches list. Two `patches:` keys in the same file is not an error in
+# YAML -- the later one silently wins and the first is lost.
 patches:
   - target: {kind: Deployment, name: podinfo}
     patch: |
@@ -16,8 +24,21 @@ patches:
         path: /spec/template/spec/containers/0/env/0/value
         value: "Deployed by Flux"
 
-# Reconciliation-latency probe: bump this and measure how long each controller
-# takes to reflect a git push. See gitops/README.md.
-replicas:
-  - name: podinfo
-    count: 3
+  # Expose it. The Service type is in GIT, so this is itself a reconciliation
+  # test: push, and the controller makes the app reachable with no kubectl.
+  #
+  # NodePort, not LoadBalancer, deliberately. type=LoadBalancer on EKS
+  # provisions a real billable ELB that Terraform never sees -- delete the
+  # namespace without deleting the Service first and it is orphaned, still
+  # charging, after `terraform destroy` reports success. The production answer
+  # is the AWS Load Balancer Controller with an Ingress and IRSA; that needs
+  # iam:CreatePolicy (denied on this account) and costs money, so NodePort
+  # makes the same GitOps point for free.
+  - target: {kind: Service, name: podinfo}
+    patch: |
+      - op: replace
+        path: /spec/type
+        value: NodePort
+      - op: add
+        path: /spec/ports/0/nodePort
+        value: 30082
