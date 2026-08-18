@@ -11,6 +11,52 @@ neither is.
 
 ---
 
+## Start here
+
+```bash
+make help          # everything you can do
+make whoami        # which AWS account / cluster am I pointed at?
+```
+
+`make` fronts the scripts as a single entry point. (It is Make as a *task
+runner*, not a build system -- nothing produces files. `just` or Taskfile are
+more honest about that; Make is here because every machine has it.)
+
+Two independent tracks live in this repo:
+
+| Track | What it is | Entry point |
+|---|---|---|
+| **Elasticsearch lab** | 3-node ES, Kibana, MinIO, PostgreSQL, k3s/RKE2, Kong, Keycloak, Rancher on EC2 | `make ec2` then the playbooks |
+| **GitOps lab** | Argo CD and Flux reconciling this repo into one EKS cluster, side by side | `make eks && make gitops` |
+
+## GitOps: Argo CD vs Flux, measured
+
+`gitops/` holds a production-shaped pipeline for **both** controllers, deploying
+one kustomize base into two namespaces so that any difference you observe is a
+property of the controller rather than the manifests.
+
+`gitops/scenarios/` is a harness that applies the **same break to both** and
+prints timestamped observations:
+
+```bash
+make scenarios            # list them
+make scenario ID=03       # run one
+./scripts/scenario status
+```
+
+Measured on EKS v1.33 with two self-managed nodes:
+
+| | Question | Result |
+|---|---|---|
+| 01 | namespace deleted out from under it | argocd recovered in 24s · **flux still gone at 120s, reporting `ready=True`** |
+| 02 | pod cannot schedule | argocd never broke (selfHeal) · **flux `pending=1` for 84s, reporting `ReconciliationSucceeded`** |
+| 03 | manual drift | **argocd ~10s** · flux still drifted at 80s |
+| 04 | `git push` to live | **flux 78s** · argocd 155s |
+
+03 and 04 invert each other, and 01/02 expose the deeper split: **Argo CD's
+status answers "does the cluster match git and is it healthy"; Flux's answers
+"did my last apply succeed".** Full write-up in `gitops/scenarios/README.md`.
+
 ## Hosting
 
 Provisioned by Terraform — see **`terraform/README.md`** for the full comparison
@@ -131,7 +177,10 @@ service dependency, so both work on a KodeKloud playground instance.
 | `roles/postgresql/` + `playbooks/rds.yml` | Relational databases, self-managed **and** managed *(nice-to-have)* |
 | `roles/storage/` | EBS volumes, filesystems, mounting things that stay mounted |
 | `terraform/bootstrap/` | Remote state, locking, and why both are set up that way |
-| `terraform/eks/` | Managed Kubernetes, and how it differs from the one you installed |
+| `terraform/eks/` | EKS with **self-managed nodes** -- the only path that works where `eks:CreateNodegroup` is denied |
+| `terraform/eks-module/` | The same cluster via `terraform-aws-modules/eks`, and why it cannot be used on a locked-down account |
+| `gitops/` | Argo CD **and** Flux, production-shaped, side by side |
+| `gitops/scenarios/` | Reproducible experiments: what each controller does when things break |
 | `scripts/` | Shell scripting |
 | `drills/` | The answers you give when they probe any of the above |
 

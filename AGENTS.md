@@ -83,6 +83,13 @@ closes.
 
 ---
 
+## 2b. Entry point
+
+`make help` lists everything. It fronts the scripts rather than replacing them,
+and it is Make as a *task runner*, not a build system — nothing here produces
+files. `just`/Taskfile are more honest about that distinction; Make is used
+because it is on every machine and needs no install.
+
 ## 3. Build order
 
 ```bash
@@ -177,17 +184,67 @@ Keycloak on k3s-01. That is why `create_rancher_node` exists.
 
 ---
 
+## 4b. The GitOps track (Argo CD + Flux)
+
+Independent of the Elasticsearch lab. Needs a Kubernetes cluster and nothing
+else — it has run unchanged on both k3s and EKS.
+
+```bash
+make eks          # EKS with self-managed nodes
+make gitops       # install both controllers, bootstrap from this repo
+make status && make urls
+make scenarios    # the experiment harness
+```
+
+**One hard version floor:** Flux v2.9 requires **Kubernetes >= 1.33**. That is
+why `terraform/eks` and the k3s role are pinned to 1.33. Argo CD is far more
+relaxed — Flux is the binding constraint. Argo CD v3.5.1 must be installed with
+`--server-side --force-conflicts` (its CRDs exceed the client-side apply limit).
+
+**Two Argo CD traps already paid for:**
+
+- `clusterResourceWhitelist: []` in an AppProject silently forbids
+  `CreateNamespace=true` — a Namespace IS cluster-scoped. The Application sits
+  `OutOfSync/Missing` forever and the reason is in `status.operationState`, not
+  in conditions. Allow exactly `Namespace`.
+- A project whose `destinations` include the `argocd` namespace is effectively
+  cluster admin.
+
+**Writing scenarios** (`gitops/scenarios/NN-name/run.sh`, three bash functions):
+never suppress the output of the thing whose failure you are testing — scenario
+02 hid a rejected patch and reported "Healthy" for 96 seconds — and never let a
+test harness rewrite git history.
+
 ## 5. What the playground does NOT allow
 
 Verified by running it, not by reading docs:
 
 | | |
 |---|---|
-| `eks:CreateNodegroup` | **DENIED** — cluster builds, compute is refused. Use `create_node_group=false` |
-| EKS Fargate | permitted in policy, but needs **private subnets**; the default VPC has none |
+| `eks:CreateNodegroup` | **DENIED** on every account tested. Use `create_self_managed_nodes = true` |
+| `eks:CreateFargateProfile` | **DENIED by an organization SCP**, above account IAM. An IAM allow cannot override an SCP deny |
+| `eks:AssociateAccessPolicy` | **DENIED** — this is what breaks the community EKS module |
 | `iam:CreateRole` | only for `eksClusterRole`, `eksWorkerNodeRole`, `AmazonEKSFargatePodExecutionRole` — **exact names** |
 | `iam:ListAttachedUserPolicies` | **DENIED** — you cannot enumerate your own permissions |
 | `us-east-1e` | no `t3.medium`, and EKS will not put a control plane there |
+
+**Self-managed nodes are the way through, and they work.** A managed node group
+is not privileged magic — it is AWS running launch template + autoscaling group
++ access entry for you, and all three of those APIs *are* granted. Verified: two
+EC2 nodes Ready on EKS v1.33.
+
+**Do not reach for `terraform-aws-modules/eks` on this account.** It is the right
+choice generally and cannot work here: it hardcodes
+`bootstrap_cluster_creator_admin_permissions = false` (main.tf line 57, not a
+variable) and grants the creator admin via `eks:AssociateAccessPolicy`, which is
+denied — producing a cluster with healthy running nodes and **no principal able
+to administer it**. `terraform/eks` sets that flag true, so EKS grants admin
+server-side during `CreateCluster` with no extra call. Both root modules are
+kept: the module for real work, the explicit one for when you need to see which
+call was refused.
+
+**Check ALL attached policies before concluding something is denied.** There are
+eight; reading one led to a wrong conclusion about EKS entirely.
 
 EC2, S3, RDS, VPC are all permitted but granted by a policy you cannot read.
 Probe with `--dry-run` instead of guessing:
