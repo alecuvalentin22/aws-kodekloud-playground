@@ -101,3 +101,58 @@ Two rules that keep these honest:
    reason — it reports the configured intervals rather than pushing a commit. A
    test harness that force-pushes to `main` is a worse problem than the thing it
    measures.
+
+---
+
+## 05 — a broken release, and what GitOps does NOT do
+
+The most common misconception about GitOps, corrected by measurement.
+**Reconciliation guarantees the cluster matches git. It says nothing about
+whether what is in git works.**
+
+Broken image tag pushed to `main`:
+
+```
+argocd  serving=3  broken=1  for 105s   health: Progressing -> Degraded
+flux    serving=3  broken=1  for 105s   ReconciliationSucceeded
+git revert + reconcile      -> both recovered in 26s
+```
+
+Both deployed the broken release faithfully. Neither rolled back. `selfHeal`
+makes it *worse* — it will keep re-applying the broken manifest.
+
+**What saved the service was Kubernetes, not the GitOps controller.** A
+Deployment's `RollingUpdate` will not scale down healthy old pods until new ones
+are Ready, so `serving=3` held throughout while the new ReplicaSet hung. That
+`maxUnavailable` behaviour is the entire free safety net.
+
+**Introduce the break through git, not kubectl.** The first version of this
+scenario used `kubectl set image`; Argo CD's selfHeal reverted it in 12s, so it
+measured selfHeal rather than a bad release, and made Flux look worse for no
+reason. Two very different findings that look identical if you are careless
+about how the break arrives.
+
+## Progressive delivery — what neither tool does natively
+
+Canary, blue/green and A/B are **not** features of Argo CD or Flux. Both stop at
+"apply the manifests". What you get is a `RollingUpdate`: no traffic weighting,
+no metric gates, no automatic rollback. Scenario 05 is what that looks like when
+a release is bad.
+
+Each ecosystem has a separate controller for it:
+
+| | Argo CD | Flux |
+|---|---|---|
+| Add-on | **Argo Rollouts** | **Flagger** |
+| Model | replaces `Deployment` with a `Rollout` CRD; explicit `steps` (`setWeight`, `pause`) | keeps your `Deployment`, generates the canary machinery around it |
+| Gate | `AnalysisTemplate`, optional | metric queries, central to the design |
+| Rollback | automatic on failed analysis | automatic on failed analysis |
+| Traffic splitting | needs a provider: Gateway API, Istio, NGINX, ALB | same requirement |
+
+Both need something that can **weight traffic**. Without a mesh or a capable
+ingress you get replica-count approximation, not a real canary — and A/B
+specifically needs header or cookie routing, so it has the same dependency.
+
+Not built here: it is a 45–60 minute setup on its own, and it is where the two
+ecosystems genuinely diverge rather than doing the same thing at different
+speeds. Worth a dedicated session.

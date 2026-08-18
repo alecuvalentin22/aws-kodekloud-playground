@@ -97,7 +97,7 @@ Argo CD's answer is to disable auto-sync as a break-glass procedure; Flux's is
 | Namespace creation | `CreateNamespace=true` sync option | declare the `Namespace` object like anything else |
 | Pruning default | opt in via `automated.prune` | opt in via `prune: true` |
 | Drift correction | `selfHeal`, near-immediate | next `interval`, or `flux reconcile` |
-| Interface | a real web UI, and it is the reason many teams pick it | CLI and CRD status; UI is a separate product |
+| Interface | web UI in the box | web UI via the **Flux Operator** (AGPL-3.0, by Flux core maintainers) — `port-forward svc/flux-operator 9080` |
 | Multi-cluster | one control plane reaches out to registered clusters | one Flux per cluster, each pulling for itself |
 
 That last row is the deepest split. **Argo CD is a hub** — one installation
