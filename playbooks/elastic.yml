@@ -1,6 +1,19 @@
 ---
-- name: Baseline every host
-  hosts: all
+# hosts: elastic, NOT hosts: all.
+#
+# `hosts: all` here means this playbook also baselines k3s-01 and rke2-01 --
+# which playbooks/k8s.yml does for itself. Running the two concurrently then has
+# both racing the same apt lock on the same box:
+#
+#   Failed to lock apt for exclusive operation: Failed to lock directory
+#   /var/lib/apt/lists/
+#
+# A playbook should own the hosts it is responsible for and no others, or it
+# cannot be run in parallel with anything. kibana/minio/postgres all resolve to
+# es-01, which is already in [elastic], so this scopes down without losing
+# coverage.
+- name: Baseline the Elasticsearch hosts
+  hosts: elastic
   become: true
   roles:
     - common
@@ -18,7 +31,7 @@
 # they reinstall and restart cleanly.
 # ---------------------------------------------------------------------------
 - name: Stop anything that has been toggled off
-  hosts: all
+  hosts: elastic
   become: true
   gather_facts: false
   tasks:

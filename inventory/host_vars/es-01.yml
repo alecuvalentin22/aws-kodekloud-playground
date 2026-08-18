@@ -1,0 +1,6 @@
+---
+# es-01 is the only Elasticsearch node that also runs Kibana, MinIO and
+# PostgreSQL. The role's default sizes heap at half of RAM (1917 MB on a
+# t3.medium) with no idea it is sharing -- which left 259 MB free last session.
+# Cap it and the co-located node becomes comfortable.
+elastic_heap_mb: 1200

@@ -92,6 +92,38 @@ ansible-playbook ... > run.log 2>&1
 echo "ANSIBLE_EXIT=$?" >> run.log
 ```
 
+## 5. `hosts: all` makes a playbook impossible to parallelise
+
+Two playbooks, deliberately run at the same time against different machines to
+save wall-clock:
+
+```
+ansible-playbook playbooks/elastic.yml &            # es-01..03
+ansible-playbook playbooks/k8s.yml --limit rke2-01 &
+```
+
+```
+fatal: [rke2-01]: FAILED! => Failed to lock apt for exclusive operation:
+Failed to lock directory /var/lib/apt/lists/
+```
+
+`elastic.yml` opened with `hosts: all`, so it was baselining **every** host --
+including rke2-01, which `k8s.yml` was baselining at the same moment. Both ran
+`apt` on the same box and `/var/lib/dpkg/lock-frontend` did its job.
+
+The blast radius was small (rke2-01 needs nothing from `elastic.yml`, and only
+that host failed) but the design flaw is real: **a playbook that touches hosts
+it is not responsible for cannot be run alongside anything else.** Scope each
+playbook to the hosts it owns:
+
+```yaml
+- name: Baseline the Elasticsearch hosts
+  hosts: elastic          # not: all
+```
+
+`common` still runs everywhere — each playbook baselines *its own* hosts. That
+is the difference between shared setup and overlapping ownership.
+
 ## Say this in the interview
 
 > "The one that took longest was a MinIO wait that timed out even though MinIO
