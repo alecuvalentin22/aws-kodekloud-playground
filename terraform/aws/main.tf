@@ -121,6 +121,18 @@ resource "aws_security_group" "lab" {
     protocol    = "tcp"
     cidr_blocks = local.service_cidrs
   }
+  # The Kubernetes API. Deliberately my_ip_cidr and NOT service_source_ranges:
+  # the API server is cluster-admin's front door, and unlike the web UIs there
+  # is no reason to ever expose it broadly. kubectl, flux and argocd CLI all
+  # talk to this port.
+  ingress {
+    description = "Kubernetes API (k3s/RKE2)"
+    from_port   = 6443
+    to_port     = 6443
+    protocol    = "tcp"
+    cidr_blocks = [var.my_ip_cidr]
+  }
+
   ingress {
     description = "HTTPS for Rancher ingress"
     from_port   = 443

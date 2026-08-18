@@ -21,9 +21,24 @@ spec:
     - server: https://kubernetes.default.svc
       namespace: demo-argocd
 
-  # Deny ALL cluster-scoped resources. An empty whitelist is a deny-list of
-  # everything -- this app needs none, so it gets none.
-  clusterResourceWhitelist: []
+  # Cluster-scoped resources this project may manage.
+  #
+  # `clusterResourceWhitelist: []` -- deny everything -- is the instinctive
+  # choice and it silently breaks `CreateNamespace=true`, because a Namespace
+  # IS a cluster-scoped resource:
+  #
+  #   one or more synchronization tasks are not valid:
+  #   resource :Namespace is not permitted in project demo
+  #
+  # The Application sits OutOfSync/Missing and retries forever. Two settings
+  # that are each individually correct and mutually exclusive together.
+  #
+  # So: allow exactly Namespace, and nothing else. Still no ClusterRole, no CRD,
+  # no ValidatingWebhookConfiguration -- which is the actual point of the
+  # restriction.
+  clusterResourceWhitelist:
+    - group: ""
+      kind: Namespace
 
   namespaceResourceBlacklist:
     - {group: "", kind: ResourceQuota}

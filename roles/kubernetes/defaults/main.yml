@@ -4,8 +4,12 @@
 # plane -- and it fits on a t3.medium for a single node. See drills/07.
 k8s_distribution: k3s
 
-k3s_version: "v1.30.5+k3s1"
-rke2_version: "v1.30.5+rke2r1"
+# 1.33 MINIMUM -- Flux v2.9 documents that as its floor
+# (fluxcd.io/flux/installation/). Argo CD is relaxed about the control-plane
+# version; Flux is the binding constraint, and installing Flux on 1.30 means
+# running a version the project neither recommends nor supports.
+k3s_version: "v1.33.13+k3s2"
+rke2_version: "v1.33.13+rke2r1"   # same floor as k3s -- see above
 
 # A t3.medium (4 GiB) CANNOT run Rancher and Keycloak together -- see the
 # comment on the Keycloak deployment strategy. Rancher ~1.5 GiB, Keycloak
