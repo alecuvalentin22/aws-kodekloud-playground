@@ -54,6 +54,31 @@ for as long as its `interval` said it would, then reverted the moment it was
 told to look. Same repository, same cluster, same base manifests -- the only
 variable is the controller.
 
+### The result that inverts it
+
+Same cluster, a git push instead of a manual change -- how long until it is live?
+
+```
+git push -> live       flux  78s     argo cd  155s
+manual drift -> fixed  flux  up to 10m   argo cd  <10s
+```
+
+**Each wins one, and it is the same mechanism seen from two sides.** Flux polls
+the SOURCE every `interval` (1m here), so it hears about a commit sooner. Argo CD
+watches the CLUSTER continuously via `selfHeal`, so it notices a manual change
+almost instantly, but only polls git every ~3 minutes by default.
+
+Neither number is a property of the tool. Both are configuration:
+
+- Argo CD closes the git gap with a **webhook** (`/api/webhook`), which takes
+  the 155s to roughly the round-trip time. Without one you are polling.
+- Flux closes the drift gap by lowering `interval`, at the cost of more API and
+  git traffic, or with `flux reconcile` on demand.
+
+The honest summary is that **Flux defaults favour source-of-truth freshness and
+Argo CD defaults favour cluster convergence** -- and if you care about both, you
+configure both, in opposite directions.
+
 Which behaviour you want is a real decision, not a detail. `selfHeal` means an
 engineer's emergency `kubectl edit` is undone within seconds, possibly mid
 incident; Flux's interval means the cluster can sit knowingly wrong for minutes.
