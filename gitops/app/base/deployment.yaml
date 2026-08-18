@@ -12,7 +12,7 @@ spec:
     spec:
       containers:
         - name: podinfo
-          image: ghcr.io/stefanprodan/podinfo:6.7.1
+          image: ghcr.io/stefanprodan/podinfo:0.0.0-broken
           ports:
             - {containerPort: 9898, name: http}
           env:
