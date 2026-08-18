@@ -149,14 +149,36 @@
   delay: 5
   until: kong_authed.status == 200
 
+- name: Split the token into its three segments
+  ansible.builtin.set_fact:
+    jwt_parts: "{{ kc_token.json.access_token.split('.') }}"
+  no_log: true
+
 - name: A tampered token must be rejected
   ansible.builtin.uri:
     url: "{{ kong_local }}/secure"
     headers:
-      # Flip the last character of the signature. Same header, same claims,
-      # broken signature — this is the check that proves Kong is actually
-      # verifying rather than just looking for a header that parses.
-      Authorization: "Bearer {{ kc_token.json.access_token[:-1] }}{{ 'A' if kc_token.json.access_token[-1] != 'A' else 'B' }}"
+      # Corrupt a character in the MIDDLE of the signature segment.
+      #
+      # The obvious version of this test -- flip the LAST character -- is
+      # unreliable, and it fails in the direction that looks like success:
+      #
+      #   Status code was 200 and not [401]
+      #
+      # An RS256 signature is 256 bytes, and 256 % 3 == 1, so the final base64
+      # character carries only 2 significant bits plus 4 bits of padding.
+      # Measured: 15 of the 63 possible substitutions for that character decode
+      # to IDENTICAL bytes. So a last-char flip is roughly a 1-in-4 no-op, the
+      # token stays genuinely valid, and Kong is correct to return 200 -- the
+      # test is wrong, not the gateway. It passed on one playground and failed
+      # on the next, which is the worst kind of test.
+      #
+      # Index 10 is safely inside the segment, so the decoded bytes always
+      # differ and the signature check must fail.
+      Authorization: >-
+        Bearer {{ jwt_parts[0] }}.{{ jwt_parts[1] }}.{{
+          jwt_parts[2][:10] ~ ('X' if jwt_parts[2][10] != 'X' else 'Y') ~ jwt_parts[2][11:]
+        }}
     status_code: 401
   register: kong_tampered
 
