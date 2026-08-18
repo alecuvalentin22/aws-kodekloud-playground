@@ -177,3 +177,14 @@ variable "fargate_namespaces" {
   type        = list(string)
   default     = ["kube-system", "argocd", "flux-system", "demo"]
 }
+
+variable "create_self_managed_nodes" {
+  description = <<-EOT
+    Real EC2 nodes via a launch template + autoscaling group, for clusters that
+    cannot have a managed node group (eks:CreateNodegroup denied).
+
+    Verified working: two nodes reached Healthy/InService and registered.
+  EOT
+  type        = bool
+  default     = false
+}
