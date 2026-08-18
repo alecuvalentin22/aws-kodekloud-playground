@@ -1,13 +1,71 @@
 ---
+# ---------------------------------------------------------------------------
+# GET OUT OF THE WAY OF UBUNTU'S OWN APT AUTOMATION FIRST.
+#
+# A fresh Ubuntu cloud image runs cloud-init, apt-daily.timer,
+# apt-daily-upgrade.timer and unattended-upgrades on boot -- all of which use
+# apt. Start your own install into that and you race them for the dpkg lock.
+#
+# Observed on 2026-08-18, on every node simultaneously:
+#
+#   apt-get held /var/lib/dpkg/lock, lock-frontend AND archives/lock for 9+
+#   minutes, with NO child dpkg, NO open sockets, zero load, and stdin on a
+#   pipe. /var/log/apt/term.log had no entries since the image was built. It
+#   was not installing slowly -- it had never started, and was waiting on
+#   input that was never coming.
+#
+# This is the single most common "my provisioning hangs on a fresh cloud VM"
+# cause, and it does NOT announce itself: Ansible just sits on the task.
+#
+# Three defences, in order:
+#   1. wait for cloud-init to finish rather than racing it
+#   2. disable the background apt timers for the life of the box
+#   3. DEBIAN_FRONTEND=noninteractive so nothing can ever prompt
+# ---------------------------------------------------------------------------
+- name: Wait for cloud-init to finish
+  ansible.builtin.command: cloud-init status --wait
+  changed_when: false
+  failed_when: false
+  timeout: 300
+
+- name: Disable Ubuntu's background apt automation
+  ansible.builtin.systemd:
+    name: "{{ item }}"
+    state: stopped
+    enabled: false
+    masked: true
+  loop:
+    - apt-daily.timer
+    - apt-daily-upgrade.timer
+    - unattended-upgrades.service
+  failed_when: false
+
 - name: Update apt cache
   ansible.builtin.apt:
     update_cache: true
     cache_valid_time: 3600
 
+# install_recommends: false is NOT a micro-optimisation here -- it is the
+# difference between this task finishing and this task hanging.
+#
+# Measured on a fresh t3.medium, 2026-08-18:
+#
+#   apt-get install -s python3-pip                       -> 88 packages
+#   apt-get install -s --no-install-recommends python3-pip ->  2 packages
+#
+# python3-pip *recommends* build-essential and a pile of image libraries
+# (libwebp, libtiff, libxpm...). With recommends on, the task spent >3 minutes
+# per host still downloading and had not finished; without, 30 seconds.
+#
+# The failure mode is nasty because it does not look like a failure: apt sits
+# there having fetched 9 of 88 packages, holding the dpkg lock, and Ansible
+# reports the task as still running. Recommends are suggestions, not
+# dependencies -- on a server you almost never want them.
 - name: Install baseline packages
   ansible.builtin.apt:
     name: "{{ common_packages }}"
     state: present
+    install_recommends: false
 
 - name: Set hostname to inventory name
   ansible.builtin.hostname:

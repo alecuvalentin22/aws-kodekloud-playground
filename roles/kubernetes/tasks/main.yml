@@ -96,12 +96,21 @@
   register: kong
   changed_when: "'has been upgraded' in kong.stdout or 'has been installed' in kong.stdout"
 
-- name: Ensure the manifest directory exists
-  when: kong_enabled | bool
+# NOT gated behind kong_enabled. Kong, Keycloak and the Rancher NodePort all
+# render manifests into /opt/lab-manifests, so tying its creation to one of the
+# three means the other two fail with:
+#
+#   Destination directory /opt/lab-manifests does not exist
+#
+# A shared prerequisite must not inherit the condition of one of its consumers.
+- name: Ensure the manifest directories exist
   ansible.builtin.file:
-    path: /opt/lab-manifests/kong
+    path: "{{ item }}"
     state: directory
     mode: "0755"
+  loop:
+    - /opt/lab-manifests
+    - /opt/lab-manifests/kong
 
 - name: Copy the Kong demo manifests to the node
   when: kong_enabled | bool

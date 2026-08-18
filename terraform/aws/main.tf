@@ -98,35 +98,35 @@ resource "aws_security_group" "lab" {
     from_port   = 5601
     to_port     = 5601
     protocol    = "tcp"
-    cidr_blocks = [var.my_ip_cidr]
+    cidr_blocks = local.service_cidrs
   }
   ingress {
     description = "MinIO API + console"
     from_port   = 9000
     to_port     = 9001
     protocol    = "tcp"
-    cidr_blocks = [var.my_ip_cidr]
+    cidr_blocks = local.service_cidrs
   }
   ingress {
     description = "Elasticsearch HTTP (for your curl drills)"
     from_port   = 9200
     to_port     = 9200
     protocol    = "tcp"
-    cidr_blocks = [var.my_ip_cidr]
+    cidr_blocks = local.service_cidrs
   }
   ingress {
     description = "k3s API + Kong NodePort + Rancher"
     from_port   = 30000
     to_port     = 32767
     protocol    = "tcp"
-    cidr_blocks = [var.my_ip_cidr]
+    cidr_blocks = local.service_cidrs
   }
   ingress {
     description = "HTTPS for Rancher ingress"
     from_port   = 443
     to_port     = 443
     protocol    = "tcp"
-    cidr_blocks = [var.my_ip_cidr]
+    cidr_blocks = local.service_cidrs
   }
 
   # Cluster-internal traffic: nodes talk to each other freely.
@@ -151,6 +151,9 @@ resource "aws_security_group" "lab" {
 locals {
   # KodeKloud forbids t3 "unlimited" credit mode -- it suspends your session.
   needs_standard_credits = startswith(var.instance_type, "t2.") || startswith(var.instance_type, "t3.")
+
+  # Web services fall back to your own IP unless explicitly widened.
+  service_cidrs = length(var.service_source_ranges) > 0 ? var.service_source_ranges : [var.my_ip_cidr]
 }
 
 resource "aws_instance" "es" {

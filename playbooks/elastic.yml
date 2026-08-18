@@ -1,4 +1,6 @@
 ---
+# DEBIAN_FRONTEND=noninteractive: apt must never be able to open a prompt.
+# A prompt on a headless box is an infinite hang, not an error.
 # hosts: elastic, NOT hosts: all.
 #
 # `hosts: all` here means this playbook also baselines k3s-01 and rke2-01 --

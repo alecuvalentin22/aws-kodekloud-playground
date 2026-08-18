@@ -141,3 +141,28 @@ variable "create_rancher_node" {
   type        = bool
   default     = false
 }
+
+variable "service_source_ranges" {
+  description = <<-EOT
+    Who may reach the WEB SERVICES (Kibana, MinIO, Elasticsearch HTTP, Kong,
+    Keycloak, Rancher). Defaults to [] which means "same as my_ip_cidr".
+
+    Set ["0.0.0.0/0"] to share links with someone else. Understand what that
+    exposes before you do:
+
+      - Elasticsearch runs with elastic_security_enabled = false. It is an
+        UNAUTHENTICATED database on port 9200. Anyone can read, modify or
+        delete every index. Open Elasticsearch instances are found by internet
+        scanners within minutes and are a standing ransomware target.
+      - Rancher and Keycloak admin consoles use passwords that default to the
+        literal string "CHANGE-ME-IN-VAULT", which is documented in this
+        public repository. That is cluster-admin for anyone who finds the IP.
+
+    Acceptable for a throwaway playground that expires in hours. Never for
+    anything that outlives the session, and never with real data.
+
+    SSH is deliberately NOT covered by this and stays locked to my_ip_cidr.
+  EOT
+  type        = list(string)
+  default     = []
+}
