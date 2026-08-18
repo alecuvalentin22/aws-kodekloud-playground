@@ -36,6 +36,30 @@ Neither is "better". They encode different assumptions about how quickly the
 cluster should be forced back into line, and how surprising that should be to a
 human holding a terminal.
 
+### Measured, on this cluster
+
+```
+                 argocd   flux
+baseline              1      1
+scaled to 5 by hand   5      5
+t+10s                 1      5     <- Argo CD already reverted
+t+90s                 1      5     <- Flux still drifted, interval not elapsed
+
+flux reconcile kustomization apps --with-source
+after                 1      1
+```
+
+Argo CD reverted in under ten seconds without being asked. Flux held the drift
+for as long as its `interval` said it would, then reverted the moment it was
+told to look. Same repository, same cluster, same base manifests -- the only
+variable is the controller.
+
+Which behaviour you want is a real decision, not a detail. `selfHeal` means an
+engineer's emergency `kubectl edit` is undone within seconds, possibly mid
+incident; Flux's interval means the cluster can sit knowingly wrong for minutes.
+Argo CD's answer is to disable auto-sync as a break-glass procedure; Flux's is
+`flux suspend`.
+
 ---
 
 ## Where the two genuinely differ
