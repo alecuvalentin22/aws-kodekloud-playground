@@ -28,6 +28,9 @@ rancher_bootstrap_password: "CHANGE-ME-IN-VAULT"
 # has no controller and nothing listens on 443. Reach it on a NodePort instead.
 rancher_node_port: 30443
 
+# Name the imported downstream cluster gets in the Rancher UI.
+rancher_import_name: k3s-lab
+
 # --- Kong OIDC / Keycloak ----------------------------------------------------
 # Set false to skip Keycloak. Worth doing on a t3.medium if Rancher is already
 # running: Keycloak wants ~1 GiB, Rancher and cert-manager together want more

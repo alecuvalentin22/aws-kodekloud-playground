@@ -92,6 +92,32 @@ ansible-playbook playbooks/k8s.yml --limit rke2-01 --ask-vault-pass -e kong_enab
 # 5. RDS — password comes from Terraform state, never a file
 ansible-playbook playbooks/rds.yml --ask-vault-pass \
   -e rds_master_password="$(terraform -chdir=terraform/aws output -raw rds_password)"
+
+# 6. Rancher imports the k3s cluster -- THE demo (see drills/07)
+ansible-playbook playbooks/rancher-import.yml --ask-vault-pass
+```
+
+**Install Rancher EARLY in the session.** It needs sustained CPU, and a
+`t3.medium` in `standard` credit mode is throttled to ~20% baseline once its
+launch credits are gone. Rancher took 9 minutes to start on a credit-exhausted
+node and needed its startup probe widened to survive. See drills/17.
+
+### Where each component goes, and why
+
+Do not co-locate Rancher and Keycloak — they do not fit on 4 GiB together.
+
+| node | runs |
+|---|---|
+| es-01/02/03 | Elasticsearch (+ Kibana, MinIO, Postgres on es-01) |
+| k3s-01 | k3s, Kong, Keycloak |
+| rke2-01 | RKE2, cert-manager, Rancher |
+
+es-01 is the tight one: Elasticsearch sizes its heap to half of RAM without
+knowing it shares the box. Cap it:
+
+```yaml
+# inventory/host_vars/es-01.yml
+elastic_heap_mb: 1200        # frees ~700 MB
 ```
 
 Add `--private-key ~/.ssh/id_ed25519` if your key is not the default.

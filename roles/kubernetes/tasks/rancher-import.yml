@@ -1,0 +1,148 @@
+---
+# Import a DOWNSTREAM cluster into Rancher.
+#
+# THIS IS THE POINT OF RANCHER. Installing it on k3s and again on RKE2 proves
+# only that it installs. Rancher is a multi-cluster MANAGER -- the thing worth
+# demonstrating is one control plane governing clusters it did not create,
+# running a different Kubernetes distribution.
+#
+# Topology this produces:
+#
+#   rke2-01   RKE2   "local"     <- Rancher itself lives here
+#   k3s-01    k3s    "k3s-lab"   <- imported, managed remotely
+#
+# Runs from the Rancher host and talks to the downstream cluster over the
+# Rancher API + a registration manifest. The downstream cluster needs no
+# inbound access: the agent dials OUT to Rancher, which is why this works
+# through NAT and across accounts in the real world.
+
+- name: Resolve the Rancher and downstream hosts
+  ansible.builtin.set_fact:
+    rancher_api: "https://127.0.0.1:{{ rancher_node_port }}"
+    downstream_host: "{{ groups['k8s'] | difference([inventory_hostname]) | first }}"
+
+- name: Fail early if there is nothing to import
+  ansible.builtin.fail:
+    msg: >-
+      No second cluster in the [k8s] group to import. Set
+      create_rancher_node = true in Terraform so both k3s-01 and rke2-01 exist.
+  when: downstream_host is not defined or downstream_host | length == 0
+
+# 127.0.0.1 and validate_certs: false, for two separate reasons.
+#   loopback  -> this task runs ON the Rancher host, and a host cannot reach its
+#                own public IP through the security group (see drills/14)
+#   no verify -> Rancher serves a self-signed cert it generated itself
+- name: Log in to the Rancher API
+  ansible.builtin.uri:
+    url: "{{ rancher_api }}/v3-public/localProviders/local?action=login"
+    method: POST
+    body_format: json
+    body:
+      username: admin
+      password: "{{ rancher_bootstrap_password }}"
+    validate_certs: false
+    status_code: 201
+  register: rancher_login
+  retries: 30
+  delay: 10
+  until: rancher_login.status is defined and rancher_login.status == 201
+  no_log: true
+
+- name: Look for an existing imported cluster
+  ansible.builtin.uri:
+    url: "{{ rancher_api }}/v3/clusters?name={{ rancher_import_name }}"
+    headers:
+      Authorization: "Bearer {{ rancher_login.json.token }}"
+    validate_certs: false
+  register: existing_cluster
+
+# Idempotency: creating the same cluster twice gives two entries in the UI and
+# two agents fighting on the downstream. Check first.
+- name: Register the downstream cluster
+  ansible.builtin.uri:
+    url: "{{ rancher_api }}/v3/clusters"
+    method: POST
+    headers:
+      Authorization: "Bearer {{ rancher_login.json.token }}"
+    body_format: json
+    body:
+      type: cluster
+      name: "{{ rancher_import_name }}"
+      # No provider config at all -- that is what makes it an IMPORTED cluster
+      # rather than one Rancher provisions and owns.
+    validate_certs: false
+    status_code: 201
+  register: created_cluster
+  when: existing_cluster.json.data | length == 0
+
+- name: Settle on the cluster id
+  ansible.builtin.set_fact:
+    rancher_cluster_id: >-
+      {{ (existing_cluster.json.data | first).id
+         if existing_cluster.json.data | length > 0
+         else created_cluster.json.id }}
+
+# The registration token yields a manifest the downstream cluster applies to
+# itself. It contains the Rancher URL, a one-time token and the CA checksum.
+- name: Create a cluster registration token
+  ansible.builtin.uri:
+    url: "{{ rancher_api }}/v3/clusterregistrationtokens"
+    method: POST
+    headers:
+      Authorization: "Bearer {{ rancher_login.json.token }}"
+    body_format: json
+    body:
+      type: clusterRegistrationToken
+      clusterId: "{{ rancher_cluster_id }}"
+    validate_certs: false
+    status_code: [201, 409]
+  register: reg_token
+
+- name: Read back the registration manifest URL
+  ansible.builtin.uri:
+    url: "{{ rancher_api }}/v3/clusterregistrationtokens?clusterId={{ rancher_cluster_id }}"
+    headers:
+      Authorization: "Bearer {{ rancher_login.json.token }}"
+    validate_certs: false
+  register: reg_tokens
+  retries: 20
+  delay: 5
+  until: reg_tokens.json.data | selectattr('manifestUrl', 'defined') | list | length > 0
+
+- name: Extract the manifest URL
+  ansible.builtin.set_fact:
+    rancher_manifest_url: "{{ (reg_tokens.json.data | selectattr('manifestUrl', 'defined') | first).manifestUrl }}"
+
+# The manifest URL points at Rancher's PUBLIC address, because the downstream
+# cluster resolves it from its own network -- not from Rancher's. This is the
+# one place the public IP is correct.
+- name: Apply the registration manifest on the downstream cluster
+  delegate_to: "{{ downstream_host }}"
+  ansible.builtin.shell: |
+    set -o pipefail
+    curl -sfkL '{{ rancher_manifest_url }}' | kubectl apply -f -
+  args:
+    executable: /bin/bash
+  environment:
+    KUBECONFIG: "{{ hostvars[downstream_host].kubeconfig_path | default('/etc/rancher/k3s/k3s.yaml') }}"
+  register: import_apply
+  changed_when: "'created' in import_apply.stdout or 'configured' in import_apply.stdout"
+
+- name: Wait for the cluster agent to dial home
+  ansible.builtin.uri:
+    url: "{{ rancher_api }}/v3/clusters/{{ rancher_cluster_id }}"
+    headers:
+      Authorization: "Bearer {{ rancher_login.json.token }}"
+    validate_certs: false
+  register: cluster_state
+  retries: 40
+  delay: 15
+  until: cluster_state.json.state | default('') in ['active']
+
+- name: Report
+  ansible.builtin.debug:
+    msg:
+      - "Rancher      https://{{ ansible_host }}:{{ rancher_node_port }}  (admin)"
+      - "local        RKE2 {{ inventory_hostname }} -- Rancher runs here"
+      - "{{ rancher_import_name }}  k3s {{ downstream_host }} -- imported, state={{ cluster_state.json.state }}"
+      - "Two distributions, one control plane. That is the drills/07 argument."

@@ -1,0 +1,22 @@
+---
+# Import the k3s cluster into the Rancher running on RKE2.
+#
+#   ansible-playbook playbooks/rancher-import.yml --ask-vault-pass
+#
+# Prerequisite: both clusters exist and Rancher is Ready on rke2-01.
+#   ansible-playbook playbooks/k8s.yml --limit k3s-01  -e rancher_enabled=false
+#   ansible-playbook playbooks/k8s.yml --limit rke2-01 -e kong_enabled=false -e kong_oidc_enabled=false
+#
+# Result: one Rancher control plane managing two clusters running two different
+# Kubernetes distributions. Everything in drills/07 becomes demonstrable --
+# projects, project-scoped RBAC, and Helm deploys to a cluster whose kubeconfig
+# you never touch.
+
+- name: Import the downstream cluster into Rancher
+  hosts: k8s
+  become: true
+  gather_facts: true
+  tasks:
+    - name: Run the import from the Rancher host only
+      ansible.builtin.include_tasks: ../roles/kubernetes/tasks/rancher-import.yml
+      when: k8s_distribution == 'rke2'
