@@ -1,0 +1,136 @@
+---
+# Prepare the dedicated EBS data volume and mount it at the Elasticsearch data
+# path. Runs BEFORE the elasticsearch role, so the mount is in place before a
+# single index is written -- mounting over a directory that already has data in
+# it hides that data rather than moving it.
+#
+# Skips itself entirely when Terraform was run with data_volume_gb = 0, in which
+# case es_data_volume_id is simply absent from the inventory and Elasticsearch
+# uses the root volume.
+
+- name: Decide whether there is a dedicated data volume to prepare
+  ansible.builtin.set_fact:
+    storage_have_volume: "{{ es_data_volume_id is defined and es_data_volume_id | length > 0 }}"
+
+- name: Explain the skip
+  ansible.builtin.debug:
+    msg: >-
+      No es_data_volume_id in the inventory -- Terraform was run with
+      data_volume_gb = 0. Elasticsearch will use the root volume.
+  when: not storage_have_volume
+
+- name: Prepare the data volume
+  when: storage_have_volume
+  block:
+
+    # THE POINT OF THIS WHOLE ROLE.
+    #
+    # Terraform asked for /dev/sdf. On a Nitro instance (t3, m5, c5 and newer)
+    # EBS is presented over NVMe and the kernel ignores that name completely:
+    # the disk appears as /dev/nvme1n1, numbered in ATTACH ORDER. Reboot with a
+    # second volume attached and the numbering can change.
+    #
+    # udev builds a stable symlink from the volume ID instead. AWS strips the
+    # dash: vol-0a1b2c3d becomes ..._vol0a1b2c3d.
+    - name: Resolve the stable by-id path for the EBS volume
+      ansible.builtin.set_fact:
+        storage_device: "/dev/disk/by-id/nvme-Amazon_Elastic_Block_Store_{{ es_data_volume_id | replace('-', '') }}"
+
+    - name: Wait for the volume to be visible to the kernel
+      ansible.builtin.wait_for:
+        path: "{{ storage_device }}"
+        timeout: 120
+
+    - name: Install xfsprogs
+      ansible.builtin.apt:
+        name: xfsprogs
+        state: present
+      when: storage_fs_type == "xfs"
+
+    # Read the current filesystem rather than assuming there is none. This is
+    # what makes the role idempotent AND non-destructive: a second run must not
+    # reformat a disk that already holds the cluster's data.
+    - name: Look for an existing filesystem on the volume
+      ansible.builtin.command: "blkid -o value -s TYPE {{ storage_device }}"
+      register: storage_blkid
+      changed_when: false
+      failed_when: false
+
+    - name: Create the filesystem
+      community.general.filesystem:
+        fstype: "{{ storage_fs_type }}"
+        dev: "{{ storage_device }}"
+      when: storage_blkid.stdout | trim == ""
+
+    - name: Refuse to continue if the volume holds a different filesystem
+      ansible.builtin.fail:
+        msg: >-
+          {{ storage_device }} already contains a {{ storage_blkid.stdout | trim }}
+          filesystem but storage_fs_type is {{ storage_fs_type }}. Reformatting
+          would destroy the data on it. Detach and replace the volume, or change
+          storage_fs_type to match.
+      when:
+        - storage_blkid.stdout | trim != ""
+        - storage_blkid.stdout | trim != storage_fs_type
+
+    - name: Read the filesystem UUID
+      ansible.builtin.command: "blkid -o value -s UUID {{ storage_device }}"
+      register: storage_uuid
+      changed_when: false
+
+    - name: Create the mount point
+      ansible.builtin.file:
+        path: "{{ storage_mount_path }}"
+        state: directory
+        mode: "0750"
+
+    # MOUNT BY UUID, NEVER BY DEVICE NAME.
+    #
+    # An /etc/fstab line saying /dev/nvme1n1 is a latent outage: the name is
+    # assigned at boot in attach order, so adding a volume can silently make the
+    # host mount the wrong disk -- or fail to boot at all. The UUID belongs to
+    # the filesystem and travels with it.
+    #
+    # nofail is in storage_mount_opts for the same reason: a missing disk should
+    # leave the host reachable over SSH, not drop it into emergency mode where
+    # the only way in is the serial console.
+    - name: Mount it, by UUID, and persist it in /etc/fstab
+      ansible.posix.mount:
+        path: "{{ storage_mount_path }}"
+        src: "UUID={{ storage_uuid.stdout | trim }}"
+        fstype: "{{ storage_fs_type }}"
+        opts: "{{ storage_mount_opts }}"
+        state: mounted
+
+    # ORDERING, TWICE OVER.
+    #
+    # (1) Ownership must be set AFTER mounting. chown on the mount point before
+    #     the mount lands on the UNDERLYING directory, which the mount then
+    #     hides -- so the permissions you set are not the ones in effect. A
+    #     classic way to end up with an Elasticsearch that cannot write.
+    #
+    # (2) On the FIRST run the elasticsearch user does not exist yet: it is
+    #     created by the apt package, which the next role installs. So chown
+    #     here is best-effort, and the elasticsearch role chowns the same path
+    #     again once the user exists. On every later run this task is the one
+    #     that keeps it correct.
+    - name: Check whether the elasticsearch user exists yet
+      ansible.builtin.getent:
+        database: passwd
+        key: "{{ storage_owner }}"
+        fail_key: false
+
+    - name: Own the mounted filesystem
+      ansible.builtin.file:
+        path: "{{ storage_mount_path }}"
+        state: directory
+        owner: "{{ storage_owner }}"
+        group: "{{ storage_group }}"
+        mode: "0750"
+      when: ansible_facts.getent_passwd[storage_owner] is not none
+
+    - name: Report the result
+      ansible.builtin.debug:
+        msg: >-
+          {{ storage_device }} ({{ storage_fs_type }}, UUID
+          {{ storage_uuid.stdout | trim }}) mounted at {{ storage_mount_path }}

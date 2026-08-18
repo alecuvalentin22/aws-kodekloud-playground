@@ -1,0 +1,16 @@
+---
+elastic_version: "8.15.3"
+elastic_cluster_name: "andrei-lab"
+elastic_node_roles: "master,data"
+elastic_security_enabled: false
+elastic_http_port: 9200
+elastic_transport_port: 9300
+
+# Heap = half of RAM, hard-capped at 31g (compressed oops boundary).
+elastic_heap_mb: "{{ [(ansible_memtotal_mb // 2), 31744] | min }}"
+
+elastic_data_path: /var/lib/elasticsearch
+elastic_log_path: /var/log/elasticsearch
+
+# 10m is the production default. 10s makes rollovers visible in a lab session.
+elastic_ilm_poll_interval: "10s"

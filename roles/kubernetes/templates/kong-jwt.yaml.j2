@@ -1,0 +1,104 @@
+# Kong OSS JWT validation against Keycloak-issued OIDC tokens.
+#
+# READ THIS FIRST — the honest version of what "Kong + OIDC" means:
+#
+# Kong's `openid-connect` plugin (the one that does discovery, the
+# authorization-code redirect flow, token introspection and refresh) is
+# KONG ENTERPRISE ONLY. It is not in Kong OSS and no amount of configuration
+# will summon it.
+#
+# What OSS gives you is the `jwt` plugin, and it does the part that actually
+# guards the API: it verifies the RS256 signature of a token against the
+# issuer's public key, checks `exp`, and rejects anything unsigned, expired or
+# from an unknown issuer. Keycloak issues real OIDC tokens; Kong validates
+# them. The gateway is genuinely protected.
+#
+# What is missing versus Enterprise: Kong does not perform the login redirect
+# itself, and does not introspect tokens against Keycloak on every request (so
+# a revoked-but-unexpired token stays valid until it expires — which is why
+# accessTokenLifespan in the realm is short).
+#
+# Being able to say precisely that, rather than "I set up OIDC on Kong", is the
+# difference between having used it and having understood it.
+---
+# THE SECRET COMES FIRST, AND THAT ORDER IS LOAD-BEARING.
+#
+# `kubectl apply -f file.yaml` applies documents top to bottom, and Kong's
+# admission webhook validates a KongConsumer by resolving every credential it
+# names. With the consumer first, a clean cluster gives:
+#
+#   admission webhook "validations.kong.konghq.com" denied the request:
+#   consumer referenced non-existent credentials secret: Secret "keycloak-jwt" not found
+#
+# It succeeds on a RE-run, because by then the secret exists -- which is the
+# nastiest kind of ordering bug: invisible once the cluster is warm.
+# that is how Kong finds which public key to verify with.
+apiVersion: v1
+kind: Secret
+metadata:
+  name: keycloak-jwt
+  namespace: default
+  labels:
+    konghq.com/credential: jwt
+type: Opaque
+stringData:
+  key: "{{ keycloak_issuer }}"
+  algorithm: RS256
+  # Fetched live from {{ keycloak_issuer }} by Ansible — never pasted by hand,
+  # because it changes every time the realm is recreated.
+  rsa_public_key: |
+{{ keycloak_public_key_pem | indent(4, true) }}
+---
+# A consumer is Kong's notion of "who is calling". With JWT auth the mapping is
+# by issuer: every token minted by this Keycloak realm resolves to this consumer.
+apiVersion: configuration.konghq.com/v1
+kind: KongConsumer
+metadata:
+  name: keycloak-lab
+  namespace: default
+  annotations:
+    kubernetes.io/ingress.class: kong
+username: keycloak-lab
+credentials:
+  - keycloak-jwt
+---
+apiVersion: configuration.konghq.com/v1
+kind: KongPlugin
+metadata:
+  name: jwt-auth
+  namespace: default
+plugin: jwt
+config:
+  # Where to look for the token. Authorization: Bearer <token> is the standard;
+  # the others are conveniences for browser testing.
+  header_names: ["authorization"]
+  cookie_names: ["access_token"]
+  uri_param_names: ["jwt"]
+  # Reject a token whose `iss` we do not have a key for, rather than falling
+  # through to some default consumer.
+  key_claim_name: iss
+  claims_to_verify: ["exp"]
+  run_on_preflight: false
+---
+# The protected route. Same echo service as /demo, different path, and the only
+# difference is the plugin annotation — which is the point: authentication is a
+# gateway concern, and the application behind it did not change at all.
+apiVersion: networking.k8s.io/v1
+kind: Ingress
+metadata:
+  name: echo-secure
+  namespace: default
+  annotations:
+    konghq.com/plugins: jwt-auth,rate-limit-demo
+    konghq.com/strip-path: "true"
+spec:
+  ingressClassName: kong
+  rules:
+    - http:
+        paths:
+          - path: /secure
+            pathType: Prefix
+            backend:
+              service:
+                name: echo
+                port: {number: 80}

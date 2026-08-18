@@ -1,0 +1,11 @@
+---
+common_packages:
+  - curl
+  - jq
+  - vim
+  - htop
+  - net-tools
+  - gnupg
+  - apt-transport-https
+  - ca-certificates
+  - python3-pip

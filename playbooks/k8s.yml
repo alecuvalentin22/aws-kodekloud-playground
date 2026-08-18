@@ -1,0 +1,7 @@
+---
+- name: Kubernetes, Rancher and Kong
+  hosts: k8s
+  become: true
+  roles:
+    - common
+    - kubernetes

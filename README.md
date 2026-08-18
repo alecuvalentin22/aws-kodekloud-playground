@@ -1,0 +1,203 @@
+# Platform Lab — Elasticsearch, Ansible, Rancher, Kong
+
+A self-contained lab that builds a 3-node Elasticsearch cluster, Kibana, MinIO
+(for snapshots), PostgreSQL, and a k3s cluster running Rancher and Kong —
+entirely with Ansible.
+
+The point is not the end state. The point is that **building it with Ansible
+teaches Ansible**, and **breaking the Elasticsearch cluster on purpose teaches
+Elasticsearch**. Both are gaps on the target job description; after this repo,
+neither is.
+
+---
+
+## Hosting
+
+Provisioned by Terraform — see **`terraform/README.md`** for the full comparison
+of KodeKloud playground vs your own AWS account vs Hetzner, and which to use for
+what. Short version: Hetzner or your own AWS for the persistent lab, KodeKloud
+for rehearsing the build under a clock.
+
+```bash
+# 1. state bucket + backend init, in one step (see drills/10)
+./scripts/tf-init.sh
+
+# 2. the lab itself
+cd terraform/aws
+cp terraform.tfvars.example terraform.tfvars && $EDITOR terraform.tfvars
+terraform apply                       # writes inventory/hosts.ini for you
+```
+
+State lives in **S3** — versioned, encrypted, and locked with `use_lockfile`
+(S3 conditional writes, no DynamoDB table). `terraform/bootstrap` creates that
+bucket and is the one module with local state, because it cannot hold its own.
+
+`scripts/tf-init.sh` prints the AWS account it is about to build in and refuses
+to continue unless you confirm it. Set `LAB_ACCOUNT_IDS` to skip the prompt.
+
+The playbooks only need SSH and Ubuntu 22.04/24.04, so any of these work:
+
+| Option | Spec | Cost | Notes |
+|---|---|---|---|
+| **Hetzner Cloud (recommended)** | 3× CX22 (2 vCPU / 4 GB) + 1× CX32 (4 vCPU / 8 GB) | ~€21/mo | Closest to real ops. Put them on a private network, snapshot the servers when you are done and destroy them — you pay cents to keep snapshots and can restore any time. |
+| **One bigger Hetzner box** | 1× CPX41 (8 vCPU / 16 GB) | ~€25/mo | Run the four nodes as LXD or Multipass VMs inside it. Cheaper if you also want other labs. |
+| **Local, free** | Laptop with 16 GB+ RAM | €0 | `multipass launch --name es-01 --memory 4G --disk 20G 24.04` ×4. Set `private_iface: ens4`. |
+
+If you go Hetzner, create the private network first and note that the private
+interface is usually `enp7s0` — check with `ip -br a` and set `private_iface`
+in `inventory/group_vars/all.yml` accordingly.
+
+**Elasticsearch needs 4 GB per node to be pleasant.** 2 GB works but you will
+spend time fighting the JVM instead of learning the cluster, which defeats the
+purpose.
+
+---
+
+## Run it
+
+```bash
+# 0. one-time
+pip install ansible                      # the full package, includes collections
+cp inventory/hosts.ini.example inventory/hosts.ini
+$EDITOR inventory/hosts.ini              # your IPs
+$EDITOR inventory/group_vars/all.yml     # private_iface
+
+# 1. secrets -- do NOT leave passwords in vars.yml
+#
+# NOTE THE PATH: group_vars/all/vault.yml, inside the all/ DIRECTORY.
+# group_vars/vault.yml would describe a group named "vault", which has no
+# hosts, so it is silently ignored and every secret falls back to its
+# "CHANGE-ME-IN-VAULT" default. No error, no warning. See drills/14.
+ansible-vault create inventory/group_vars/all/vault.yml
+#   minio_root_password: "..."
+#   postgres_app_password: "..."
+#   rancher_bootstrap_password: "..."
+#   keycloak_admin_password: "..."
+
+# verify they actually load -- never assume
+ansible all -m debug -a "msg={{ minio_root_password }}" --ask-vault-pass
+
+# 2. check connectivity
+ansible all -m ping
+
+# 3. build
+ansible-playbook playbooks/site.yml --ask-vault-pass
+
+# or in pieces
+ansible-playbook playbooks/elastic.yml --ask-vault-pass
+ansible-playbook playbooks/k8s.yml --ask-vault-pass
+
+# 4. RDS -- separate, because the master password comes out of Terraform state
+#    rather than out of vault. It is generated, never typed, never committed.
+ansible-playbook playbooks/rds.yml --ask-vault-pass \
+  -e rds_master_password="$(terraform -chdir=terraform/aws output -raw rds_password)"
+```
+
+`playbooks/rds.yml` targets **es-01**, not the database: RDS has no sshd and is
+not publicly reachable, so it is configured *through* a host that is allowed to
+talk to it. That is the general shape of managing any managed service.
+
+Then:
+
+```bash
+export ES=http://<es-01-ip>:9200
+./scripts/es health
+./scripts/seed-logs.sh 5000
+./scripts/es indices
+```
+
+- Kibana → `http://<es-01-ip>:5601`
+- MinIO console → `http://<es-01-ip>:9001`
+- Rancher → `https://rancher.<k3s-ip>.sslip.io`
+- Kong proxy → `http://<k3s-ip>:30080/demo` (open)
+- Kong secured → `http://<k3s-ip>:30080/secure` (JWT required — drill 09)
+- Keycloak → `http://<k3s-ip>:30081` (admin)
+- RDS → `terraform -chdir=terraform/aws output rds_endpoint`
+
+Switch distribution with one variable — `k8s_distribution: k3s` or `rke2` in
+`inventory/group_vars/all.yml`. Both install on a plain Ubuntu box with no AWS
+service dependency, so both work on a KodeKloud playground instance.
+
+---
+
+## What each piece is teaching you
+
+| Directory | JD requirement it closes |
+|---|---|
+| `roles/elasticsearch/` | Elasticsearch cluster deployment and administration |
+| the whole repo | Configuration management (Ansible) |
+| `roles/kubernetes/` | Rancher, Helm, container stacks (k3s **or** RKE2) |
+| `kubernetes/kong/` + `roles/kubernetes/tasks/oidc.yml` | Kong API Gateway, rate limiting, JWT/OIDC auth *(nice-to-have)* |
+| `roles/postgresql/` + `playbooks/rds.yml` | Relational databases, self-managed **and** managed *(nice-to-have)* |
+| `roles/storage/` | EBS volumes, filesystems, mounting things that stay mounted |
+| `terraform/bootstrap/` | Remote state, locking, and why both are set up that way |
+| `terraform/eks/` | Managed Kubernetes, and how it differs from the one you installed |
+| `scripts/` | Shell scripting |
+| `drills/` | The answers you give when they probe any of the above |
+
+## What Terraform builds
+
+| Resource | Why it is there |
+|---|---|
+| 3× EC2 + 1× EC2 | the Elasticsearch nodes and the k3s/RKE2 node |
+| security group, key pair | SSH and service access, scoped to your own IP |
+| **EBS data volume per ES node** | data outliving the instance, and a disk small enough to fill on purpose — drill 12 |
+| **S3 bucket** | Terraform state: versioned, encrypted, locked — drill 10 |
+| **RDS PostgreSQL** | the managed counterpart to the one on es-01 — drill 11 |
+| EKS cluster + node group | separate module, separate state — `terraform/eks/README.md` |
+
+---
+
+## Ansible concepts to be able to explain
+
+Do not just run the playbooks — you need to be able to talk about them.
+
+- **Idempotency** — run `site.yml` twice. The second run should report almost all
+  `ok` and no `changed`. That property is the whole point of configuration
+  management, and "what does idempotent mean" is a near-certain interview question.
+- **Roles** — reusable units: `tasks/`, `handlers/`, `templates/`, `defaults/`.
+- **Handlers** — `notify: restart elasticsearch` fires *once* at the end of the
+  play, no matter how many tasks notified it. Compare with a plain restart task.
+- **Templates** — `elasticsearch.yml.j2` builds the seed-host list from the
+  inventory. Add a fourth node to `hosts.ini`, re-run, and watch every node's
+  config update itself. That demo alone sells the idea in an interview.
+- **`serial: 1`** — the elastic play deploys one node at a time. That is a rolling
+  deployment, and it is why the playbook is safe to re-run against a live cluster.
+- **Vault** — secrets encrypted at rest in Git.
+- **Variable precedence** — `defaults/` < `group_vars/` < `host_vars/` < `-e`.
+
+---
+
+## Work through the drills in order
+
+`drills/01` … `drills/12`. Each one has a "say this in the interview" section at
+the end. Those are the actual deliverable — the cluster is just the thing that
+makes them true.
+
+| | |
+|---|---|
+| 01–05 | Elasticsearch: health, shards, watermarks, snapshots, rolling upgrades |
+| 06 | Elasticsearch security |
+| 07–08 | Rancher vs RKE2, Kong |
+| **09** | **Kong + Keycloak: what OSS JWT auth is and is not** |
+| **10** | **Terraform state, S3 locking, the bootstrap chicken-and-egg** |
+| **11** | **RDS vs Postgres on EC2** |
+| **12** | **EBS: why the device name lies, and mounting by UUID** |
+| **13** | **Not every AZ can do every thing (us-east-1e)** |
+| **14** | **Four Ansible bugs this lab actually hit** |
+| **15** | **Four Kubernetes failures: probes, rollouts, webhooks, ingress** |
+| **16** | **The vault file that was never loaded** |
+| **17** | **1.9 GB free and still dying: burst credits and steal time** |
+
+Do drill 01, 03 and 05 with the cluster *running* and *break it for real*. A
+candidate who has recovered a red cluster sounds completely different from one
+who has read about it, and interviewers can tell within two follow-up questions.
+
+---
+
+## Put this on GitHub
+
+Public repo, real commit history spread over the weeks you actually work on it.
+Link it from the CV. It converts "self-directed lab" from a claim into evidence,
+and it gives the interviewer something concrete to ask about — which is a much
+better conversation than a generic skills list.

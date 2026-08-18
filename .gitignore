@@ -1,0 +1,16 @@
+inventory/hosts.ini
+inventory/group_vars/all/vault.yml
+collections/
+*.retry
+*.tfstate
+*.tfstate.*
+.terraform/
+.terraform.lock.hcl
+terraform.tfvars
+
+# Terraform PLAN files. Binary, and they contain the full resource graph
+# including sensitive values -- the generated RDS master password among them.
+# `terraform show tfplan` prints them. Never commit these.
+tfplan
+tfplan*
+*.tfplan

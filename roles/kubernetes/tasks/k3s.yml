@@ -1,0 +1,19 @@
+---
+- name: Install k3s
+  ansible.builtin.shell: |
+    set -o pipefail
+    if ! command -v k3s >/dev/null 2>&1; then
+      curl -sfL https://get.k3s.io | INSTALL_K3S_VERSION={{ k3s_version }} \
+        sh -s - --disable traefik --write-kubeconfig-mode 644 \
+        --tls-san {{ ansible_host }}
+      echo CHANGED
+    fi
+  args:
+    executable: /bin/bash
+  register: k3s_install
+  changed_when: "'CHANGED' in k3s_install.stdout"
+
+- name: Record k3s paths
+  ansible.builtin.set_fact:
+    kubeconfig_path: /etc/rancher/k3s/k3s.yaml
+    kubectl_bin: /usr/local/bin/kubectl

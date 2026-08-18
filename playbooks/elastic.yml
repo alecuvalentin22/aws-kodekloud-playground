@@ -1,0 +1,115 @@
+---
+- name: Baseline every host
+  hosts: all
+  become: true
+  roles:
+    - common
+
+# ---------------------------------------------------------------------------
+# TEARDOWN FIRST.
+#
+# Setting kibana_enabled=false only SKIPS the role -- a service that is already
+# running keeps running, and keeps its memory. The toggle has to actively stop
+# things or it does nothing on a live box, which is precisely when you need it.
+#
+#   ansible-playbook playbooks/elastic.yml -e kibana_enabled=false
+#
+# Re-enable by flipping it back and re-running: the roles are idempotent, so
+# they reinstall and restart cleanly.
+# ---------------------------------------------------------------------------
+- name: Stop anything that has been toggled off
+  hosts: all
+  become: true
+  gather_facts: false
+  tasks:
+    - name: Stop Kibana
+      ansible.builtin.systemd:
+        name: kibana
+        state: stopped
+        enabled: false
+      when:
+        - not (kibana_enabled | bool)
+        - inventory_hostname in groups.get('kibana', [])
+      failed_when: false
+
+    - name: Stop PostgreSQL
+      ansible.builtin.systemd:
+        name: postgresql
+        state: stopped
+        enabled: false
+      when:
+        - not (postgres_enabled | bool)
+        - inventory_hostname in groups.get('postgres', [])
+      failed_when: false
+
+    # MinIO is a container, not a unit -- stop it the same way it was started.
+    - name: Stop MinIO
+      community.docker.docker_container:
+        name: minio
+        state: stopped
+      when:
+        - not (minio_enabled | bool)
+        - inventory_hostname in groups.get('minio', [])
+      failed_when: false
+
+    - name: Read memory
+      ansible.builtin.command: free -m
+      register: mem_after
+      changed_when: false
+
+    - name: Report available memory
+      ansible.builtin.debug:
+        msg: >-
+          {{ inventory_hostname }}:
+          {{ mem_after.stdout_lines[1].split()[6] }} MB available
+          of {{ mem_after.stdout_lines[1].split()[1] }} MB
+
+- name: Object storage for snapshots
+  hosts: minio
+  become: true
+  roles:
+    - role: minio
+      when: minio_enabled | bool
+
+- name: Elasticsearch cluster
+  hosts: elastic
+  become: true
+  serial: 1          # rolling -- one node at a time, like a real upgrade
+  roles:
+    # storage FIRST: the EBS data volume has to be formatted and mounted at
+    # /var/lib/elasticsearch before Elasticsearch writes anything there.
+    # Mounting over a populated directory hides the contents rather than
+    # moving them, and you find out when the cluster comes back empty.
+    - storage
+    - elasticsearch
+
+- name: Bootstrap cluster-level configuration
+  hosts: elastic
+  become: true
+  run_once: true          # cluster-wide settings -- one node is enough
+  vars:
+    # PRIVATE ip, not ansible_host. This play runs ON es-01 and talks to
+    # Elasticsearch on es-01 -- routing that through the public IP sends it out
+    # to the internet gateway and back, where the security group only admits
+    # port 9200 from your laptop's /32. Cluster administration is internal
+    # traffic and should never leave the VPC.
+    es_url: "http://{{ hostvars[inventory_hostname].private_ip | default(ansible_host) }}:9200"
+  tasks:
+    - name: Apply ILM, templates and snapshot repository
+      ansible.builtin.include_role:
+        name: elasticsearch
+        tasks_from: cluster-config.yml
+
+- name: Kibana
+  hosts: kibana
+  become: true
+  roles:
+    - role: kibana
+      when: kibana_enabled | bool
+
+- name: PostgreSQL
+  hosts: postgres
+  become: true
+  roles:
+    - role: postgresql
+      when: postgres_enabled | bool

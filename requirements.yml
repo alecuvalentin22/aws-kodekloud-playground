@@ -1,0 +1,9 @@
+---
+# Bundled already if you installed the full `ansible` package.
+# Only needed on a bare `ansible-core` install:
+#   ansible-galaxy collection install -r requirements.yml
+collections:
+  - name: community.docker      # MinIO container
+  - name: community.postgresql  # roles and grants, on EC2 and on RDS
+  - name: community.general     # filesystem (mkfs) in roles/storage
+  - name: ansible.posix         # mount / fstab in roles/storage

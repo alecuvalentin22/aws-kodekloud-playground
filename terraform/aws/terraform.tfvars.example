@@ -1,0 +1,22 @@
+# cp terraform.tfvars.example terraform.tfvars
+
+my_ip_cidr          = "203.0.113.7/32"   # curl -s ifconfig.me
+ssh_public_key_path = "~/.ssh/id_ed25519.pub"
+
+# --- KodeKloud playground (defaults are already correct) ---
+# region         = "us-east-1"
+# instance_type  = "t3.medium"
+# volume_type    = "gp2"
+# root_volume_gb = 30
+# data_volume_gb = 10          # dedicated EBS per ES node; 0 disables
+
+# --- trimming the session down ---
+# RDS takes 5-10 minutes to become available, which is a real slice of a
+# 3-hour playground. Turn it off when you are drilling Elasticsearch.
+# create_rds      = false
+# create_k8s_node = false      # frees an instance against the 5-instance cap
+
+# --- your own AWS account: gp3 is cheaper and faster ---
+# volume_type    = "gp3"
+# root_volume_gb = 40
+# data_volume_gb = 20

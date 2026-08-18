@@ -1,0 +1,98 @@
+---
+# Runs once, against the first node only. Everything here is idempotent because
+# the Elasticsearch APIs are PUT-based -- re-running changes nothing.
+- name: Wait for the cluster to reach at least yellow
+  ansible.builtin.uri:
+    url: "{{ es_url }}/_cluster/health?wait_for_status=yellow&timeout=60s"
+    method: GET
+    status_code: 200
+  register: es_health
+  retries: 10
+  delay: 15
+  until: es_health.status == 200
+
+- name: Show cluster health
+  ansible.builtin.debug:
+    msg: >-
+      status={{ es_health.json.status }}
+      nodes={{ es_health.json.number_of_nodes }}
+      active_shards={{ es_health.json.active_shards }}
+      unassigned={{ es_health.json.unassigned_shards }}
+
+- name: Create the ILM policy (hot -> warm -> delete)
+  ansible.builtin.uri:
+    url: "{{ es_url }}/_ilm/policy/app-logs-policy"
+    method: PUT
+    body_format: json
+    body:
+      policy:
+        phases:
+          hot:
+            actions:
+              rollover:
+                max_primary_shard_size: 20gb
+                max_age: 7d
+          warm:
+            min_age: 7d
+            actions:
+              shrink:
+                number_of_shards: 1
+              forcemerge:
+                max_num_segments: 1
+          delete:
+            min_age: 30d
+            actions:
+              delete: {}
+    status_code: [200, 201]
+
+- name: Create the index template for app logs
+  ansible.builtin.uri:
+    url: "{{ es_url }}/_index_template/app-logs"
+    method: PUT
+    body_format: json
+    body:
+      index_patterns: ["app-logs-*"]
+      data_stream: {}
+      priority: 200
+      template:
+        settings:
+          number_of_shards: 1
+          number_of_replicas: 1
+          "index.lifecycle.name": app-logs-policy
+        mappings:
+          properties:
+            "@timestamp": {type: date}
+            message: {type: text}
+            "service.name": {type: keyword}
+            "log.level": {type: keyword}
+            "trace.id": {type: keyword}
+    status_code: [200, 201]
+
+- name: Register the MinIO S3 snapshot repository
+  ansible.builtin.uri:
+    url: "{{ es_url }}/_snapshot/lab-backups"
+    method: PUT
+    body_format: json
+    body:
+      type: s3
+      settings:
+        bucket: es-snapshots
+        endpoint: "{{ hostvars[groups['minio'][0]].private_ip | default(hostvars[groups['minio'][0]].ansible_host) }}:9000"
+        protocol: http
+        path_style_access: true
+    status_code: [200, 201]
+  when:
+    - groups['minio'] | length > 0
+    - minio_enabled | default(true) | bool
+
+# Short-lived playground sessions: make ILM tick in seconds instead of minutes
+# so you can actually watch a rollover happen. Never do this in production.
+- name: Speed up the ILM poll interval for lab work
+  ansible.builtin.uri:
+    url: "{{ es_url }}/_cluster/settings"
+    method: PUT
+    body_format: json
+    body:
+      persistent:
+        "indices.lifecycle.poll_interval": "{{ elastic_ilm_poll_interval }}"
+    status_code: 200

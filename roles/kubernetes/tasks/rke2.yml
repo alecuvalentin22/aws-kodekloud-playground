@@ -1,0 +1,60 @@
+---
+# RKE2 runs its control plane as STATIC PODS, not systemd units. When the API
+# server will not come up, `crictl ps` is where you look -- not `systemctl`.
+- name: Create the RKE2 config directory
+  ansible.builtin.file:
+    path: /etc/rancher/rke2
+    state: directory
+    mode: "0755"
+
+- name: Write RKE2 config
+  ansible.builtin.copy:
+    dest: /etc/rancher/rke2/config.yaml
+    mode: "0600"
+    content: |
+      # Managed by Ansible
+      write-kubeconfig-mode: "0644"
+      tls-san:
+        - {{ ansible_host }}
+      disable:
+        - rke2-ingress-nginx      # Kong is the gateway in this lab
+  notify: restart rke2-server
+
+- name: Install RKE2
+  ansible.builtin.shell: |
+    set -o pipefail
+    if ! systemctl list-unit-files | grep -q '^rke2-server'; then
+      curl -sfL https://get.rke2.io | INSTALL_RKE2_VERSION={{ rke2_version }} sh -
+      echo CHANGED
+    fi
+  args:
+    executable: /bin/bash
+  register: rke2_install
+  changed_when: "'CHANGED' in rke2_install.stdout"
+
+- name: Enable and start rke2-server
+  ansible.builtin.systemd:
+    name: rke2-server
+    state: started
+    enabled: true
+    daemon_reload: true
+
+- name: Wait for the RKE2 kubeconfig to appear
+  ansible.builtin.wait_for:
+    path: /etc/rancher/rke2/rke2.yaml
+    timeout: 300
+
+- name: Link the bundled kubectl and crictl onto PATH
+  ansible.builtin.file:
+    src: "/var/lib/rancher/rke2/bin/{{ item }}"
+    dest: "/usr/local/bin/{{ item }}"
+    state: link
+    force: true
+  loop:
+    - kubectl
+    - crictl
+
+- name: Record RKE2 paths
+  ansible.builtin.set_fact:
+    kubeconfig_path: /etc/rancher/rke2/rke2.yaml
+    kubectl_bin: /usr/local/bin/kubectl

@@ -1,0 +1,75 @@
+---
+# Private-network interface the services bind to.
+# Hetzner: enp7s0 | Multipass: ens4 | check with: ip -br a
+private_iface: enp7s0
+
+# ---------------------------------------------------------------------------
+# FEATURE TOGGLES
+#
+# es-01 carries Elasticsearch, Kibana, MinIO and PostgreSQL on one 4 GiB box.
+# Measured mid-session:
+#
+#   total 3834 MB   used 3574 MB   available 259 MB
+#     java  (elasticsearch) 2365 MB
+#     node  (kibana)         509 MB
+#     minio                  100 MB
+#
+# 259 MB of headroom is how a node wedges: with swap disabled it does not slow
+# down, it stops answering SSH. Turn things off once you have seen them.
+#
+#   ansible-playbook playbooks/elastic.yml -e kibana_enabled=false
+#
+# Cost/benefit, largest first: Kibana ~509 MB, MinIO ~100 MB, PostgreSQL ~60 MB
+# (and PostgreSQL on EC2 is redundant once RDS exists -- keep it only while
+# drilling the comparison in drills/11).
+minio_enabled: true       # needed for snapshots -- drills/04
+kibana_enabled: true      # the biggest single win when disabled
+postgres_enabled: true    # redundant with RDS; see drills/11
+
+elastic_version: "8.15.3"
+elastic_cluster_name: "andrei-lab"
+
+# Start with security off so the cluster comes up first try and the mechanics
+# are visible. Flip to true once you are comfortable -- see drills/06.
+elastic_security_enabled: false
+
+minio_root_user: "minio"
+# Override in a vault file: ansible-vault create inventory/group_vars/vault.yml
+minio_root_password: "CHANGE-ME-IN-VAULT"
+
+postgres_version: 16
+postgres_app_db: appdb
+postgres_app_user: appuser
+postgres_app_password: "CHANGE-ME-IN-VAULT"
+
+# Hetzner private net: 10.0.0.0/16 | AWS default VPC: 172.31.0.0/16
+postgres_allowed_cidr: "172.16.0.0/12"
+
+# "k3s" (light, 2 GB is enough) or "rke2" (hardened, wants 4 GB+).
+# Rancher manages either one identically -- see drills/07.
+k8s_distribution: k3s
+
+# ---------------------------------------------------------------------------
+# WHY THIS IS group_vars/all/vars.yml AND NOT group_vars/all.yml
+#
+# Secrets live beside it in group_vars/all/vault.yml. The obvious-looking
+# layout is a trap:
+#
+#   inventory/group_vars/all.yml      <- vars for the group "all"    (loaded)
+#   inventory/group_vars/vault.yml    <- vars for a group "vault"    (NEVER loaded)
+#
+# `vault.yml` is not a magic name. Ansible reads group_vars/<GROUPNAME>.yml, so
+# that file describes a group called "vault" which has no hosts -- and it is
+# silently ignored. No error, no warning. Every variable falls back to its role
+# default, so a lab whose defaults are "CHANGE-ME-IN-VAULT" runs happily with
+# CHANGE-ME-IN-VAULT as the real MinIO, Keycloak and Postgres password.
+#
+# In production that is the "we thought we had Vault" incident.
+#
+# The directory form fixes it: EVERY file inside group_vars/all/ applies to the
+# group "all", so vars.yml and vault.yml are both loaded, and vault.yml wins for
+# any key it redefines (later file, alphabetically).
+#
+# Check it, never assume it:
+#   ansible all -m debug -a "msg={{ minio_root_password }}" --vault-password-file ...
+# ---------------------------------------------------------------------------

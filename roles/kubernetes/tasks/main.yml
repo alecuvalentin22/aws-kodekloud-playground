@@ -1,0 +1,149 @@
+---
+- name: "Install the Kubernetes distribution ({{ k8s_distribution }})"
+  ansible.builtin.include_tasks: "{{ k8s_distribution }}.yml"
+
+- name: Wait for the node to become Ready
+  ansible.builtin.command: kubectl wait --for=condition=Ready node --all --timeout=300s
+  environment:
+    KUBECONFIG: "{{ kubeconfig_path }}"
+  changed_when: false
+
+- name: Install Helm
+  ansible.builtin.shell: |
+    set -o pipefail
+    if ! command -v helm >/dev/null 2>&1; then
+      curl -fsSL https://raw.githubusercontent.com/helm/helm/main/scripts/get-helm-3 | bash
+      echo CHANGED
+    fi
+  args:
+    executable: /bin/bash
+  register: helm_install
+  changed_when: "'CHANGED' in helm_install.stdout"
+
+- name: Add Helm repositories
+  ansible.builtin.shell: |
+    helm repo add jetstack https://charts.jetstack.io
+    helm repo add rancher-stable https://releases.rancher.com/server-charts/stable
+    helm repo add kong https://charts.konghq.com
+    helm repo update
+  environment:
+    KUBECONFIG: "{{ kubeconfig_path }}"
+  changed_when: false
+
+- name: Install cert-manager (Rancher requires it)
+  when: rancher_enabled | bool
+  ansible.builtin.command: >-
+    helm upgrade --install cert-manager jetstack/cert-manager
+    --namespace cert-manager --create-namespace
+    --version {{ cert_manager_version }} --set crds.enabled=true --wait
+  environment:
+    KUBECONFIG: "{{ kubeconfig_path }}"
+  register: cm
+  changed_when: "'has been upgraded' in cm.stdout or 'has been installed' in cm.stdout"
+
+- name: Install Rancher
+  when: rancher_enabled | bool
+  ansible.builtin.command: >-
+    helm upgrade --install rancher rancher-stable/rancher
+    --namespace cattle-system --create-namespace
+    --version {{ rancher_chart_version }}
+    --set hostname=rancher.{{ ansible_host }}.sslip.io
+    --set bootstrapPassword={{ rancher_bootstrap_password }}
+    --set replicas=1 --wait --timeout 10m
+  environment:
+    KUBECONFIG: "{{ kubeconfig_path }}"
+  register: rancher
+  changed_when: "'has been upgraded' in rancher.stdout or 'has been installed' in rancher.stdout"
+
+# The probe overrides are not decoration -- without them this CrashLoopBackOffs
+# on a t3.medium.
+#
+# The ingress-controller container needs ~40s to initialise (it waits on Kong's
+# admin API) on a node this size. The chart's default liveness probe gives it
+# about 30, so the kubelet SIGTERMs a container that was merely slow, restarts
+# it, and it is slower still on the retry. The proxy container stays perfectly
+# healthy throughout, which makes it look like a Kong bug rather than a probe
+# bug:
+#
+#   1/2  CrashLoopBackOff  14 (89s ago)
+#   Liveness probe failed: Get "http://.../healthz": connection refused
+#   info  setup  Getting the kong admin api client configuration
+#   info  Signal received, shutting down  {"signal": "terminated"}
+#
+# This is the textbook liveness-probe mistake in the wild: liveness answers "is
+# it broken?", not "is it ready?". A liveness probe that fires during a slow
+# start converts a delay into an outage. Readiness is the one that should gate
+# traffic.
+#
+# --timeout 10m for the same reason: the default 5m expires while the pod is
+# still fighting its own probes, and helm reports the unhelpful
+# "context deadline exceeded".
+- name: Install Kong in DB-less mode
+  when: kong_enabled | bool
+  ansible.builtin.command: >-
+    helm upgrade --install kong kong/kong
+    --namespace kong --create-namespace
+    --set proxy.type=NodePort
+    --set proxy.http.nodePort=30080
+    --set ingressController.livenessProbe.initialDelaySeconds=60
+    --set ingressController.livenessProbe.failureThreshold=10
+    --set ingressController.livenessProbe.periodSeconds=15
+    --set ingressController.readinessProbe.initialDelaySeconds=30
+    --set ingressController.readinessProbe.failureThreshold=10
+    --wait --timeout 10m
+  environment:
+    KUBECONFIG: "{{ kubeconfig_path }}"
+  register: kong
+  changed_when: "'has been upgraded' in kong.stdout or 'has been installed' in kong.stdout"
+
+- name: Ensure the manifest directory exists
+  when: kong_enabled | bool
+  ansible.builtin.file:
+    path: /opt/lab-manifests/kong
+    state: directory
+    mode: "0755"
+
+- name: Copy the Kong demo manifests to the node
+  when: kong_enabled | bool
+  ansible.builtin.copy:
+    src: "{{ playbook_dir }}/../kubernetes/kong/"
+    dest: /opt/lab-manifests/kong/
+    mode: "0644"
+
+- name: Apply the Kong demo application
+  when: kong_enabled | bool
+  ansible.builtin.command: kubectl apply -f /opt/lab-manifests/kong/
+  environment:
+    KUBECONFIG: "{{ kubeconfig_path }}"
+  register: kong_demo
+  changed_when: "'created' in kong_demo.stdout or 'configured' in kong_demo.stdout"
+
+# Rancher's chart only creates an Ingress, and k3s runs with --disable traefik
+# (Kong is this lab's gateway). So nothing serves that Ingress and nothing
+# listens on 443. Expose Rancher directly instead.
+- name: Render the Rancher NodePort service
+  when: rancher_enabled | bool
+  ansible.builtin.template:
+    src: rancher-nodeport.yaml.j2
+    dest: /opt/lab-manifests/rancher-nodeport.yaml
+    mode: "0644"
+
+- name: Expose Rancher on a NodePort
+  when: rancher_enabled | bool
+  ansible.builtin.command: kubectl apply -f /opt/lab-manifests/rancher-nodeport.yaml
+  environment:
+    KUBECONFIG: "{{ kubeconfig_path }}"
+  register: rancher_np
+  changed_when: "'created' in rancher_np.stdout or 'configured' in rancher_np.stdout"
+
+- name: Deploy Keycloak and protect a Kong route with JWT auth
+  ansible.builtin.include_tasks: oidc.yml
+  when: kong_oidc_enabled | bool
+
+- name: Print access URLs
+  ansible.builtin.debug:
+    msg:
+      - "Distribution: {{ k8s_distribution }}   kubeconfig: {{ kubeconfig_path }}"
+      - "Rancher UI:   {{ 'https://' ~ ansible_host ~ ':' ~ rancher_node_port ~ '  (user: admin, self-signed cert)' if rancher_enabled else 'disabled (rancher_enabled=false)' }}"
+      - "Kong proxy:   {{ 'http://' ~ ansible_host ~ ':30080/demo    (open)' if kong_enabled else 'not installed on this node' }}"
+      - "Kong secured: http://{{ ansible_host }}:30080/secure  (JWT required)"

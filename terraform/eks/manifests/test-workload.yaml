@@ -1,0 +1,76 @@
+# A deliberately tiny workload, sized to the KodeKloud playground's EKS caps:
+#   max 3 pods per namespace
+#   max 512 MiB memory and 256 millicores CPU PER POD
+#   cumulative 2000m / 4096 MiB per cluster
+#
+# 2 replicas x (100m / 128Mi) sits well inside all of them. In your own account
+# none of this applies -- but leaving the limits in is good practice anyway.
+---
+apiVersion: v1
+kind: Namespace
+metadata:
+  name: eks-test
+---
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: hello
+  namespace: eks-test
+spec:
+  replicas: 2
+  selector:
+    matchLabels: {app: hello}
+  template:
+    metadata:
+      labels: {app: hello}
+    spec:
+      containers:
+        - name: hello
+          image: ealen/echo-server:latest
+          ports:
+            - containerPort: 80
+          env:
+            # Echoes the node name back in the response, so curling the Service
+            # a few times shows the traffic actually landing on both nodes.
+            - name: NODE_NAME
+              valueFrom:
+                fieldRef: {fieldPath: spec.nodeName}
+          # REQUESTS drive scheduling; LIMITS drive throttling and OOM kills.
+          # The playground enforces its cap against the LIMIT, so both are set.
+          resources:
+            requests: {cpu: 50m, memory: 64Mi}
+            limits:   {cpu: 100m, memory: 128Mi}
+          readinessProbe:
+            httpGet: {path: /, port: 80}
+            initialDelaySeconds: 3
+          livenessProbe:
+            httpGet: {path: /, port: 80}
+            initialDelaySeconds: 10
+      # Spread the two replicas across nodes rather than stacking them. On a
+      # 2-node group this is what proves the node group actually has two
+      # working nodes, not one node running everything.
+      topologySpreadConstraints:
+        - maxSkew: 1
+          topologyKey: topology.kubernetes.io/zone
+          whenUnsatisfiable: ScheduleAnyway
+          labelSelector:
+            matchLabels: {app: hello}
+---
+# ClusterIP, not LoadBalancer, ON PURPOSE.
+#
+# A type: LoadBalancer Service on EKS makes the in-tree cloud controller
+# provision a real, billable Classic ELB -- and if you `kubectl delete ns`
+# without deleting the Service first, the ELB is orphaned and keeps charging
+# after `terraform destroy` reports success, because Terraform never knew about
+# it. Reach this one with `kubectl port-forward` instead.
+apiVersion: v1
+kind: Service
+metadata:
+  name: hello
+  namespace: eks-test
+spec:
+  type: ClusterIP
+  selector: {app: hello}
+  ports:
+    - port: 80
+      targetPort: 80

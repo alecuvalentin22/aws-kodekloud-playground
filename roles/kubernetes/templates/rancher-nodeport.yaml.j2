@@ -1,0 +1,31 @@
+# Reach Rancher without an ingress controller.
+#
+# THE PROBLEM: k3s is installed with `--disable traefik`, because Kong is this
+# lab's gateway and two ingress controllers fighting over ports 80/443 is worse
+# than none. But the Rancher chart only creates an Ingress -- so with traefik
+# gone, its Ingress has no controller (CLASS <none>), nothing listens on 443,
+# and https://rancher.<ip>.sslip.io refuses the connection.
+#
+# Nothing is broken inside the cluster; Rancher is Running and its ClusterIP
+# Service answers. There is simply no path in from outside.
+#
+# THE FIX: a NodePort straight to the Rancher pods, bypassing ingress entirely.
+# The security group already admits 30000-32767 from your address.
+#
+# Rancher serves TLS itself with a self-signed certificate, so the browser will
+# warn once -- that is the cert, not a broken deployment.
+---
+apiVersion: v1
+kind: Service
+metadata:
+  name: rancher-nodeport
+  namespace: cattle-system
+spec:
+  type: NodePort
+  selector:
+    app: rancher
+  ports:
+    - name: https
+      port: 443
+      targetPort: 444      # the rancher pod's TLS port
+      nodePort: {{ rancher_node_port }}

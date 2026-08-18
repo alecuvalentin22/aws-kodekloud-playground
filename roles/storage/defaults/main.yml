@@ -1,0 +1,17 @@
+---
+# Where the Elasticsearch data directory lives. The elasticsearch role points
+# elastic_data_path at this same location.
+storage_mount_path: /var/lib/elasticsearch
+
+# ext4 is present on every Ubuntu image with no extra package. XFS is what the
+# Elasticsearch docs recommend for large data nodes -- better with many large
+# files and parallel writes -- and needs xfsprogs, which this role installs when
+# you select it.
+storage_fs_type: ext4
+
+storage_owner: elasticsearch
+storage_group: elasticsearch
+
+# noatime: every read otherwise writes back an access timestamp. Elasticsearch
+# reads segment files constantly, so this is real, free I/O savings.
+storage_mount_opts: "defaults,noatime,nofail"

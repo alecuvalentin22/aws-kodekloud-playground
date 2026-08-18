@@ -1,0 +1,112 @@
+# Keycloak — the OIDC identity provider Kong will validate tokens against.
+# Rendered by Ansible so KC_HOSTNAME can be pinned to the node's real address.
+#
+# WHY KC_HOSTNAME MATTERS MORE THAN IT LOOKS:
+# the `iss` claim Keycloak stamps into every token is derived from the URL the
+# client used. Reach it two different ways and you get two different issuers.
+# Kong's jwt plugin looks a credential up BY the iss claim, so a wobbly issuer
+# means tokens that are cryptographically valid and still rejected with
+# "No credentials found for given 'iss'". Pinning it makes iss deterministic.
+---
+apiVersion: v1
+kind: Namespace
+metadata:
+  name: keycloak
+---
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: realm-import
+  namespace: keycloak
+data:
+  realm-lab.json: |
+{{ realm_json | indent(4, true) }}
+---
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: keycloak
+  namespace: keycloak
+spec:
+  replicas: 1
+  # Recreate, NOT the default RollingUpdate.
+  #
+  # RollingUpdate with replicas:1 means maxSurge=1, so the NEW pod starts while
+  # the OLD one is still running -- two Keycloaks, ~2 GiB, on a 4 GiB node that
+  # is already carrying k3s, Kong and (optionally) Rancher. With swap disabled
+  # (the common role turns it off for Elasticsearch) the box does not degrade,
+  # it wedges: sshd stops completing its banner exchange and the only way back
+  # in is an EC2 reboot. Observed exactly that on 2026-08-18.
+  #
+  # There is no availability to protect here anyway: storage is in-memory H2,
+  # so a surge cannot preserve state.
+  strategy:
+    type: Recreate
+  selector:
+    matchLabels: {app: keycloak}
+  template:
+    metadata:
+      labels: {app: keycloak}
+      annotations:
+        # Roll the pod whenever the realm definition changes.
+        #
+        # A ConfigMap update does NOT restart anything, and Keycloak's
+        # --import-realm SKIPS a realm that already exists -- so without this,
+        # editing realm-lab.json appears to do nothing at all and you debug the
+        # JSON for twenty minutes while the container keeps serving the old
+        # realm. Changing an annotation changes the pod template, which is a
+        # rollout.
+        checksum/realm: "{{ realm_json | hash('sha256') }}"
+    spec:
+      containers:
+        - name: keycloak
+          image: quay.io/keycloak/keycloak:{{ keycloak_version }}
+          # start-dev: in-memory H2, no TLS, no clustering. Correct for a lab
+          # and completely wrong for production, where you would run
+          # `start --optimized` against PostgreSQL — the RDS instance next door
+          # would do nicely.
+          args: ["start-dev", "--import-realm"]
+          env:
+            - name: KC_BOOTSTRAP_ADMIN_USERNAME
+              value: "admin"
+            - name: KC_BOOTSTRAP_ADMIN_PASSWORD
+              value: "{{ keycloak_admin_password }}"
+            - name: KC_HTTP_ENABLED
+              value: "true"
+            - name: KC_HOSTNAME
+              value: "{{ keycloak_issuer_base }}"
+            - name: KC_HOSTNAME_STRICT
+              value: "false"
+            - name: KC_HEALTH_ENABLED
+              value: "true"
+          ports:
+            - {containerPort: 8080, name: http}
+          volumeMounts:
+            - name: realm
+              mountPath: /opt/keycloak/data/import
+              readOnly: true
+          resources:
+            requests: {cpu: 200m, memory: 512Mi}
+            limits:   {memory: 1Gi}
+          readinessProbe:
+            httpGet: {path: /realms/lab, port: 8080}
+            initialDelaySeconds: 30
+            periodSeconds: 10
+            failureThreshold: 30
+      volumes:
+        - name: realm
+          configMap:
+            name: realm-import
+---
+apiVersion: v1
+kind: Service
+metadata:
+  name: keycloak
+  namespace: keycloak
+spec:
+  type: NodePort
+  selector: {app: keycloak}
+  ports:
+    - port: 8080
+      targetPort: 8080
+      nodePort: {{ keycloak_node_port }}

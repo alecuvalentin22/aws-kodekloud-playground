@@ -1,0 +1,43 @@
+# Managed by Ansible -- roles/elasticsearch/templates/elasticsearch.yml.j2
+cluster.name: {{ elastic_cluster_name }}
+node.name: {{ inventory_hostname }}
+node.roles: [{{ elastic_node_roles.split(',') | map('trim') | join(', ') }}]
+
+path.data: {{ elastic_data_path }}
+path.logs: {{ elastic_log_path }}
+
+network.host: {{ hostvars[inventory_hostname]['ansible_' + private_iface]['ipv4']['address'] | default(ansible_default_ipv4.address) }}
+http.port: {{ elastic_http_port }}
+transport.port: {{ elastic_transport_port }}
+
+# Every node that could ever be master-eligible must be listed here so a new
+# node can find the cluster. This is the seed list, not the quorum.
+discovery.seed_hosts:
+{% for h in groups['elastic'] %}
+  - {{ hostvars[h].private_ip | default(hostvars[h].ansible_host) }}:{{ elastic_transport_port }}
+{% endfor %}
+
+# Only used on the very first boot of a brand-new cluster. After that it is
+# ignored -- the cluster state remembers its own voting configuration.
+cluster.initial_master_nodes:
+{% for h in groups['elastic'] %}
+{% if 'master' in hostvars[h].elastic_node_roles | default('master,data') %}
+  - {{ h }}
+{% endif %}
+{% endfor %}
+
+xpack.security.enabled: {{ elastic_security_enabled | lower }}
+{% if elastic_security_enabled %}
+xpack.security.http.ssl.enabled: true
+xpack.security.http.ssl.keystore.path: certs/http.p12
+xpack.security.transport.ssl.enabled: true
+xpack.security.transport.ssl.verification_mode: certificate
+xpack.security.transport.ssl.keystore.path: certs/transport.p12
+xpack.security.transport.ssl.truststore.path: certs/transport.p12
+{% endif %}
+
+# Watermarks. Read drills/03 before changing these -- hitting the flood stage
+# is what turns your indices read-only at 3am.
+cluster.routing.allocation.disk.watermark.low: 85%
+cluster.routing.allocation.disk.watermark.high: 90%
+cluster.routing.allocation.disk.watermark.flood_stage: 95%

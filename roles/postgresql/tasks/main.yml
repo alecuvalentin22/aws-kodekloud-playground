@@ -1,0 +1,60 @@
+---
+- name: Install PostgreSQL
+  ansible.builtin.apt:
+    name:
+      - "postgresql-{{ postgres_version }}"
+      - python3-psycopg2
+    state: present
+    update_cache: true
+
+- name: Listen on the private interface
+  ansible.builtin.lineinfile:
+    path: "/etc/postgresql/{{ postgres_version }}/main/postgresql.conf"
+    regexp: "^#?listen_addresses"
+    line: "listen_addresses = '*'"
+  notify: restart postgresql
+
+- name: Allow the lab subnet with scram auth
+  ansible.builtin.lineinfile:
+    path: "/etc/postgresql/{{ postgres_version }}/main/pg_hba.conf"
+    line: "host    {{ postgres_app_db }}    {{ postgres_app_user }}    {{ postgres_allowed_cidr }}    scram-sha-256"
+    state: present
+  notify: restart postgresql
+
+- name: Start PostgreSQL
+  ansible.builtin.systemd:
+    name: postgresql
+    state: started
+    enabled: true
+
+- name: Create the application role
+  become: true
+  become_user: postgres
+  community.postgresql.postgresql_user:
+    name: "{{ postgres_app_user }}"
+    password: "{{ postgres_app_password }}"
+    state: present
+
+- name: Create the application database
+  become: true
+  become_user: postgres
+  community.postgresql.postgresql_db:
+    name: "{{ postgres_app_db }}"
+    owner: "{{ postgres_app_user }}"
+    state: present
+
+- name: Ensure the backup directory exists
+  ansible.builtin.file:
+    path: /var/backups
+    state: directory
+    owner: postgres
+    group: postgres
+    mode: "0750"
+
+- name: Install a nightly pg_dump timer
+  ansible.builtin.copy:
+    dest: /etc/cron.d/pg-backup
+    mode: "0644"
+    content: |
+      # Managed by Ansible
+      0 2 * * * postgres pg_dump -Fc {{ postgres_app_db }} > /var/backups/{{ postgres_app_db }}-$(date +\%F).dump

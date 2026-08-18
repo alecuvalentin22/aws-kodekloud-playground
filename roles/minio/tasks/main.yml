@@ -1,0 +1,68 @@
+---
+- name: Install Docker via the convenience script
+  ansible.builtin.shell: |
+    set -o pipefail
+    if ! command -v docker >/dev/null 2>&1; then
+      curl -fsSL https://get.docker.com | sh
+      echo CHANGED
+    fi
+  args:
+    executable: /bin/bash
+  register: docker_install
+  changed_when: "'CHANGED' in docker_install.stdout"
+
+- name: Install the Docker python SDK
+  ansible.builtin.pip:
+    name: docker
+    state: present
+    extra_args: --break-system-packages
+
+- name: Create the MinIO data directory
+  ansible.builtin.file:
+    path: /srv/minio
+    state: directory
+    mode: "0755"
+
+- name: Run MinIO
+  community.docker.docker_container:
+    name: minio
+    image: minio/minio:latest
+    state: started
+    restart_policy: unless-stopped
+    command: server /data --console-address ":9001"
+    published_ports:
+      - "9000:9000"
+      - "9001:9001"
+    env:
+      MINIO_ROOT_USER: "{{ minio_root_user }}"
+      MINIO_ROOT_PASSWORD: "{{ minio_root_password }}"
+    volumes:
+      - /srv/minio:/data
+
+# 127.0.0.1, NOT ansible_host.
+#
+# wait_for runs ON THE TARGET, so this is es-01 probing es-01. Pointing it at
+# its own PUBLIC IP sends the packet out to the internet gateway and back in,
+# where the security group only allows port 9000 from your laptop's /32 -- so
+# the host cannot reach a service it is itself running. 60 seconds of timeout,
+# and because es-01 is the only host in this play, its failure aborts the whole
+# playbook before Elasticsearch is ever installed.
+#
+# The container publishes 9000 on the host, so loopback is both correct and
+# immune to whatever the security group says.
+- name: Wait for MinIO
+  ansible.builtin.wait_for:
+    host: 127.0.0.1
+    port: 9000
+    timeout: 60
+
+- name: Create the snapshot bucket
+  ansible.builtin.shell: |
+    set -o pipefail
+    docker run --rm --network host --entrypoint sh minio/mc:latest -c '
+      mc alias set lab http://127.0.0.1:9000 {{ minio_root_user }} {{ minio_root_password }} >/dev/null &&
+      mc mb --ignore-existing lab/es-snapshots'
+  args:
+    executable: /bin/bash
+  register: mc_bucket
+  changed_when: "'Bucket created' in mc_bucket.stdout"

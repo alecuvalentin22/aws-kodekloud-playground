@@ -1,0 +1,169 @@
+---
+# Deploy Keycloak and protect a Kong route with the tokens it issues.
+#
+# The interesting task in here is "Fetch the realm's signing key": the public
+# key is generated when the realm is created and changes every time the realm is
+# recreated, so hardcoding it into a manifest guarantees a broken lab the second
+# time you build it. It is fetched live and templated in instead.
+
+# TWO SETS OF URLS, AND THE DISTINCTION IS THE WHOLE TRICK.
+#
+#   *_issuer / *_issuer_base  -> the PUBLIC url. This is what Keycloak stamps
+#                                into every token's `iss` claim (because
+#                                KC_HOSTNAME is pinned to it) and therefore what
+#                                Kong must store as the credential's `key`.
+#                                It is an identifier, not necessarily a route.
+#
+#   *_local                   -> 127.0.0.1. This is how the tasks below actually
+#                                REACH the services, because they execute ON the
+#                                k3s node.
+#
+# Why they cannot be the same: a task running on the node that curls the node's
+# own PUBLIC ip sends the packet out to the internet gateway and back, into a
+# security group that only admits ports 30000-32767 from your laptop's /32. It
+# times out. Verified: public ip -> http_code 000 after 8s; loopback -> 200 in
+# 5ms.
+#
+# And this is exactly why KC_HOSTNAME is pinned in the deployment: it decouples
+# the issuer Keycloak ADVERTISES from the address you happen to reach it on, so
+# fetching over loopback still yields tokens whose `iss` is the public URL that
+# Kong is configured to trust.
+- name: Compute the Keycloak issuer and local URLs
+  ansible.builtin.set_fact:
+    keycloak_issuer_base: "http://{{ ansible_host }}:{{ keycloak_node_port }}"
+    keycloak_issuer: "http://{{ ansible_host }}:{{ keycloak_node_port }}/realms/{{ keycloak_realm }}"
+    keycloak_local: "http://127.0.0.1:{{ keycloak_node_port }}/realms/{{ keycloak_realm }}"
+    kong_local: "http://127.0.0.1:30080"
+
+- name: Load the realm definition
+  ansible.builtin.set_fact:
+    realm_json: "{{ lookup('ansible.builtin.file', playbook_dir + '/../kubernetes/keycloak/realm-lab.json') }}"
+
+- name: Render the Keycloak manifests
+  ansible.builtin.template:
+    src: keycloak.yaml.j2
+    dest: /opt/lab-manifests/keycloak.yaml
+    mode: "0644"
+
+- name: Apply Keycloak
+  ansible.builtin.command: kubectl apply -f /opt/lab-manifests/keycloak.yaml
+  environment:
+    KUBECONFIG: "{{ kubeconfig_path }}"
+  register: kc_apply
+  changed_when: "'created' in kc_apply.stdout or 'configured' in kc_apply.stdout"
+
+- name: Wait for Keycloak to be ready
+  ansible.builtin.command: >-
+    kubectl -n keycloak rollout status deploy/keycloak --timeout=420s
+  environment:
+    KUBECONFIG: "{{ kubeconfig_path }}"
+  changed_when: false
+
+# The realm's discovery document is public and unauthenticated. `public_key` is
+# the RSA modulus in base64 DER — WITHOUT the PEM armour, which is the detail
+# that trips people up. Kong wants a PEM.
+- name: Fetch the realm's signing key
+  ansible.builtin.uri:
+    url: "{{ keycloak_local }}"
+    method: GET
+    return_content: true
+  register: kc_realm
+  retries: 20
+  delay: 10
+  until: kc_realm.status == 200 and kc_realm.json.public_key is defined
+
+- name: Wrap the key in PEM armour, wrapped at 64 columns
+  ansible.builtin.set_fact:
+    keycloak_public_key_pem: |-
+      -----BEGIN PUBLIC KEY-----
+      {{ kc_realm.json.public_key | regex_replace('(.{64})', '\1\n') | trim }}
+      -----END PUBLIC KEY-----
+
+- name: Show the issuer Kong will trust
+  ansible.builtin.debug:
+    msg: >-
+      Issuer {{ keycloak_issuer }} — this exact string must match the `iss`
+      claim in the token, and is what Kong looks the key up by.
+
+- name: Render the Kong JWT configuration
+  ansible.builtin.template:
+    src: kong-jwt.yaml.j2
+    dest: /opt/lab-manifests/kong/kong-jwt.yaml
+    mode: "0644"
+
+- name: Apply the Kong JWT configuration
+  ansible.builtin.command: kubectl apply -f /opt/lab-manifests/kong/kong-jwt.yaml
+  environment:
+    KUBECONFIG: "{{ kubeconfig_path }}"
+  register: kong_jwt
+  changed_when: "'created' in kong_jwt.stdout or 'configured' in kong_jwt.stdout"
+
+# ---------------------------------------------------------------------------
+# Prove it. An unauthenticated call must be refused and an authenticated one
+# must succeed — asserting BOTH is what makes this a test rather than a hope.
+# ---------------------------------------------------------------------------
+- name: Wait for Kong to pick up the new route
+  ansible.builtin.uri:
+    url: "{{ kong_local }}/secure"
+    status_code: [401, 200]
+  register: kong_route_ready
+  retries: 20
+  delay: 5
+  until: kong_route_ready.status in [401, 200]
+
+- name: An unauthenticated request must be rejected
+  ansible.builtin.uri:
+    url: "{{ kong_local }}/secure"
+    status_code: 401
+  register: kong_anon
+  retries: 12
+  delay: 5
+  until: kong_anon.status == 401
+
+- name: Get an access token from Keycloak
+  ansible.builtin.uri:
+    url: "{{ keycloak_local }}/protocol/openid-connect/token"
+    method: POST
+    body_format: form-urlencoded
+    body:
+      # Resource Owner Password Credentials. Deprecated in OAuth 2.1 for real
+      # applications — it hands the user's password to the client — but it is
+      # the only grant that yields a token from a shell in one call, which is
+      # exactly what a test needs.
+      grant_type: password
+      client_id: "{{ keycloak_client_id }}"
+      username: "{{ keycloak_test_user }}"
+      password: "{{ keycloak_test_password }}"
+    status_code: 200
+  register: kc_token
+  no_log: true
+
+- name: An authenticated request must succeed
+  ansible.builtin.uri:
+    url: "{{ kong_local }}/secure"
+    headers:
+      Authorization: "Bearer {{ kc_token.json.access_token }}"
+    status_code: 200
+  register: kong_authed
+  retries: 6
+  delay: 5
+  until: kong_authed.status == 200
+
+- name: A tampered token must be rejected
+  ansible.builtin.uri:
+    url: "{{ kong_local }}/secure"
+    headers:
+      # Flip the last character of the signature. Same header, same claims,
+      # broken signature — this is the check that proves Kong is actually
+      # verifying rather than just looking for a header that parses.
+      Authorization: "Bearer {{ kc_token.json.access_token[:-1] }}{{ 'A' if kc_token.json.access_token[-1] != 'A' else 'B' }}"
+    status_code: 401
+  register: kong_tampered
+
+- name: Report
+  ansible.builtin.debug:
+    msg:
+      - "Keycloak    {{ keycloak_issuer_base }}  (admin / {{ keycloak_admin_password }})"
+      - "Open route  http://{{ ansible_host }}:30080/demo    -> 200, no auth"
+      - "JWT route   http://{{ ansible_host }}:30080/secure  -> 401 anonymous, 200 with a bearer token, 401 tampered"
+      - "Get a token: see drills/09-kong-oidc.md"

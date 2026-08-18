@@ -1,0 +1,30 @@
+---
+- name: Install Kibana
+  ansible.builtin.apt:
+    name: "kibana={{ elastic_version }}"
+    state: present
+    update_cache: true
+
+- name: Configure Kibana
+  ansible.builtin.copy:
+    dest: /etc/kibana/kibana.yml
+    owner: root
+    group: kibana
+    mode: "0660"
+    content: |
+      # Managed by Ansible
+      server.host: "0.0.0.0"
+      server.port: 5601
+      server.publicBaseUrl: "http://{{ ansible_host }}:5601"
+      elasticsearch.hosts:
+      {% for h in groups['elastic'] %}
+        - "http://{{ hostvars[h].private_ip | default(hostvars[h].ansible_host) }}:9200"
+      {% endfor %}
+  notify: restart kibana
+
+- name: Enable and start Kibana
+  ansible.builtin.systemd:
+    name: kibana
+    state: started
+    enabled: true
+    daemon_reload: true

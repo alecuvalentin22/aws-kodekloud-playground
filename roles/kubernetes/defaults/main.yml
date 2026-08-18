@@ -1,0 +1,48 @@
+---
+# "k3s" or "rke2". Both are SUSE distributions and both are managed identically
+# by Rancher. RKE2 is the hardened one -- CIS profiles, FIPS, static-pod control
+# plane -- and it fits on a t3.medium for a single node. See drills/07.
+k8s_distribution: k3s
+
+k3s_version: "v1.30.5+k3s1"
+rke2_version: "v1.30.5+rke2r1"
+
+# A t3.medium (4 GiB) CANNOT run Rancher and Keycloak together -- see the
+# comment on the Keycloak deployment strategy. Rancher ~1.5 GiB, Keycloak
+# ~1 GiB, cert-manager ~0.2, Kong ~0.5, k3s ~0.5: it does not fit.
+#
+# So pick one per run. Both are verified; they just cannot be verified at the
+# same time on this instance size. Bump to t3.large and the question goes away.
+rancher_enabled: true
+
+# Kong is the gateway, but it does not need to exist on every cluster. The RKE2
+# node runs Rancher; the k3s node runs Kong and Keycloak. Splitting them is what
+# makes both fit -- see the Keycloak deployment strategy comment.
+kong_enabled: true
+
+rancher_chart_version: "2.9.2"
+cert_manager_version: "v1.15.3"
+rancher_bootstrap_password: "CHANGE-ME-IN-VAULT"
+
+# k3s runs with --disable traefik (Kong is the gateway), so Rancher's Ingress
+# has no controller and nothing listens on 443. Reach it on a NodePort instead.
+rancher_node_port: 30443
+
+# --- Kong OIDC / Keycloak ----------------------------------------------------
+# Set false to skip Keycloak. Worth doing on a t3.medium if Rancher is already
+# running: Keycloak wants ~1 GiB, Rancher and cert-manager together want more
+# than that, and 4 GiB total does not stretch to all three plus Kong.
+kong_oidc_enabled: true
+
+keycloak_version: "26.0"
+keycloak_node_port: 30081
+keycloak_realm: lab
+keycloak_client_id: lab-api
+
+# Override in vault alongside the other passwords.
+keycloak_admin_password: "CHANGE-ME-IN-VAULT"
+
+# The test identity baked into realm-lab.json. Lab credentials, deliberately
+# boring — they exist to be curled, not to protect anything.
+keycloak_test_user: labuser
+keycloak_test_password: labpassword

@@ -1,0 +1,6 @@
+---
+- name: Full lab build
+  ansible.builtin.import_playbook: elastic.yml
+
+- name: Kubernetes, Rancher and Kong
+  ansible.builtin.import_playbook: k8s.yml

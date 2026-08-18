@@ -1,0 +1,43 @@
+{
+  "realm": "lab",
+  "enabled": true,
+  "accessTokenLifespan": 1800,
+  "sslRequired": "none",
+  "clients": [
+    {
+      "clientId": "lab-api",
+      "enabled": true,
+      "publicClient": true,
+      "protocol": "openid-connect",
+      "directAccessGrantsEnabled": true,
+      "standardFlowEnabled": false,
+      "serviceAccountsEnabled": false,
+      "attributes": {
+        "access.token.signed.response.alg": "RS256"
+      }
+    }
+  ],
+  "users": [
+    {
+      "username": "labuser",
+      "enabled": true,
+      "emailVerified": true,
+      "firstName": "Lab",
+      "lastName": "User",
+      "credentials": [
+        {
+          "type": "password",
+          "value": "labpassword",
+          "temporary": false
+        }
+      ],
+      "realmRoles": [
+        "default-roles-lab"
+      ],
+      "email": "labuser@lab.invalid",
+      "requiredActions": []
+    }
+  ],
+  "verifyEmail": false,
+  "resetPasswordAllowed": false
+}

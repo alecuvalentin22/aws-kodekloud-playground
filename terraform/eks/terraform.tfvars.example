@@ -1,0 +1,13 @@
+# cp terraform.tfvars.example terraform.tfvars
+
+public_access_cidrs = ["203.0.113.7/32"]   # curl -s ifconfig.me
+
+# --- KodeKloud playground (defaults are already correct) ---
+# create_iam_roles           = false          # the two permitted roles already exist
+# existing_cluster_role_name = "eksClusterRole"
+# existing_node_role_name    = "AmazonEKSNodeRole"
+# node_instance_type         = "t3.medium"
+# node_max_size              = 3
+
+# --- your own AWS account ---
+# create_iam_roles = true    # build the roles properly instead of borrowing them

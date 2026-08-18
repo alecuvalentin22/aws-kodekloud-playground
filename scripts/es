@@ -1,0 +1,12 @@
+#!/usr/bin/env bash
+# Tiny helper: ./scripts/es health | indices | shards | explain | nodes
+ES="${ES:-http://10.0.0.11:9200}"
+case "$1" in
+  health)   curl -s "$ES/_cluster/health?pretty" ;;
+  indices)  curl -s "$ES/_cat/indices?v&h=health,index,pri,rep,docs.count,store.size&s=index" ;;
+  shards)   curl -s "$ES/_cat/shards?v&h=index,shard,prirep,state,node,unassigned.reason" ;;
+  explain)  curl -s "$ES/_cluster/allocation/explain?pretty" ;;
+  nodes)    curl -s "$ES/_cat/nodes?v&h=name,node.role,master,heap.percent,ram.percent,disk.used_percent" ;;
+  ilm)      curl -s "$ES/app-logs/_ilm/explain?pretty" ;;
+  *)        echo "usage: ES=http://host:9200 $0 {health|indices|shards|explain|nodes|ilm}" ;;
+esac
