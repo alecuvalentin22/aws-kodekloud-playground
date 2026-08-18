@@ -1,0 +1,110 @@
+#!/usr/bin/env bash
+# Scenario runner -- reproducible GitOps experiments against a live cluster.
+#
+#   ./scripts/scenario list
+#   ./scripts/scenario run 01                 both controllers
+#   ./scripts/scenario run 01 --only argocd   one of them
+#   ./scripts/scenario reset 01
+#   ./scripts/scenario status
+#
+# Each scenario is a directory under gitops/scenarios/ containing a run.sh that
+# defines three functions:
+#
+#   scenario_apply   <controller>   put the cluster into the experimental state
+#   scenario_observe <controller>   poll and print what the controller did
+#   scenario_reset   <controller>   return to baseline
+#
+# The runner supplies $CTL (argocd|flux), $NS (demo-argocd|demo-flux) and
+# $ROOT, and handles timing, headers and cleanup. A scenario should print
+# OBSERVATIONS, not conclusions -- the point is to see what actually happens.
+set -uo pipefail
+
+ROOT="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
+SCEN_DIR="$ROOT/gitops/scenarios"
+export KUBECONFIG="${KUBECONFIG:-$HOME/.kube/eks-real}"
+
+c_hdr()  { printf "\n\033[1m%s\033[0m\n" "$*"; }
+c_ctl()  { printf "\033[36m  [%s]\033[0m %s\n" "$1" "${*:2}"; }
+c_warn() { printf "\033[33m  ! %s\033[0m\n" "$*"; }
+
+need_cluster() {
+  kubectl get ns >/dev/null 2>&1 || {
+    echo "No cluster. Export AWS creds and KUBECONFIG first." >&2; exit 1; }
+}
+
+find_scenario() {
+  local d
+  d=$(find "$SCEN_DIR" -maxdepth 1 -type d -name "$1-*" | head -1)
+  [[ -n "$d" ]] || { echo "No scenario '$1'. Try: scenario list" >&2; exit 1; }
+  echo "$d"
+}
+
+cmd_list() {
+  c_hdr "Scenarios"
+  for d in "$SCEN_DIR"/*/; do
+    [[ -f "$d/run.sh" ]] || continue
+    local id name q
+    id=$(basename "$d" | cut -d- -f1)
+    name=$(basename "$d" | cut -d- -f2-)
+    q=$(grep -m1 '^# QUESTION:' "$d/run.sh" 2>/dev/null | sed 's/^# QUESTION: *//')
+    printf "  \033[1m%s\033[0m  %-16s %s\n" "$id" "$name" "$q"
+  done
+  echo
+  echo "  ./scripts/scenario run <id> [--only argocd|flux]"
+}
+
+cmd_run() {
+  need_cluster
+  local dir only="" id="$1"; shift
+  [[ "${1:-}" == "--only" ]] && only="$2"
+  dir=$(find_scenario "$id")
+  # shellcheck disable=SC1090
+  source "$dir/run.sh"
+
+  c_hdr "Scenario $(basename "$dir")"
+  grep -m1 '^# QUESTION:' "$dir/run.sh" | sed 's/^# QUESTION: */  Q: /'
+  grep -m1 '^# EXPECT:'   "$dir/run.sh" | sed 's/^# EXPECT: */  Expect: /'
+
+  for CTL in argocd flux; do
+    [[ -n "$only" && "$only" != "$CTL" ]] && continue
+    export CTL NS="demo-$CTL" ROOT
+    c_hdr "-- $CTL --"
+    scenario_apply "$CTL"
+    scenario_observe "$CTL"
+  done
+  echo
+  c_warn "state left in place so you can inspect it; ./scripts/scenario reset $id when done"
+}
+
+cmd_reset() {
+  need_cluster
+  local dir; dir=$(find_scenario "$1")
+  # shellcheck disable=SC1090
+  source "$dir/run.sh"
+  for CTL in argocd flux; do
+    export CTL NS="demo-$CTL" ROOT
+    scenario_reset "$CTL" && c_ctl "$CTL" "reset"
+  done
+}
+
+cmd_status() {
+  need_cluster
+  c_hdr "Controllers"
+  kubectl -n argocd get applications --no-headers 2>/dev/null \
+    | awk '{printf "  argocd  %-16s %-10s %s\n",$1,$2,$3}'
+  flux get kustomizations 2>/dev/null | tail -n +2 \
+    | awk '{printf "  flux    %-16s ready=%s\n",$1,$4}'
+  c_hdr "Workloads"
+  for ns in demo-argocd demo-flux; do
+    kubectl -n "$ns" get deploy --no-headers 2>/dev/null \
+      | awk -v n="$ns" '{printf "  %-12s %-10s %s\n",n,$1,$2}'
+  done
+}
+
+case "${1:-list}" in
+  list)   cmd_list ;;
+  run)    shift; cmd_run "$@" ;;
+  reset)  shift; cmd_reset "$@" ;;
+  status) cmd_status ;;
+  *)      cmd_list ;;
+esac
