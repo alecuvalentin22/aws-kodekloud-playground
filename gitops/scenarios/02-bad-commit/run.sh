@@ -6,10 +6,24 @@
 # the desired state is unreachable, and where it says so.
 
 scenario_apply() {
-  kubectl -n "$NS" patch deploy podinfo --type=json \
-    -p='[{"op":"replace","path":"/spec/template/spec/containers/0/resources/requests/memory","value":"900Gi"}]' \
-    >/dev/null 2>&1
-  echo "    patched podinfo to request 900Gi (unschedulable)"
+  # CPU, not memory. The base sets a memory LIMIT of 128Mi, and the API server
+  # rejects any request that exceeds its own limit:
+  #
+  #   Invalid value: "900Gi": must be less than or equal to memory limit of 128Mi
+  #
+  # The first version of this scenario patched memory and suppressed stderr, so
+  # the patch was refused, nothing broke, and the scenario reported "Healthy"
+  # for 96 seconds on both controllers -- a completely convincing non-result.
+  #
+  # NEVER suppress the output of the thing whose failure you are testing for.
+  # The base deliberately sets no CPU limit, so a huge CPU request is accepted
+  # by the API server and then simply cannot be scheduled -- which is the state
+  # we actually want to observe.
+  local out
+  out=$(kubectl -n "$NS" patch deploy podinfo --type=json \
+    -p='[{"op":"replace","path":"/spec/template/spec/containers/0/resources/requests/cpu","value":"500"}]' 2>&1)
+  echo "    $out"
+  echo "    patched podinfo to request 500 CPUs (accepted, but unschedulable)"
 }
 
 scenario_observe() {
