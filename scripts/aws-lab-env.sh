@@ -6,6 +6,19 @@
 # Gets API credentials for the KodeKloud playground WITHOUT creating an access
 # key, by exchanging the console session for temporary ones.
 #
+# DOES NOT WORK IN THE KODEKLOUD PLAYGROUND -- verified on two separate
+# accounts, both of which answered:
+#
+#     Authentication failed
+#     Invalid request
+#
+# The flow needs console-to-CLI federation, which the playground's boundary
+# policy does not grant its IAM users. Use an access key there instead:
+#   IAM -> Users -> <kk_labs_user> -> Security credentials -> Create access key
+#
+# This script is kept because it DOES work against a normal AWS account, and it
+# is the better pattern there: no long-lived key ever exists.
+#
 # HOW IT WORKS
 #   `aws login` (AWS CLI >= 2.31) opens a browser, you sign in with the same
 #   console credentials KodeKloud gave you, and the CLI receives temporary

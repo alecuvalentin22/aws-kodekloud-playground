@@ -27,12 +27,29 @@ in the interview" section, and drills 09–17 are write-ups of bugs hit here.
 The playground gives console credentials. Two ways to get API access:
 
 ```bash
-# preferred: exchange the console session for temporary API credentials
-source scripts/aws-lab-env.sh          # runs `aws login`, then exports them
-
-# or paste access keys the playground UI gives you
 export AWS_ACCESS_KEY_ID=... AWS_SECRET_ACCESS_KEY=... AWS_DEFAULT_REGION=us-east-1
 ```
+
+Get those from the console: sign in with the credentials the playground gives
+you, then **IAM -> Users -> <your kk_labs_user> -> Security credentials ->
+Create access key -> CLI**.
+
+### `aws login` does NOT work here (verified twice, two different accounts)
+
+`scripts/aws-lab-env.sh` wraps `aws login`, the AWS CLI's browser flow that
+exchanges a console session for temporary API credentials. It is the nicer path
+because it creates no long-lived key -- and the KodeKloud playground **rejects
+it**:
+
+```
+Authentication failed
+Invalid request
+```
+
+The flow needs console-to-CLI federation, which the playground's boundary policy
+does not grant to its IAM users. The script is kept for real AWS accounts, where
+it works; in the playground, go straight to an access key and do not spend
+session time on it.
 
 **Never write lab credentials into `~/.aws/credentials`.** Users of this repo
 often have production profiles there. Keep them in the environment or a
