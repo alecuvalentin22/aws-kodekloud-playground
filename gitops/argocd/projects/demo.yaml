@@ -1,0 +1,35 @@
+# An AppProject is the SECURITY BOUNDARY, not a folder.
+#
+# The trap the Argo CD docs call out explicitly: a project whose destinations
+# allow the `argocd` namespace grants effective cluster admin, because an
+# Application in that project can then reconcile Argo CD's own RBAC ConfigMap
+# and Secrets. Note that `destinations` below names exactly one namespace.
+apiVersion: argoproj.io/v1alpha1
+kind: AppProject
+metadata:
+  name: demo
+  namespace: argocd
+  finalizers:
+    - resources-finalizer.argocd.argoproj.io
+spec:
+  description: Side-by-side GitOps comparison workloads
+
+  sourceRepos:
+    - https://github.com/alecuvalentin22/aws-kodekloud-playground.git
+
+  destinations:
+    - server: https://kubernetes.default.svc
+      namespace: demo-argocd
+
+  # Deny ALL cluster-scoped resources. An empty whitelist is a deny-list of
+  # everything -- this app needs none, so it gets none.
+  clusterResourceWhitelist: []
+
+  namespaceResourceBlacklist:
+    - {group: "", kind: ResourceQuota}
+    - {group: "", kind: LimitRange}
+
+  # Surface anything living in the namespace that Git does not know about,
+  # rather than silently tolerating it.
+  orphanedResources:
+    warn: true

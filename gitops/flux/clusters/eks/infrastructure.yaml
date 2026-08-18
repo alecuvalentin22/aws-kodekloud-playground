@@ -1,0 +1,20 @@
+apiVersion: kustomize.toolkit.fluxcd.io/v1
+kind: Kustomization
+metadata:
+  name: infrastructure
+  namespace: flux-system
+spec:
+  interval: 10m
+  retryInterval: 1m
+  timeout: 5m
+  sourceRef:
+    kind: GitRepository
+    name: platform-lab
+  path: ./gitops/flux/infrastructure
+  # prune is OFF by default in Flux -- the opposite of what people assume.
+  # Turning it on means deleting a file deletes the resource, same as Argo CD's
+  # automated.prune.
+  prune: true
+  # wait: block until every applied object reports Healthy. This is what makes
+  # dependsOn below meaningful rather than merely ordered.
+  wait: true

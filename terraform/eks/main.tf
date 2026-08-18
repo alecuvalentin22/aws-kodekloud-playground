@@ -24,10 +24,27 @@ data "aws_vpc" "default" {
   default = true
 }
 
+# default-for-az is the filter that makes this SAFE TO RE-RUN.
+#
+# Without it this data source enumerates every subnet in the VPC -- including
+# the private subnets THIS MODULE CREATES. On the second apply that produces two
+# subnets in the same availability zone, and the az -> subnet map below fails:
+#
+#   Error: Duplicate object key
+#   Two different items produced the key "us-east-1b" in this 'for' expression.
+#
+# A data source that can observe its own module's resources is a feedback loop:
+# the first apply succeeds, the second cannot even plan. `default-for-az` selects
+# only the subnets AWS created with the default VPC, which is what "the public
+# subnets that already existed" actually means here.
 data "aws_subnets" "default" {
   filter {
     name   = "vpc-id"
     values = [data.aws_vpc.default.id]
+  }
+  filter {
+    name   = "default-for-az"
+    values = ["true"]
   }
 }
 

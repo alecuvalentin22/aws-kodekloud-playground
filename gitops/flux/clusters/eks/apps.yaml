@@ -1,0 +1,27 @@
+apiVersion: kustomize.toolkit.fluxcd.io/v1
+kind: Kustomization
+metadata:
+  name: apps
+  namespace: flux-system
+spec:
+  # dependsOn is the piece Argo CD expresses as sync-waves. The difference is
+  # real: a sync-wave orders resources WITHIN one Application, whereas dependsOn
+  # orders whole Kustomizations against each other and, combined with wait:true
+  # above, will not start until the dependency is genuinely Healthy.
+  dependsOn:
+    - name: infrastructure
+  interval: 10m
+  retryInterval: 1m
+  timeout: 5m
+  sourceRef:
+    kind: GitRepository
+    name: platform-lab
+  path: ./gitops/app/overlays/flux
+  prune: true
+  wait: true
+  # Health assessment for a specific object, beyond "did it apply".
+  healthChecks:
+    - apiVersion: apps/v1
+      kind: Deployment
+      name: podinfo
+      namespace: demo-flux

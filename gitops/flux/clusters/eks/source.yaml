@@ -1,0 +1,14 @@
+# ONE source, many Kustomizations. Flux separates "where manifests come from"
+# (GitRepository) from "what to do with them" (Kustomization); Argo CD fuses
+# both into the Application. That is why Flux needs two objects here and Argo CD
+# needs one -- and why Flux can point ten Kustomizations at one clone.
+apiVersion: source.toolkit.fluxcd.io/v1
+kind: GitRepository
+metadata:
+  name: platform-lab
+  namespace: flux-system
+spec:
+  interval: 1m
+  url: https://github.com/alecuvalentin22/aws-kodekloud-playground.git
+  ref:
+    branch: main

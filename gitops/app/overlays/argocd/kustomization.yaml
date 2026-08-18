@@ -1,0 +1,18 @@
+# Deployed by ARGO CD. Identical base to the Flux overlay -- the only
+# differences are the namespace and the banner text, so that anything you
+# observe between the two is a property of the CONTROLLER, not the manifests.
+apiVersion: kustomize.config.k8s.io/v1beta1
+kind: Kustomization
+namespace: demo-argocd
+resources:
+  - ../../base
+labels:
+  - pairs:
+      app.kubernetes.io/managed-by: argocd
+    includeSelectors: false
+patches:
+  - target: {kind: Deployment, name: podinfo}
+    patch: |
+      - op: replace
+        path: /spec/template/spec/containers/0/env/0/value
+        value: "Deployed by Argo CD"

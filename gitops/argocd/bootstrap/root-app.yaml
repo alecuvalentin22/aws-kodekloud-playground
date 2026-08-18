@@ -1,0 +1,27 @@
+# The one object applied by hand. Everything else arrives through it.
+#
+# It points at the directory holding the AppProject and the ApplicationSet, so
+# adding either is a git commit rather than a kubectl apply. It also manages
+# ITSELF -- this file is inside the path it syncs -- which is why
+# ServerSideApply is mandatory here rather than optional.
+apiVersion: argoproj.io/v1alpha1
+kind: Application
+metadata:
+  name: root
+  namespace: argocd
+spec:
+  project: default
+  source:
+    repoURL: https://github.com/alecuvalentin22/aws-kodekloud-playground.git
+    targetRevision: main
+    path: gitops/argocd
+    directory:
+      recurse: true
+  destination:
+    server: https://kubernetes.default.svc
+    namespace: argocd
+  syncPolicy:
+    automated: {prune: true, selfHeal: true}
+    syncOptions:
+      - ServerSideApply=true
+      - CreateNamespace=true

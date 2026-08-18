@@ -1,0 +1,109 @@
+# Two GitOps controllers, one repository, one cluster
+
+Argo CD and Flux both reconcile **this repository** into **the same EKS
+cluster**, into two namespaces:
+
+| Controller | Namespace | Reconciles |
+|---|---|---|
+| Argo CD `v3.5.x` | `demo-argocd` | `gitops/app/overlays/argocd` |
+| Flux `v2.9.x` | `demo-flux` | `gitops/app/overlays/flux` |
+
+The two overlays share a single kustomize base and differ only in namespace and
+a banner string. That is deliberate: **anything you observe between them is a
+property of the controller, not of the manifests.**
+
+---
+
+## The demo worth running
+
+Scale both deployments by hand and watch what happens.
+
+```bash
+kubectl -n demo-argocd scale deploy/podinfo --replicas=5
+kubectl -n demo-flux   scale deploy/podinfo --replicas=5
+watch kubectl get deploy -A -l app.kubernetes.io/name=podinfo
+```
+
+Argo CD reverts within seconds — `selfHeal: true` means the cluster is not
+allowed to disagree with Git. Flux reverts on its next reconcile interval
+(`interval: 10m` here, so up to ten minutes) unless you hurry it along:
+
+```bash
+flux reconcile kustomization apps --with-source
+```
+
+Neither is "better". They encode different assumptions about how quickly the
+cluster should be forced back into line, and how surprising that should be to a
+human holding a terminal.
+
+---
+
+## Where the two genuinely differ
+
+| | Argo CD | Flux |
+|---|---|---|
+| Unit of work | `Application` — source **and** destination in one object | `GitRepository` + `Kustomization` — source and intent are separate |
+| Reuse | one Application per source/destination pair | ten Kustomizations can share one clone |
+| Ordering | `sync-wave` annotations, **within** an Application | `dependsOn` **between** Kustomizations, with `wait: true` |
+| Namespace creation | `CreateNamespace=true` sync option | declare the `Namespace` object like anything else |
+| Pruning default | opt in via `automated.prune` | opt in via `prune: true` |
+| Drift correction | `selfHeal`, near-immediate | next `interval`, or `flux reconcile` |
+| Interface | a real web UI, and it is the reason many teams pick it | CLI and CRD status; UI is a separate product |
+| Multi-cluster | one control plane reaches out to registered clusters | one Flux per cluster, each pulling for itself |
+
+That last row is the deepest split. **Argo CD is a hub** — one installation
+managing many clusters, with a single pane of glass and a single blast radius.
+**Flux is an agent** — every cluster runs its own copy and pulls for itself,
+with no central thing to lose. Multi-tenancy in Argo CD is `AppProject` plus
+RBAC; in Flux it is namespaces plus `serviceAccountName` on each Kustomization.
+
+---
+
+## What makes this configuration production-grade rather than a demo
+
+**Argo CD**
+- `AppProject` restricts destinations to exactly `demo-argocd`, and
+  `clusterResourceWhitelist: []` denies every cluster-scoped resource. The
+  documented trap is a project whose destinations include the `argocd`
+  namespace — that is effectively cluster admin, because an Application can then
+  rewrite Argo CD's own RBAC.
+- `ServerSideApply=true`, required for objects that exceed the 262144-byte
+  client-side apply annotation, and what makes per-field ownership meaningful.
+- `retry` with exponential backoff, so a transient webhook failure does not wait
+  for the next reconcile loop.
+- `PruneLast=true`, so a rename cannot delete the replacement.
+- Root Application manages the directory that contains itself, so adding an
+  `ApplicationSet` is a commit rather than a `kubectl apply`.
+
+**Flux**
+- `dependsOn` plus `wait: true` — apps do not start reconciling until
+  infrastructure is genuinely `Healthy`, not merely applied.
+- `healthChecks` naming the specific Deployment, so "did it apply" and "does it
+  work" are different questions.
+- `retryInterval` and `timeout` set explicitly rather than inherited.
+- One `GitRepository` shared by both Kustomizations — clone once, use twice.
+
+**Both**
+- Resource requests on every container. On Fargate these are not advisory: the
+  micro-VM is sized from the sum of container requests, so omitting them buys
+  the 0.25 vCPU / 0.5 GB minimum whatever the workload actually needs.
+
+---
+
+## What is deliberately NOT here
+
+**Secrets.** Neither controller is wired to a secret store. The Argo CD docs are
+unambiguous that secrets should be materialised by a controller **on the
+destination cluster** — External Secrets Operator, Sealed Secrets, or SOPS —
+rather than decrypted during manifest generation. For a public repository,
+Sealed Secrets or SOPS+age are the safe options because the committed ciphertext
+is useless without the in-cluster key. Adding one is the obvious next step; the
+wrong move would be committing anything that a reader of this repo could decrypt.
+
+**Image automation.** Flux's `ImageRepository`/`ImagePolicy`/`ImageUpdateAutomation`
+would let a new image tag write itself back to Git. It needs write credentials
+to this repository, which is a bigger decision than it looks on a public repo.
+
+**Multi-cluster.** Both are pointed at one cluster. Argo CD would grow by adding
+labelled cluster `Secret`s and a cluster generator; Flux would grow by
+installing Flux on the second cluster and giving it its own `clusters/` directory.

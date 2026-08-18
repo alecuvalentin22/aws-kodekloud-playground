@@ -1,0 +1,9 @@
+# Flux does not have Argo CD's CreateNamespace=true sync option -- a namespace
+# is just another object you declare. That is the philosophical difference in
+# miniature: Argo CD offers a sync-time behaviour, Flux wants the resource.
+apiVersion: v1
+kind: Namespace
+metadata:
+  name: demo-flux
+  labels:
+    app.kubernetes.io/managed-by: flux

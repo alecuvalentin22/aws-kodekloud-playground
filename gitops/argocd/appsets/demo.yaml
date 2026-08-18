@@ -1,0 +1,66 @@
+# ApplicationSet with a git directory generator.
+#
+# Why an ApplicationSet for a single app: it is the pattern that scales, and the
+# generator means adding a directory under app/overlays/ is how you onboard a
+# new environment -- no new Application YAML, nothing to apply by hand.
+apiVersion: argoproj.io/v1alpha1
+kind: ApplicationSet
+metadata:
+  name: demo-apps
+  namespace: argocd
+spec:
+  goTemplate: true
+  # missingkey=error turns a typo'd template variable into a loud failure
+  # instead of an Application silently named "<no value>".
+  goTemplateOptions: ["missingkey=error"]
+
+  generators:
+    - git:
+        repoURL: https://github.com/alecuvalentin22/aws-kodekloud-playground.git
+        revision: main
+        directories:
+          # Only the argocd overlay. The flux overlay in the same repo is
+          # deliberately NOT matched -- Flux owns that one.
+          - path: gitops/app/overlays/argocd
+
+  template:
+    metadata:
+      name: 'demo-{{.path.basename}}'
+    spec:
+      project: demo
+
+      source:
+        repoURL: https://github.com/alecuvalentin22/aws-kodekloud-playground.git
+        targetRevision: main
+        path: '{{.path.path}}'
+
+      destination:
+        server: https://kubernetes.default.svc
+        namespace: demo-argocd
+
+      syncPolicy:
+        automated:
+          # prune: deleting the file deletes the resource. This makes a merge to
+          # main a destructive production action -- protect the branch.
+          prune: true
+          # selfHeal: reverts manual kubectl changes within seconds. This is the
+          # single most visible difference from a click-driven tool, and the
+          # thing to demo.
+          selfHeal: true
+        syncOptions:
+          - CreateNamespace=true
+          # ServerSideApply: required for resources that exceed the 262144-byte
+          # last-applied-configuration annotation, and it is what makes
+          # per-field ownership (managedFields) meaningful.
+          - ServerSideApply=true
+          # Only apply resources that actually drifted, instead of re-applying
+          # every object on every sync.
+          - ApplyOutOfSyncOnly=true
+          # Defer all deletions to the end, so a rename cannot delete the new
+          # object before the old one is replaced.
+          - PruneLast=true
+        retry:
+          # Without this a failed sync just waits for the next reconcile loop,
+          # which is far too slow for a transient webhook or API-server blip.
+          limit: 5
+          backoff: {duration: 5s, factor: 2, maxDuration: 3m}

@@ -1,0 +1,17 @@
+# Deployed by FLUX. See the Argo CD overlay -- deliberately identical apart from
+# namespace and banner.
+apiVersion: kustomize.config.k8s.io/v1beta1
+kind: Kustomization
+namespace: demo-flux
+resources:
+  - ../../base
+labels:
+  - pairs:
+      app.kubernetes.io/managed-by: flux
+    includeSelectors: false
+patches:
+  - target: {kind: Deployment, name: podinfo}
+    patch: |
+      - op: replace
+        path: /spec/template/spec/containers/0/env/0/value
+        value: "Deployed by Flux"

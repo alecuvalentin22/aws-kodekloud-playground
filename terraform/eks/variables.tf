@@ -9,9 +9,23 @@ variable "prefix" {
 }
 
 variable "cluster_version" {
-  description = "EKS control plane version. AWS supports roughly the last four minors."
+  description = <<-EOT
+    EKS control plane version.
+
+    MINIMUM 1.33 -- that is Flux v2.9's documented floor
+    (fluxcd.io/flux/installation/). Flux "may work" on older versions but the
+    project neither recommends nor supports them, and building a GitOps demo on
+    an unsupported control plane is not a production-grade story.
+
+    Argo CD is far more relaxed about this; Flux is the binding constraint.
+  EOT
   type        = string
-  default     = "1.30"
+  default     = "1.33"
+
+  validation {
+    condition     = tonumber(split(".", var.cluster_version)[1]) >= 33
+    error_message = "Flux v2.9 requires Kubernetes >= 1.33."
+  }
 }
 
 # ---------------------------------------------------------------------------
@@ -132,4 +146,34 @@ variable "create_node_group" {
   EOT
   type        = bool
   default     = true
+}
+
+variable "create_fargate" {
+  description = <<-EOT
+    Build private subnets, a NAT gateway and Fargate profiles.
+
+    REQUIRED for any workload in this playground: eks:CreateNodegroup is denied,
+    so Fargate is the only way to run a pod. Fargate in turn requires private
+    subnets, which a default VPC does not have -- hence the NAT gateway.
+
+    A NAT gateway is billed hourly plus per-GB. Destroy the stack when done.
+  EOT
+  type        = bool
+  default     = false
+}
+
+variable "fargate_role_name" {
+  description = "Fixed by the boundary policy -- it permits creating exactly this name."
+  type        = string
+  default     = "AmazonEKSFargatePodExecutionRole"
+}
+
+variable "fargate_namespaces" {
+  description = <<-EOT
+    Namespaces whose pods run on Fargate. A pod in a namespace with no matching
+    profile stays Pending forever, and on a nodeless cluster that is every pod
+    you forgot to list -- including CoreDNS, which is why kube-system is here.
+  EOT
+  type        = list(string)
+  default     = ["kube-system", "argocd", "flux-system", "demo"]
 }
