@@ -16,3 +16,9 @@ patches:
       - op: replace
         path: /spec/template/spec/containers/0/env/0/value
         value: "Deployed by Argo CD"
+
+# Reconciliation-latency probe: bump this and measure how long each controller
+# takes to reflect a git push. See gitops/README.md.
+replicas:
+  - name: podinfo
+    count: 3
