@@ -16,8 +16,29 @@
       write-kubeconfig-mode: "0644"
       tls-san:
         - {{ ansible_host }}
-      disable:
-        - rke2-ingress-nginx      # Kong is the gateway in this lab
+      # rke2-ingress-nginx is DELIBERATELY LEFT ENABLED when this node runs
+      # Rancher, and that is not a style preference -- it is load-bearing.
+      #
+      # Disabling it forces you to reach Rancher some other way, and the
+      # obvious workaround (a NodePort straight to the pod's TLS port 444)
+      # silently breaks cluster import:
+      #
+      #   cattle-cluster-agent: Could not securely connect to
+      #   https://<ip>:30443: x509: certificate signed by unknown authority
+      #
+      # Port 444 is served by Rancher's INTERNAL dynamiclistener, whose CA is
+      # regenerated in memory and is NOT the CA that Rancher publishes in its
+      # `cacerts` setting. Verified: the served cert was issued by
+      # dynamiclistener-ca@...045 while cacerts advertised ...041, and the
+      # signing CA existed in no secret on the cluster. Agents pin on cacerts,
+      # so they can never validate that connection.
+      #
+      # Reached through its Ingress, Rancher serves the cert-manager
+      # certificate that cacerts actually describes, and agents connect.
+      #
+      # Kong is the gateway on the k3s node; this node runs Rancher, and
+      # Rancher needs an ingress controller.
+      disable: "{{ ['rke2-ingress-nginx'] if not rancher_enabled | bool else [] }}"
   notify: restart rke2-server
 
 - name: Install RKE2

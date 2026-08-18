@@ -18,7 +18,7 @@
 
 - name: Resolve the Rancher and downstream hosts
   ansible.builtin.set_fact:
-    rancher_api: "https://127.0.0.1:{{ rancher_node_port }}"
+    rancher_api: "https://127.0.0.1:{{ rancher_node_port }}"   # admin API, loopback
     downstream_host: "{{ groups['k8s'] | difference([inventory_hostname]) | first }}"
 
 - name: Fail early if there is nothing to import

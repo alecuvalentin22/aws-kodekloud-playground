@@ -17,6 +17,19 @@
   become: true
   gather_facts: true
   tasks:
+    # include_ROLE with tasks_from, NOT include_tasks.
+    #
+    # include_tasks on a file that happens to live inside a role loads the
+    # TASKS and nothing else -- no defaults/, no vars/. Every variable the file
+    # relies on is then undefined:
+    #
+    #   Error while resolving value for 'rancher_api':
+    #   'rancher_node_port' is undefined
+    #
+    # include_role runs the role machinery, so roles/kubernetes/defaults is
+    # loaded first and rancher_node_port / rancher_import_name resolve.
     - name: Run the import from the Rancher host only
-      ansible.builtin.include_tasks: ../roles/kubernetes/tasks/rancher-import.yml
+      ansible.builtin.include_role:
+        name: kubernetes
+        tasks_from: rancher-import.yml
       when: k8s_distribution == 'rke2'
