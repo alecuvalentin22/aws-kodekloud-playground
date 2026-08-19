@@ -1,0 +1,64 @@
+# NAMESPACE FIRST. kubectl applies documents in file order, so a Namespace
+# declared after the resources that live in it fails with 'namespaces not found'
+# on a clean cluster -- and succeeds on a re-run, which hides it.
+apiVersion: v1
+kind: Namespace
+metadata: {name: demo-bluegreen}
+---
+# BLUE/GREEN with Argo Rollouts.
+#
+# Unlike canary, blue/green needs NO traffic provider: it works by repointing
+# Services. Two Services exist -- active (what users hit) and preview (what you
+# test) -- and promotion is a label-selector switch, which is atomic.
+#
+# That is the trade-off in one line: blue/green is all-or-nothing but needs no
+# mesh; canary is gradual but needs something that can weight traffic.
+apiVersion: argoproj.io/v1alpha1
+kind: Rollout
+metadata:
+  name: podinfo-bg
+  namespace: demo-bluegreen
+spec:
+  replicas: 2
+  selector:
+    matchLabels: {app: podinfo-bg}
+  template:
+    metadata:
+      labels: {app: podinfo-bg}
+    spec:
+      containers:
+        - name: podinfo
+          image: ghcr.io/stefanprodan/podinfo:6.7.1
+          ports: [{containerPort: 9898}]
+          resources:
+            requests: {cpu: 20m, memory: 32Mi}
+            limits:   {memory: 128Mi}
+          readinessProbe:
+            httpGet: {path: /readyz, port: 9898}
+            initialDelaySeconds: 3
+  strategy:
+    blueGreen:
+      activeService: podinfo-bg-active
+      previewService: podinfo-bg-preview
+      # false = a human promotes. This is the honest default for blue/green:
+      # the whole point is that you look at the preview before cutting over.
+      autoPromotionEnabled: false
+      # Keep the old ReplicaSet alive for 30s after promotion so rollback is
+      # instant -- just switch the selector back.
+      scaleDownDelaySeconds: 30
+---
+apiVersion: v1
+kind: Service
+metadata: {name: podinfo-bg-active, namespace: demo-bluegreen}
+spec:
+  type: NodePort
+  selector: {app: podinfo-bg}
+  ports: [{port: 9898, targetPort: 9898, nodePort: 30086}]
+---
+apiVersion: v1
+kind: Service
+metadata: {name: podinfo-bg-preview, namespace: demo-bluegreen}
+spec:
+  type: NodePort
+  selector: {app: podinfo-bg}
+  ports: [{port: 9898, targetPort: 9898, nodePort: 30087}]

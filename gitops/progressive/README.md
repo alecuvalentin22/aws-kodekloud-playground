@@ -14,7 +14,7 @@ Each ecosystem has a **separate controller** for this:
 | Drives from | explicit `steps` (`setWeight`, `pause`) | metric analysis, on an interval |
 | Gate | `AnalysisTemplate`, optional | metric queries, central to the design |
 | Rollback | automatic when analysis fails | automatic when analysis fails |
-| Without a mesh | replica-count approximation | needs a provider; `kubernetes` provider does blue/green only |
+| Without a mesh | replica-count approximation for canary; **blue/green works fully** | needs a provider; `kubernetes` provider does blue/green only |
 | Maturity (Aug 2026) | v1.9.1, ~4 releases in 20 months, pushed daily | v1.44.0, 8 years old, ~6 releases in 20 months, still `v1beta1` API |
 
 **Both need something that can weight traffic** for a true canary — Gateway API,
@@ -116,3 +116,32 @@ still reported `max_pods: 17`.
 
 To finish the Flagger drill: enable prefix delegation *before* the nodes launch,
 or use an instance type with more ENIs.
+
+### Blue/green — measured, and it needs no traffic provider
+
+```
+t+20s  phase=Paused  active=679565ff6  preview=6fbd757ddc
+       users still on OLD; preview serves NEW
+```
+
+Two ReplicaSets alive at once, two Services pointing at different pod hashes,
+**paused indefinitely** because `autoPromotionEnabled: false`. Promotion is a
+label-selector switch, which is atomic; rollback is switching it back, which is
+why `scaleDownDelaySeconds` keeps the old ReplicaSet warm.
+
+**This is the one progressive-delivery style that needs no mesh and no ingress
+weighting** — it repoints Services rather than splitting traffic. That makes it
+the realistic option on a cluster without a traffic layer, and the trade is that
+it is all-or-nothing: there is no 5%, and no per-request routing, so no A/B.
+
+Promotion needs the Argo Rollouts kubectl plugin (`kubectl argo rollouts promote`).
+The raw annotation is not a supported substitute.
+
+### Two ordering bugs, same shape as elsewhere in this repo
+
+- A `Namespace` declared **after** the resources that live in it fails on a clean
+  cluster with `namespaces "demo-bluegreen" not found`, and succeeds on a re-run.
+  Same class as the KongConsumer/Secret ordering in the Ansible lab.
+- Patching a Rollout to the image it already runs is a **no-op**: `active` and
+  `preview` keep the same hash and nothing happens. Easy to misread as "blue/green
+  is broken" when it is "nothing changed".
