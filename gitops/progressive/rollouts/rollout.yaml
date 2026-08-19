@@ -1,0 +1,47 @@
+# Argo Rollouts replaces the Deployment entirely. The Rollout CRD takes the same
+# pod template, and the controller owns the ReplicaSets -- which is why you
+# cannot have both a Deployment and a Rollout managing the same pods.
+apiVersion: argoproj.io/v1alpha1
+kind: Rollout
+metadata:
+  name: podinfo
+  namespace: demo-rollouts
+spec:
+  replicas: 4
+  revisionHistoryLimit: 2
+  selector:
+    matchLabels: {app: podinfo-rollout}
+  template:
+    metadata:
+      labels: {app: podinfo-rollout}
+    spec:
+      containers:
+        - name: podinfo
+          image: ghcr.io/stefanprodan/podinfo:6.7.1
+          ports: [{containerPort: 9898}]
+          resources:
+            requests: {cpu: 25m, memory: 32Mi}
+            limits:   {memory: 128Mi}
+          readinessProbe:
+            httpGet: {path: /readyz, port: 9898}
+            initialDelaySeconds: 3
+  strategy:
+    canary:
+      # WITHOUT a traffic provider these weights are approximated by REPLICA
+      # COUNT: setWeight 25 with 4 replicas means 1 canary pod. That is an
+      # honest canary only if your traffic is evenly distributed across pods.
+      # For true percentage or header-based splitting you need Gateway API,
+      # Istio, NGINX or an ALB configured under `trafficRouting`.
+      # analysis runs ALONGSIDE the steps. This is what makes the rollout
+      # self-aborting rather than merely self-pausing.
+      analysis:
+        templates:
+          - templateName: canary-health
+        startingStep: 1
+      steps:
+        - setWeight: 25
+        - pause: {duration: 30s}
+        - setWeight: 50
+        - pause: {duration: 30s}
+        - setWeight: 75
+        - pause: {duration: 30s}

@@ -1,0 +1,10 @@
+apiVersion: v1
+kind: Service
+metadata:
+  name: podinfo
+  namespace: demo-rollouts
+spec:
+  type: NodePort
+  selector: {app: podinfo-rollout}
+  ports:
+    - {port: 9898, targetPort: 9898, nodePort: 30085}

@@ -1,0 +1,51 @@
+apiVersion: v1
+kind: Namespace
+metadata:
+  name: demo-flagger
+---
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: podinfo
+  namespace: demo-flagger
+spec:
+  replicas: 2
+  selector:
+    matchLabels: {app: podinfo}
+  template:
+    metadata:
+      labels: {app: podinfo}
+      annotations:
+        prometheus.io/scrape: "true"
+        prometheus.io/port: "9898"
+    spec:
+      containers:
+        - name: podinfo
+          image: ghcr.io/stefanprodan/podinfo:6.7.1
+          ports: [{containerPort: 9898, name: http}]
+          resources:
+            requests: {cpu: 25m, memory: 32Mi}
+            limits:   {memory: 128Mi}
+          readinessProbe:
+            httpGet: {path: /readyz, port: 9898}
+            initialDelaySeconds: 3
+---
+# Flagger needs an Ingress to weight traffic through. This one is claimed by
+# ingress-nginx; Flagger clones it into podinfo-canary and rewrites the weights.
+apiVersion: networking.k8s.io/v1
+kind: Ingress
+metadata:
+  name: podinfo
+  namespace: demo-flagger
+spec:
+  ingressClassName: nginx
+  rules:
+    - host: podinfo.local
+      http:
+        paths:
+          - path: /
+            pathType: Prefix
+            backend:
+              service:
+                name: podinfo
+                port: {number: 9898}

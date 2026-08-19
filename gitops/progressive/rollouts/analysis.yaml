@@ -1,0 +1,39 @@
+# An AnalysisTemplate is what turns "pause and wait for a human" into
+# "judge and roll back on its own". Without one, a canary with steps only
+# CONTAINS a bad release (blast radius capped at setWeight) but sits there
+# Progressing forever -- measured: 1 broken pod, 3 healthy, stuck at step 0.
+#
+# In production this queries Prometheus/Datadog/CloudWatch for error rate or
+# latency. Here it uses the `job` provider so the drill needs no metrics stack:
+# the job curls the canary's own /healthz and exits non-zero if it is not
+# serving, which is exactly the signal a broken image produces.
+apiVersion: argoproj.io/v1alpha1
+kind: AnalysisTemplate
+metadata:
+  name: canary-health
+  namespace: demo-rollouts
+spec:
+  metrics:
+    - name: canary-responds
+      # Check 3 times; one failure aborts the rollout.
+      count: 3
+      interval: 20s
+      failureLimit: 0
+      provider:
+        job:
+          spec:
+            backoffLimit: 0
+            template:
+              spec:
+                restartPolicy: Never
+                containers:
+                  - name: check
+                    image: curlimages/curl:8.10.1
+                    command: [sh, -c]
+                    args:
+                      - |
+                        set -e
+                        code=$(curl -s -o /dev/null -w '%{http_code}' \
+                          --max-time 5 http://podinfo.demo-rollouts:9898/healthz || echo 000)
+                        echo "canary /healthz -> $code"
+                        test "$code" = "200"

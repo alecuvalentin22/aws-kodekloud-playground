@@ -1,0 +1,48 @@
+# Flagger works the opposite way round to Argo Rollouts: you keep your ordinary
+# Deployment, and Flagger COPIES it into podinfo-primary, then manages the
+# original as the canary target. Your Deployment ends up scaled to zero and
+# Flagger owns the traffic split -- surprising the first time you see it.
+apiVersion: flagger.app/v1beta1
+kind: Canary
+metadata:
+  name: podinfo
+  namespace: demo-flagger
+spec:
+  provider: nginx
+  targetRef:
+    apiVersion: apps/v1
+    kind: Deployment
+    name: podinfo
+  ingressRef:
+    apiVersion: networking.k8s.io/v1
+    kind: Ingress
+    name: podinfo
+  progressDeadlineSeconds: 300
+  service:
+    port: 9898
+    targetPort: 9898
+  analysis:
+    # Check every 15s, promote 10% each time, give up after 5 failures.
+    interval: 15s
+    threshold: 5
+    maxWeight: 50
+    stepWeight: 10
+    metrics:
+      # These are Flagger's BUILT-IN metric checks, backed by the Prometheus it
+      # ships with. This is the core difference from Argo Rollouts: analysis is
+      # not optional decoration, it is the thing driving the rollout. Fall below
+      # 99% success rate and Flagger rolls back on its own.
+      - name: request-success-rate
+        thresholdRange: {min: 99}
+        interval: 1m
+      - name: request-duration
+        thresholdRange: {max: 500}
+        interval: 30s
+    webhooks:
+      # Flagger generates load itself so the metrics have traffic to measure.
+      # Without this a low-traffic canary has no signal and stalls.
+      - name: load-test
+        url: http://flagger-loadtester.demo-flagger/
+        timeout: 5s
+        metadata:
+          cmd: "hey -z 1m -q 5 -c 2 http://podinfo-canary.demo-flagger:9898/"
