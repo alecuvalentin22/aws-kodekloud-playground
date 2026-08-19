@@ -215,6 +215,52 @@ never suppress the output of the thing whose failure you are testing — scenari
 02 hid a rejected patch and reported "Healthy" for 96 seconds — and never let a
 test harness rewrite git history.
 
+## 4c. Progressive delivery (canary / blue-green)
+
+**Neither Argo CD nor Flux does this.** Both stop at "apply the manifests" —
+what you get is a Kubernetes RollingUpdate with no traffic weighting, no metric
+gates and no automatic rollback. Scenario 05 measures exactly what that costs.
+
+It needs a SEPARATE controller: **Argo Rollouts** (Argo side) or **Flagger**
+(Flux side). Manifests for both live in `gitops/progressive/`.
+
+Measured on EKS v1.33:
+
+- **Argo Rollouts canary works** — 25/50/75 promotion with pauses, ~120s end to
+  end. On a broken image it **capped the blast radius at 25% and stopped, but
+  did NOT roll back**. Steps pause; they do not judge.
+- **The analysis trap**: an `AnalysisTemplate` curling `/healthz` reported
+  `Successful` while a broken pod sat there. Not a bug — without `trafficRouting`
+  there is no separate canary Service, so it hit the STABLE Service backed by
+  healthy old pods. **Analysis is only meaningful with a traffic provider.**
+- **Flagger** initialised and confirmed its architecture (`podinfo` scaled to
+  0/0, `podinfo-primary` 2/2 — it keeps your Deployment object but runs its own
+  copy). Its analysis did not complete, for capacity reasons below.
+
+### The EKS limit that blocks it: pods per node, not CPU
+
+```
+0/2 nodes are available: 2 Too many pods
+cpu 680m (35%)        <- plenty of CPU free
+max_pods/node: 17
+```
+
+Every EKS pod takes a **real VPC IP from an ENI**, so pod density is capped by
+instance type. A `t3.medium` allows **17 pods** however idle the CPU is. Argo CD
+(7) + Flux (4) + Rollouts + ingress-nginx + Flagger + Prometheus exhausts three
+nodes. **This is invisible on k3s**, which uses an overlay network.
+
+The fix is prefix delegation, not bigger nodes:
+
+```bash
+kubectl -n kube-system set env daemonset aws-node ENABLE_PREFIX_DELEGATION=true
+```
+
+17 -> ~110 pods on a t3.medium. **It only applies to nodes that join afterwards**
+— kubelet computes `max-pods` at bootstrap, so existing nodes keep the old
+ceiling (verified: they still reported 17 after enabling it). Set it before the
+nodes launch, or raise `node_max_size` / use a larger instance type.
+
 ## 5. What the playground does NOT allow
 
 Verified by running it, not by reading docs:

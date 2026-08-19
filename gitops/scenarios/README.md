@@ -20,6 +20,7 @@ cluster, and prints timestamped observations rather than conclusions.
 | **02** | What does each report while a pod cannot schedule? | **argocd never broke (selfHeal) · flux `pending=1` for 84s, reporting `ReconciliationSucceeded`** |
 | **03** | How fast is manual drift undone? | **argocd ~10s · flux still drifted at 80s** |
 | **04** | How long from `git push` to live? | **flux 78s · argocd 155s** — inverts 03 |
+| **05** | A release is broken. Does GitOps roll it back? | **No.** Both deploy it faithfully; recovery is a human `git revert` (26s once pushed) |
 
 ## The finding that runs through 01 and 02
 
