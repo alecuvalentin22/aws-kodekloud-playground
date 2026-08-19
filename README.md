@@ -11,6 +11,19 @@ neither is.
 
 ---
 
+## Shareable write-ups
+
+Two published artifacts, both built from measurements in this repo:
+
+- **Architecture** — what builds what, what calls what, and the ordering rules
+  that cannot be swapped
+  <https://claude.ai/code/artifact/33a25fb7-fda8-46b5-a4ce-b1cb09a33130>
+- **GitOps delivery styles** — Argo CD vs Flux, and what canary / blue-green
+  actually require
+  <https://claude.ai/code/artifact/3bbe06ac-2659-4c85-8f3d-b80bc518dda4>
+
+They are private until shared from the page's share menu.
+
 ## Start here
 
 ```bash

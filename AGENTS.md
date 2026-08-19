@@ -7,6 +7,17 @@ real KodeKloud AWS playground on 2026-08-18, so you do not repeat them.
 
 ---
 
+## 0b. Published artifacts
+
+Two write-ups exist for this work. **Update them rather than minting new ones**
+— republishing the same URL keeps the link stable:
+
+- Architecture: <https://claude.ai/code/artifact/33a25fb7-fda8-46b5-a4ce-b1cb09a33130>
+- GitOps delivery styles: <https://claude.ai/code/artifact/3bbe06ac-2659-4c85-8f3d-b80bc518dda4>
+
+Pass the URL as the `url` parameter when publishing from a new conversation,
+otherwise a fresh URL is created and the shared link goes stale.
+
 ## 1. What this repo is
 
 A lab that builds, with Terraform + Ansible:
