@@ -52,6 +52,12 @@ Measured on EKS v1.33 with two self-managed nodes:
 | 02 | pod cannot schedule | argocd never broke (selfHeal) · **flux `pending=1` for 84s, reporting `ReconciliationSucceeded`** |
 | 03 | manual drift | **argocd ~10s** · flux still drifted at 80s |
 | 04 | `git push` to live | **flux 78s** · argocd 155s |
+| 05 | a broken release | **neither rolls back** — recovery is a human `git revert` |
+
+Progressive delivery (`gitops/progressive/`) is a **separate controller** in both
+ecosystems — Argo Rollouts or Flagger. Measured: a Rollouts canary promoted
+25→50→75→100% cleanly, and on a broken image **capped the blast radius at 25%
+but did not roll back** — steps pause, they do not judge.
 
 03 and 04 invert each other, and 01/02 expose the deeper split: **Argo CD's
 status answers "does the cluster match git and is it healthy"; Flux's answers
