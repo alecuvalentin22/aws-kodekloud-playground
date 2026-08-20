@@ -1,5 +1,5 @@
 #!/usr/bin/env bash
-# Install Argo CD and Flux side by side on the EKS Fargate cluster.
+# Install Argo CD and Flux side by side on the EKS cluster.
 #
 #   ./scripts/gitops-install.sh
 #
@@ -25,23 +25,35 @@ echo "==> kubeconfig -> $KUBECONFIG"
 aws eks update-kubeconfig --region "$REGION" --name "$CLUSTER" --alias "$CLUSTER" >/dev/null
 
 # ---------------------------------------------------------------------------
-# THE FARGATE-ONLY GOTCHA, AND IT BLOCKS EVERYTHING DOWNSTREAM.
+# This script used to patch CoreDNS here.
 #
-# EKS ships CoreDNS annotated eks.amazonaws.com/compute-type: ec2, because it
-# normally runs on nodes. On a cluster with NO nodes that annotation means the
-# pods are never scheduled -- CoreDNS sits Pending forever and cluster DNS never
-# works. Nothing else will come up, and the symptom (every pod failing to
-# resolve anything) points nowhere near the cause.
+# On the Fargate-only cluster it had to: EKS ships CoreDNS annotated
+# `eks.amazonaws.com/compute-type: ec2`, and on a cluster with no EC2 nodes
+# those pods sat Pending forever, so cluster DNS never came up and every pod
+# downstream failed to resolve anything.
 #
-# Removing the annotation lets the kube-system Fargate profile pick it up.
+# eks:CreateFargateProfile is now known to be denied by an organization SCP on
+# this account, so the cluster runs self-managed EC2 nodes and the annotation is
+# satisfied as written. The patch is gone rather than made conditional -- a
+# no-op patch that "already applied" every run teaches the reader nothing.
+# See drills/ and AGENTS.md section 5.
+#
+# What DOES need checking before installing anything is pod capacity, because
+# the failure mode is not obvious: pods stay Pending with "Too many pods" while
+# CPU sits at 35%.
 # ---------------------------------------------------------------------------
-echo "==> patching CoreDNS for Fargate"
-$K -n kube-system patch deployment coredns --type json \
-  -p='[{"op":"remove","path":"/spec/template/metadata/annotations/eks.amazonaws.com~1compute-type"}]' \
-  2>/dev/null && echo "   annotation removed" || echo "   already patched"
-$K -n kube-system rollout restart deployment coredns >/dev/null
-echo "   waiting for CoreDNS on Fargate (Fargate pods take ~60s to get a micro-VM)"
-$K -n kube-system rollout status deployment coredns --timeout=600s
+echo "==> checking pod capacity before installing anything"
+CAP="$($K get nodes -o jsonpath='{.items[*].status.allocatable.pods}')"
+echo "   allocatable pods per node: $CAP"
+case " $CAP " in
+  *" 17 "*)
+    echo >&2
+    echo "REFUSING: a node reports 17 allocatable pods, which is the un-delegated" >&2
+    echo "t3.medium ENI ceiling. Argo CD (7) + Flux (4) + Rollouts + ingress-nginx" >&2
+    echo "+ Flagger does not fit. Rebuild with ./scripts/eks-up.sh, which enables" >&2
+    echo "prefix delegation BEFORE the nodes boot." >&2
+    exit 1 ;;
+esac
 
 # ---------------------------------------------------------------------------
 # Argo CD
@@ -53,10 +65,11 @@ $K create namespace argocd --dry-run=client -o yaml | $K apply -f - >/dev/null
 $K apply -n argocd --server-side --force-conflicts \
   -f "https://raw.githubusercontent.com/argoproj/argo-cd/${ARGOCD_VERSION}/manifests/install.yaml" >/dev/null
 
-# The stock manifests set NO resource requests. On Fargate that means every pod
-# gets the 0.25 vCPU / 0.5 GB minimum micro-VM regardless of what it needs, and
-# the application-controller in particular will struggle. Set them explicitly.
-echo "==> sizing Argo CD for Fargate"
+# The stock manifests set NO resource requests at all. On EC2 nodes that is
+# worse than it sounds: a pod with no request is BestEffort, so the scheduler
+# treats it as free and the kubelet evicts it first under memory pressure --
+# which on a 4 GiB node running six controllers is a matter of when, not if.
+echo "==> setting resource requests on Argo CD"
 for d in argocd-application-controller:500m:1Gi \
          argocd-repo-server:250m:512Mi \
          argocd-server:100m:256Mi \
@@ -68,8 +81,8 @@ for d in argocd-application-controller:500m:1Gi \
 done
 
 echo "==> waiting for Argo CD"
-$K -n argocd rollout status deploy/argocd-server --timeout=900s
-$K -n argocd rollout status deploy/argocd-repo-server --timeout=900s
+$K -n argocd rollout status deploy/argocd-server --timeout=600s
+$K -n argocd rollout status deploy/argocd-repo-server --timeout=600s
 
 echo "==> bootstrapping Argo CD from git (the only manual apply)"
 $K apply -f gitops/argocd/bootstrap/root-app.yaml
@@ -94,8 +107,8 @@ flux install \
   --context="$CLUSTER"
 
 echo "==> waiting for Flux"
-$K -n flux-system rollout status deploy/source-controller --timeout=900s
-$K -n flux-system rollout status deploy/kustomize-controller --timeout=900s
+$K -n flux-system rollout status deploy/source-controller --timeout=600s
+$K -n flux-system rollout status deploy/kustomize-controller --timeout=600s
 
 echo "==> pointing Flux at the repo"
 $K apply -f gitops/flux/clusters/eks/

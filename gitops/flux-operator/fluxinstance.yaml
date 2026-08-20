@@ -1,0 +1,58 @@
+# Flux Operator replaces `flux install` with an object.
+#
+# `flux install` is imperative: a CLI on someone's laptop renders manifests and
+# applies them. Nothing in the cluster records which version was asked for, and
+# upgrading means finding the person with the right CLI version. That is an odd
+# shape for a tool whose entire pitch is "the cluster matches git".
+#
+# FluxInstance closes that loop -- Flux's own installation becomes a reconciled
+# resource. Change `distribution.version` here, commit, and the operator
+# performs the upgrade.
+apiVersion: fluxcd.controlplane.io/v1
+kind: FluxInstance
+metadata:
+  name: flux
+  namespace: flux-system
+  annotations:
+    # The operator only acts on an instance carrying this annotation. It is a
+    # deliberate safety catch: applying the CRD does not, by itself, let
+    # anything start rewriting flux-system.
+    fluxcd.controlplane.io/reconcileEvery: "1h"
+    fluxcd.controlplane.io/reconcileTimeout: "5m"
+spec:
+  distribution:
+    # A semver RANGE, not a pin. The operator resolves it on each reconcile, so
+    # patch releases land without a commit. Pin exactly (2.9.4) if you would
+    # rather an upgrade be a reviewable change -- which is the better default
+    # for production; the range is here to show it exists.
+    version: "2.9.x"
+    registry: "ghcr.io/fluxcd"
+    artifact: "oci://ghcr.io/controlplaneio-fluxcd/flux-operator-manifests"
+  cluster:
+    type: kubernetes
+    multitenant: false
+    networkPolicy: true
+    domain: "cluster.local"
+  components:
+    - source-controller
+    - kustomize-controller
+    - helm-controller
+    - notification-controller
+    # image-reflector and image-automation are omitted on purpose: they write
+    # commits back to the repository, and this repo is reconciled by Argo CD as
+    # well. Two controllers with push access to one branch is a bad idea.
+  kustomize:
+    patches:
+      # The stock controllers request more than a 3-node t3.medium lab wants to
+      # give them. Patching here rather than editing rendered manifests is the
+      # point of the operator: the change survives an upgrade.
+      - target:
+          kind: Deployment
+          name: "(source-controller|kustomize-controller|helm-controller|notification-controller)"
+        patch: |
+          - op: replace
+            path: /spec/template/spec/containers/0/resources/requests/cpu
+            value: 20m
+          - op: replace
+            path: /spec/template/spec/containers/0/resources/requests/memory
+            value: 64Mi

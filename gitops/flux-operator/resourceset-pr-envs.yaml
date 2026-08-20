@@ -1,0 +1,94 @@
+# ResourceSet is Flux's answer to Argo CD's PullRequest ApplicationSet generator:
+# one template, fanned out over a list of inputs, with the inputs discovered from
+# an external system.
+#
+# The comparison worth being able to make out loud:
+#
+#   Argo CD  ApplicationSet + PullRequest generator -> generates APPLICATIONS.
+#            Each PR gets an Application object, which then syncs manifests.
+#            Two levels of indirection, and the generated objects are Argo CD's
+#            own CRD, so they are visible in the Argo CD UI as first-class apps.
+#
+#   Flux     ResourceSet -> generates ARBITRARY KUBERNETES OBJECTS.
+#            There is no per-PR Flux object in between; the ResourceSet renders
+#            the Namespace, the Deployment, the Service directly. Simpler, and
+#            also less introspectable -- `flux get` has nothing per-PR to show.
+#
+# Both solve the same problem: a preview environment per open pull request, torn
+# down when the PR closes. Neither is "GitOps" in the strict sense, because the
+# desired state now depends on an API poll rather than on the contents of a
+# commit. That is a real trade-off, not a technicality: replaying the repo at a
+# past commit does not reproduce the cluster.
+---
+apiVersion: fluxcd.controlplane.io/v1
+kind: ResourceSetInputProvider
+metadata:
+  name: pr-envs
+  namespace: flux-system
+spec:
+  type: GitHubPullRequest
+  url: https://github.com/alecuvalentin22/aws-kodekloud-playground
+  # Only PRs carrying this label get an environment. Without a filter, every
+  # PR from anyone -- including a fork -- spawns workloads in your cluster.
+  # On a public repository that is the difference between a preview feature and
+  # an open compute endpoint.
+  filter:
+    labels:
+      - preview
+  # Public repo, so unauthenticated polling works -- at 60 requests/hour, shared
+  # across everything on that egress IP. Add a token for anything real:
+  #   kubectl -n flux-system create secret generic github-token \
+  #     --from-literal=password=ghp_xxx --from-literal=username=git
+  # secretRef:
+  #   name: github-token
+---
+apiVersion: fluxcd.controlplane.io/v1
+kind: ResourceSet
+metadata:
+  name: pr-envs
+  namespace: flux-system
+spec:
+  inputsFrom:
+    - apiVersion: fluxcd.controlplane.io/v1
+      kind: ResourceSetInputProvider
+      name: pr-envs
+  resources:
+    - apiVersion: v1
+      kind: Namespace
+      metadata:
+        name: preview-pr-<< inputs.id >>
+        labels:
+          preview: "true"
+    - apiVersion: apps/v1
+      kind: Deployment
+      metadata:
+        name: podinfo
+        namespace: preview-pr-<< inputs.id >>
+      spec:
+        replicas: 1
+        selector:
+          matchLabels: {app: podinfo}
+        template:
+          metadata:
+            labels: {app: podinfo}
+          spec:
+            containers:
+              - name: podinfo
+                image: ghcr.io/stefanprodan/podinfo:6.7.1
+                ports: [{containerPort: 9898}]
+                env:
+                  # Proves at a glance which PR and which commit you are looking
+                  # at, which is the entire value of a preview environment.
+                  - name: PODINFO_UI_MESSAGE
+                    value: "PR #<< inputs.id >> @ << inputs.sha >>"
+                resources:
+                  requests: {cpu: 20m, memory: 32Mi}
+                  limits:   {memory: 128Mi}
+    - apiVersion: v1
+      kind: Service
+      metadata:
+        name: podinfo
+        namespace: preview-pr-<< inputs.id >>
+      spec:
+        selector: {app: podinfo}
+        ports: [{port: 9898, targetPort: 9898}]

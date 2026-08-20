@@ -1,0 +1,56 @@
+apiVersion: argoproj.io/v1alpha1
+kind: Rollout
+metadata:
+  name: podinfo
+  namespace: demo-rollouts-nginx
+spec:
+  replicas: 4
+  revisionHistoryLimit: 2
+  selector:
+    matchLabels: {app: podinfo}
+  template:
+    metadata:
+      labels: {app: podinfo}
+    spec:
+      containers:
+        - name: podinfo
+          image: ghcr.io/stefanprodan/podinfo:6.7.1
+          ports: [{containerPort: 9898}]
+          resources:
+            requests: {cpu: 25m, memory: 32Mi}
+            limits:   {memory: 128Mi}
+          readinessProbe:
+            httpGet: {path: /readyz, port: 9898}
+            initialDelaySeconds: 3
+
+  # 120s from the last progress before the rollout is considered stuck.
+  progressDeadlineSeconds: 120
+  # THE LINE THAT WAS MISSING. Without it, hitting the deadline only MARKS the
+  # rollout Degraded and leaves the canary in place -- which is what produced
+  # "blast radius capped at 25%, but no rollback". With it, the controller
+  # aborts: canary scaled down, ingress weight back to 0, traffic on stable.
+  progressDeadlineAbort: true
+
+  strategy:
+    canary:
+      canaryService: podinfo-canary
+      stableService: podinfo-stable
+      trafficRouting:
+        nginx:
+          stableIngress: podinfo
+      analysis:
+        templates:
+          - templateName: canary-health
+        # startingStep 0, not 1. Analysis then runs in the BACKGROUND from the
+        # moment the rollout starts, rather than waiting for a step to be
+        # reached. That matters for a release that never becomes ready: the
+        # rollout would otherwise stall before step 1 and the analysis would
+        # never get a chance to fail it.
+        startingStep: 0
+      steps:
+        - setWeight: 25
+        - pause: {duration: 30s}
+        - setWeight: 50
+        - pause: {duration: 30s}
+        - setWeight: 75
+        - pause: {duration: 30s}

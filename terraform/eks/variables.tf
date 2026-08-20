@@ -94,13 +94,49 @@ variable "node_min_size" {
 }
 
 variable "node_max_size" {
-  description = "Playground caps a node group at 3."
+  description = <<-EOT
+    The cap here is the account's EC2 instance allowance, not an EKS limit --
+    self-managed nodes are plain EC2 instances in an ASG. A *managed* node group
+    is capped at 3 on this playground, which is a different ceiling and does not
+    apply.
+
+    5 is the observed instance allowance, and with no Elasticsearch lab running
+    all 5 are available to the cluster.
+  EOT
   type        = number
-  default     = 3
+  default     = 4
 
   validation {
-    condition     = var.node_max_size <= 3
-    error_message = "The KodeKloud playground caps an EKS node group at 3 nodes."
+    condition     = var.node_max_size <= 5
+    error_message = "The playground allows 5 EC2 instances in total."
+  }
+}
+
+variable "node_max_pods" {
+  description = <<-EOT
+    kubelet's --max-pods, pinned rather than computed.
+
+    EKS caps pods per node by ENI, not CPU: every pod takes a real VPC IP, so a
+    t3.medium allows 17 pods however idle it is. nodeadm computes that ceiling
+    at bootstrap from the instance type and writes it into the kubelet config.
+
+    ENABLE_PREFIX_DELEGATION on the aws-node daemonset makes the CNI hand out
+    /28 prefixes instead of single IPs, which raises the real ceiling to 110 --
+    but nodeadm does not know that, so kubelet keeps advertising 17 and the node
+    stays full. BOTH halves are required: the CNI env var AND this number.
+
+    Order matters. kubelet reads this once at bootstrap, so the daemonset must
+    already carry ENABLE_PREFIX_DELEGATION before a node joins. scripts/eks-up.sh
+    does that in three phases.
+
+    Set to 0 to leave nodeadm's calculation alone.
+  EOT
+  type        = number
+  default     = 110
+
+  validation {
+    condition     = var.node_max_pods == 0 || (var.node_max_pods >= 17 && var.node_max_pods <= 110)
+    error_message = "max-pods must be 0 (let nodeadm decide) or between 17 and 110."
   }
 }
 

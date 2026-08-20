@@ -1,0 +1,51 @@
+# Argo CD's Helm story is ONE object, and the chart repository is inline. There
+# is no separate reconciled "repository" resource -- repo-server fetches the
+# chart during a sync and templates it.
+#
+# The consequence, and it is the single most surprising difference from Flux:
+# Argo CD does NOT use Helm to install. It runs `helm template` and applies the
+# output. So:
+#
+#   - there is no Helm release secret, and `helm list` shows nothing
+#   - Helm hooks work, but Helm's own rollback does not exist -- Argo CD's
+#     rollback is "sync to a previous git revision", which is a different thing
+#   - `--atomic` and `--wait` have no equivalent; sync waves and health checks
+#     do that job instead
+#
+# Flux's helm-controller genuinely runs Helm, so it has real releases and real
+# `helm rollback`. Neither is wrong; they are different bets about who owns
+# release state -- Helm's own storage, or git.
+apiVersion: argoproj.io/v1alpha1
+kind: Application
+metadata:
+  name: demo-helm-argocd
+  namespace: argocd
+spec:
+  project: demo
+  destination:
+    server: https://kubernetes.default.svc
+    namespace: demo-helm-argocd
+  source:
+    repoURL: https://stefanprodan.github.io/podinfo
+    chart: podinfo
+    # An exact version, not a range. Argo CD supports ranges here, but a range
+    # makes the Application permanently OutOfSync-able for reasons no commit
+    # explains -- and the diff view cannot tell you why. Pinning is the norm.
+    targetRevision: 6.7.1
+    helm:
+      valuesObject:
+        replicaCount: 2
+        ui:
+          message: "helm via argo cd"
+        resources:
+          requests: {cpu: 25m, memory: 32Mi}
+          limits:   {memory: 128Mi}
+        serviceMonitor:
+          enabled: false
+  syncPolicy:
+    automated:
+      prune: true
+      selfHeal: true
+    syncOptions:
+      - CreateNamespace=true
+      - ServerSideApply=true

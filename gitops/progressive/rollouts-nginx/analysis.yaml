@@ -1,0 +1,46 @@
+# The same template as ../rollouts/analysis.yaml with ONE hostname changed, and
+# that one change is the difference between a check that means something and a
+# check that always passes.
+#
+#   ../rollouts/  ->  http://podinfo.demo-rollouts:9898/healthz
+#                     one Service selecting all 4 pods. 1 canary + 3 stable, so
+#                     a curl lands on a healthy pod 75% of the time. Measured:
+#                     Successful, with a broken pod in ImagePullBackOff.
+#
+#   here          ->  http://podinfo-canary.demo-rollouts-nginx:9898/healthz
+#                     pinned by the controller to the canary ReplicaSet ONLY.
+#                     A broken canary has no ready endpoints, so the curl gets
+#                     connection-refused and the AnalysisRun fails.
+apiVersion: argoproj.io/v1alpha1
+kind: AnalysisTemplate
+metadata:
+  name: canary-health
+  namespace: demo-rollouts-nginx
+spec:
+  metrics:
+    - name: canary-responds
+      count: 5
+      interval: 20s
+      # Zero tolerance is right for a lab, wrong for production: a single
+      # network blip aborts a good release. Real deployments set failureLimit
+      # to 2-3 with a longer interval, or use consecutiveErrorLimit.
+      failureLimit: 0
+      provider:
+        job:
+          spec:
+            backoffLimit: 0
+            template:
+              spec:
+                restartPolicy: Never
+                containers:
+                  - name: check
+                    image: curlimages/curl:8.10.1
+                    command: [sh, -c]
+                    args:
+                      - |
+                        set -e
+                        code=$(curl -s -o /dev/null -w '%{http_code}' \
+                          --max-time 5 \
+                          http://podinfo-canary.demo-rollouts-nginx:9898/healthz || echo 000)
+                        echo "canary /healthz -> $code"
+                        test "$code" = "200"

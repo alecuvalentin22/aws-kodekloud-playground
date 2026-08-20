@@ -25,6 +25,49 @@ data "aws_ssm_parameter" "eks_ami" {
   name = "/aws/service/eks/optimized-ami/${var.cluster_version}/amazon-linux-2023/x86_64/standard/recommended/image_id"
 }
 
+locals {
+  # The nodeadm document, built as a data structure and serialised. spec.kubelet
+  # is merged in rather than templated in, so "omit it" is an empty map and not
+  # a conditional in the middle of whitespace-significant text.
+  nodeadm_config = yamlencode({
+    apiVersion = "node.eks.aws/v1alpha1"
+    kind       = "NodeConfig"
+    spec = merge(
+      {
+        cluster = {
+          name                 = aws_eks_cluster.this.name
+          apiServerEndpoint    = aws_eks_cluster.this.endpoint
+          certificateAuthority = aws_eks_cluster.this.certificate_authority[0].data
+          cidr                 = aws_eks_cluster.this.kubernetes_network_config[0].service_ipv4_cidr
+        }
+      },
+      var.node_max_pods > 0 ? {
+        # spec.kubelet.config is passed through verbatim into kubelet's
+        # KubeletConfiguration file, so anything valid there is valid here.
+        kubelet = {
+          config = {
+            maxPods = var.node_max_pods
+          }
+        }
+      } : {}
+    )
+  })
+
+  # MIME assembled by join rather than a heredoc, for the same reason: no
+  # implicit indentation stripping anywhere near the payload.
+  node_user_data = join("\n", [
+    "MIME-Version: 1.0",
+    "Content-Type: multipart/mixed; boundary=\"BOUNDARY\"",
+    "",
+    "--BOUNDARY",
+    "Content-Type: application/node.eks.aws",
+    "",
+    local.nodeadm_config,
+    "--BOUNDARY--",
+    "",
+  ])
+}
+
 resource "aws_launch_template" "node" {
   count = var.create_self_managed_nodes ? 1 : 0
 
@@ -43,26 +86,30 @@ resource "aws_launch_template" "node" {
   # part that is easy to get subtly wrong: the cluster name, API endpoint, CA
   # and service CIDR all have to match exactly or the kubelet starts and never
   # registers.
-  user_data = base64encode(<<-MIME
-    MIME-Version: 1.0
-    Content-Type: multipart/mixed; boundary="BOUNDARY"
-
-    --BOUNDARY
-    Content-Type: application/node.eks.aws
-
-    ---
-    apiVersion: node.eks.aws/v1alpha1
-    kind: NodeConfig
-    spec:
-      cluster:
-        name: ${aws_eks_cluster.this.name}
-        apiServerEndpoint: ${aws_eks_cluster.this.endpoint}
-        certificateAuthority: ${aws_eks_cluster.this.certificate_authority[0].data}
-        cidr: ${aws_eks_cluster.this.kubernetes_network_config[0].service_ipv4_cidr}
-
-    --BOUNDARY--
-  MIME
-  )
+  #
+  # maxPods is pinned here rather than left to nodeadm. nodeadm derives it from
+  # the instance type's ENI capacity -- 17 on a t3.medium -- and writes it into
+  # the kubelet config at bootstrap. Prefix delegation raises the CNI's real
+  # ceiling to 110 but cannot retroactively change a number kubelet has already
+  # read, so the node would sit at 17 forever. See var.node_max_pods.
+  #
+  # NOT a heredoc template. This was written as `<<-MIME` with a `%{if}` around
+  # the kubelet block, and it produced YAML that was silently wrong:
+  #
+  #     cidr: 10.100.0.0/16
+  #       kubelet:          <- 6 spaces
+  #     config:             <- 4 spaces
+  #
+  # `<<-` strips the smallest common indent across all lines, and the `%{if}`
+  # marker line participates in that calculation while contributing no output.
+  # Move the directive and every line after it shifts. The instances booted,
+  # nodeadm rejected the config, and three EC2 nodes ran for 20 minutes without
+  # ever registering -- with no error anywhere in the AWS console, because from
+  # EC2's point of view the launch succeeded.
+  #
+  # yamlencode cannot produce misindented YAML. Reach for it whenever generated
+  # YAML is indentation-sensitive, which is always.
+  user_data = base64encode(local.node_user_data)
 
   metadata_options {
     http_endpoint = "enabled"

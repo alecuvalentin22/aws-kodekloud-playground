@@ -1,0 +1,15 @@
+# SOPS rules, read from the repo root by both the `sops` CLI and Flux's
+# kustomize-controller.
+#
+# encrypted_regex is the important line. Without it SOPS encrypts EVERY value in
+# the file, including `apiVersion`, `kind` and `metadata.name` -- producing a
+# file that is valid YAML, unreadable in a diff, and rejected by Kubernetes
+# because the api server cannot tell what it is. Restricting encryption to the
+# data-carrying keys leaves the manifest structurally intact and the diff
+# meaningful.
+creation_rules:
+  - path_regex: gitops/secrets/sops/.*\.yaml$
+    encrypted_regex: '^(data|stringData)$'
+    # Public key only. The matching private key never touches this repo -- it is
+    # created by scripts/secrets-seal.sh and loaded into the cluster by hand.
+    age: age1placeholder0000000000000000000000000000000000000000000000000

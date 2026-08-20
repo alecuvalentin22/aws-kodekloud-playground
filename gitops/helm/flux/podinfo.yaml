@@ -1,0 +1,54 @@
+# Flux's Helm story is two objects, and the split is deliberate: the repository
+# is a cluster-scoped concern reconciled on its own schedule, the release is a
+# workload concern. Ten HelmReleases share one HelmRepository and one poll.
+apiVersion: source.toolkit.fluxcd.io/v1
+kind: HelmRepository
+metadata:
+  name: podinfo
+  namespace: flux-system
+spec:
+  interval: 30m
+  url: https://stefanprodan.github.io/podinfo
+---
+apiVersion: helm.toolkit.fluxcd.io/v2
+kind: HelmRelease
+metadata:
+  name: podinfo
+  namespace: demo-helm-flux
+spec:
+  interval: 5m
+  chart:
+    spec:
+      chart: podinfo
+      # A semver RANGE. Flux re-resolves it every `interval` and upgrades when a
+      # matching version appears -- so the cluster can change with no commit.
+      # That is convenient and it is also the thing that makes "the repo is the
+      # source of truth" not quite true. Pin exactly if you need a commit to be
+      # the only way the cluster moves.
+      version: ">=6.7.0 <7.0.0"
+      sourceRef:
+        kind: HelmRepository
+        name: podinfo
+        namespace: flux-system
+  # helm-controller runs the same install/upgrade Helm does, but the RETRY
+  # behaviour is Flux's own -- and it is what you get instead of a human running
+  # `helm upgrade` again.
+  install:
+    remediation:
+      retries: 2
+  upgrade:
+    remediation:
+      retries: 2
+      # Roll back to the last working release on a failed upgrade. Helm alone
+      # does not do this: `helm upgrade` leaves you in a failed release and
+      # waits for someone to notice.
+      strategy: rollback
+  values:
+    replicaCount: 2
+    ui:
+      message: "helm via flux"
+    resources:
+      requests: {cpu: 25m, memory: 32Mi}
+      limits:   {memory: 128Mi}
+    serviceMonitor:
+      enabled: false
