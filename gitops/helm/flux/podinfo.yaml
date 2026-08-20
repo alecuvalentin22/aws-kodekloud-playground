@@ -16,7 +16,7 @@ metadata:
   name: podinfo
   namespace: demo-helm-flux
 spec:
-  interval: 5m
+  interval: 1m
   chart:
     spec:
       chart: podinfo
@@ -43,6 +43,25 @@ spec:
       # does not do this: `helm upgrade` leaves you in a failed release and
       # waits for someone to notice.
       strategy: rollback
+  # OFF BY DEFAULT, and this is the difference people are most often wrong
+  # about between the two controllers.
+  #
+  #   "spec.driftDetection.mode -- If not explicitly set, it defaults to
+  #    DiffModeDisabled."
+  #
+  # Measured: `kubectl scale --replicas=5` on the chart's Deployment stayed at
+  # 5 for 180 seconds with the HelmRelease reporting Ready=True throughout,
+  # because Ready describes the last `helm upgrade`, not the live objects.
+  # Argo CD's selfHeal put the same Deployment back within 10 seconds.
+  #
+  # Turning it on is necessary but not sufficient to match Argo CD, and the
+  # second half matters: correction runs ON THE RECONCILE INTERVAL, not on a
+  # watch. At the default 5m interval a hand-edit can persist for five minutes
+  # with everything green. Argo CD's selfHeal is event-driven. Hence interval:
+  # 1m above -- and even that is a poll.
+  driftDetection:
+    mode: enabled
+
   values:
     replicaCount: 2
     ui:
