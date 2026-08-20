@@ -11,6 +11,12 @@ neither is.
 
 ---
 
+## The story, for an interview
+
+- **`STORY-AWS.md`** — what this taught me, and the ten findings worth saying
+  out loud. Its GCP counterpart is `~/gcp/STORY.md`; the two are shaped the same
+  way on purpose, and the AWS-vs-GCP table at the end is the comparison.
+
 ## Shareable write-ups
 
 Two published artifacts, both built from measurements in this repo:
@@ -40,7 +46,13 @@ Two independent tracks live in this repo:
 | Track | What it is | Entry point |
 |---|---|---|
 | **Elasticsearch lab** | 3-node ES, Kibana, MinIO, PostgreSQL, k3s/RKE2, Kong, Keycloak, Rancher on EC2 | `make ec2` then the playbooks |
-| **GitOps lab** | Argo CD and Flux reconciling this repo into one EKS cluster, side by side | `make eks && make gitops` |
+| **GitOps lab** | Argo CD and Flux reconciling this repo into one EKS cluster, side by side, plus Argo Rollouts / Flagger / sealed-secrets / Helm | `make eks && make gitops && make addons` |
+
+`make eks` runs a **three-phase** build. Do not replace it with `terraform
+apply`: EKS caps pods per node by ENI rather than CPU (17 on a `t3.medium`), and
+the fix has to be applied to the CNI daemonset *before any node joins* — kubelet
+reads `max-pods` once, at bootstrap. See `AGENTS.md` §4c. Result: **110
+allocatable pods per node, 58 running, 0 Pending.**
 
 ## GitOps: Argo CD vs Flux, measured
 
@@ -57,7 +69,7 @@ make scenario ID=03       # run one
 ./scripts/scenario status
 ```
 
-Measured on EKS v1.33 with two self-managed nodes:
+Measured on EKS v1.33 with three self-managed nodes:
 
 | | Question | Result |
 |---|---|---|
@@ -66,6 +78,29 @@ Measured on EKS v1.33 with two self-managed nodes:
 | 03 | manual drift | **argocd ~10s** · flux still drifted at 80s |
 | 04 | `git push` to live | **flux 78s** · argocd 155s |
 | 05 | a broken release | **neither rolls back** — recovery is a human `git revert` |
+| 06 | Argo Rollouts with real traffic routing | rolls back **two ways**: `progressDeadlineAbort` at 100s (broken image) · analysis at 50s (healthy but slow). Neither catches the other's failure |
+| 07 | Flagger canary, end to end | good release **Succeeded in 150s** · bad release **Failed and rolled back at 90s**, on metrics alone |
+| 08 | header/cookie A/B | **20/0 in both directions at weight 0** — and *not* via Argo Rollouts, which does not support `setHeaderRoute` on nginx |
+| 09 | a secret in a public repo | unseals in its own namespace, **refused in another** |
+| 10 | "both do Helm" | Helm release Secrets: **Flux 1, Argo CD 0** · drift: argocd 10s, **flux never** (off by default) |
+| 11 | how much of git-to-live is the poll | nearly all of it — webhook verified at **HTTP 200, instant refresh** |
+| 12 | Flux installing itself declaratively | flux-operator adopted a live `flux install` in **12s** · **web UI on :9080** |
+
+Scenarios 06–12 need `make addons`. Some run against one controller only and say
+so — progressive delivery is a *different controller* on each side (Argo Rollouts
+vs Flagger), so "both" would not compare like with like.
+
+### The two findings worth leading with
+
+**Argo CD and Flux disagree about what "ready" means.** Flux's `Ready` is *"my
+last apply succeeded"*; Argo CD's `Synced/Healthy` is *"the cluster matches git
+and the workloads are up"*. That is scenarios 01 and 02 — and then 04 inverts it,
+because Argo CD polls every 180s.
+
+**Do not generalise from one subsystem to a whole tool.** Scenario 03 says Flux
+corrects drift slowly; scenario 10 says a Flux `HelmRelease` does not correct it
+*at all* by default, while reporting `Ready=True`. Same tool, different
+controller inside it, opposite answer.
 
 Progressive delivery (`gitops/progressive/`) is a **separate controller** in both
 ecosystems — Argo Rollouts or Flagger. Measured: a Rollouts canary promoted

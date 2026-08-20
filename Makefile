@@ -42,9 +42,8 @@ state: ## create the S3 state bucket and init backends
 
 # --- infrastructure ---------------------------------------------------------
 .PHONY: eks
-eks: ## build the EKS cluster with self-managed nodes
-	cd $(TF_EKS) && terraform apply -auto-approve
-	@$(MAKE) --no-print-directory kubeconfig
+eks: ## build the EKS cluster (three-phase, prefix delegation before nodes join)
+	./scripts/eks-up.sh
 
 .PHONY: kubeconfig
 kubeconfig: ## write a DEDICATED kubeconfig (never touches ~/.kube/config)
@@ -77,6 +76,15 @@ bootstrap: ## point both controllers at this repo
 	kubectl apply -f gitops/flux/clusters/eks/
 
 .PHONY: status
+addons: ## ingress-nginx, Argo Rollouts, Flagger, sealed-secrets, flux-operator
+	./scripts/gitops-addons.sh
+
+secrets: ## regenerate the committed ciphertexts (needs a live cluster)
+	./scripts/secrets-seal.sh
+
+webhook: ## expose Argo CD's webhook endpoint and prove it works
+	./scripts/argocd-webhook.sh --test
+
 status: ## what both controllers currently think
 	@./scripts/scenario status
 

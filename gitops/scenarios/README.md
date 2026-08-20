@@ -14,6 +14,26 @@ something is **wrong**, which is where Argo CD and Flux actually differ.
 Every scenario runs the **same break against both controllers** on the same
 cluster, and prints timestamped observations rather than conclusions.
 
+Scenarios **06–12** need the addon layer — `./scripts/gitops-addons.sh` — and
+06–08 need the pod-density fix in `./scripts/eks-up.sh`, because ingress-nginx +
+Rollouts + Flagger + Prometheus does not fit under the default 17-pod-per-node
+ENI ceiling. Some run against one controller only, and say so: progressive
+delivery is a different controller on each side (Argo Rollouts vs Flagger), so
+"both" would not be comparing like with like.
+
+### Two rules these encode, both paid for
+
+**Break it through git, not `kubectl`.** Scenario 05's first version used
+`kubectl set image`; Argo CD's selfHeal reverted it in 12s, so it measured
+selfHeal rather than a bad release. The same thing happened again this session
+patching an AppProject — reverted within seconds, while looking like a slow sync
+for 200s.
+
+**Never suppress the output of the thing whose failure you are testing, and
+assert before you conclude.** Scenario 02 hid a rejected patch and reported
+"Healthy" for 96s. Scenario 06's first version printed "aborted and rolled back"
+while its `kubectl set image` had silently failed — `set` cannot touch a CRD.
+
 | | Question | Measured |
 |---|---|---|
 | **01** | If a namespace is deleted out from under it, what happens? | **argocd recovered in 24s · flux still gone at 120s, reporting `ready=True`** |
@@ -21,6 +41,30 @@ cluster, and prints timestamped observations rather than conclusions.
 | **03** | How fast is manual drift undone? | **argocd ~10s · flux still drifted at 80s** |
 | **04** | How long from `git push` to live? | **flux 78s · argocd 155s** — inverts 03 |
 | **05** | A release is broken. Does GitOps roll it back? | **No.** Both deploy it faithfully; recovery is a human `git revert` (26s once pushed) |
+| **06** | With a real traffic provider, does Argo Rollouts roll back? | **Yes, by two different mechanisms.** Broken image → `progressDeadlineAbort` at **100s**; healthy-but-slow → the AnalysisTemplate at **50s**. Neither catches the other's failure |
+| **07** | Does Flagger complete a canary and roll a bad one back unaided? | **Yes to both.** Good: 10→50, Promoting, **Succeeded in 150s**. Bad: stuck at weight 10, failedChecks 1→5, **Failed at t+90s** — on metrics alone |
+| **08** | Can you route a named cohort rather than a percentage? | **Yes, but not via Argo Rollouts on nginx** (`setHeaderRoute` supports Istio/ALB/Apisix only). On ingress-nginx annotations: **20/0 in both directions at weight 0** |
+| **09** | Can a secret live in a public repo and still be a secret? | **Yes.** Unseals in its own namespace, **refused** in another — the namespace is inside the encrypted envelope |
+| **10** | Argo CD and Flux both "do Helm". Same thing? | **No.** Helm release Secrets: **Flux 1, Argo CD 0**. Drift: **Argo CD 10s · Flux never** (off by default, and interval-bound when on) |
+| **11** | How much of "git to live" is the poll? | Nearly all of it. Webhook verified: **HTTP 200, instant refresh** vs ~155s polling |
+| **12** | Can Flux install and report on itself declaratively? | **Yes.** flux-operator adopted a live `flux install` in **12s**; web UI on **:9080** |
+
+## Reading these numbers side by side
+
+The five original scenarios say Argo CD wins on convergence and Flux wins on
+speed-to-deploy. The new ones complicate that in a useful way:
+
+- **06 vs 07** — Flagger rolled back a bad release in **90s with no analysis
+  configuration at all**, because metrics *are* its loop. Argo Rollouts needed an
+  explicit `AnalysisTemplate` *and* `progressDeadlineAbort` to reach 50s. Steps
+  advance on a timer; they do not judge.
+- **10** — the drift result from **03** does not carry over to Helm. Argo CD's
+  selfHeal still corrects in 10s, but a Flux `HelmRelease` does not correct at
+  all by default, and reports `Ready=True` while wrong. Same two controllers,
+  opposite conclusion, because a different subsystem is doing the reconciling.
+
+That last point is the one worth saying out loud: **"Flux corrects drift" is not
+a property of Flux, it is a property of a particular controller within it.**
 
 ## The finding that runs through 01 and 02
 

@@ -201,11 +201,15 @@ Independent of the Elasticsearch lab. Needs a Kubernetes cluster and nothing
 else — it has run unchanged on both k3s and EKS.
 
 ```bash
-make eks          # EKS with self-managed nodes
-make gitops       # install both controllers, bootstrap from this repo
-make status && make urls
-make scenarios    # the experiment harness
+./scripts/eks-up.sh          # THREE-PHASE build -- see 4c, do not skip it
+./scripts/gitops-install.sh  # Argo CD + Flux, both reconciling this repo
+./scripts/gitops-addons.sh   # ingress-nginx, Rollouts, Flagger, sealed-secrets,
+                             # flux-operator -- the layer that needed the pod fix
+./scripts/scenario list
 ```
+
+`gitops-install.sh` now refuses to run if a node reports 17 allocatable pods,
+because everything downstream fails in a way that points nowhere near the cause.
 
 **One hard version floor:** Flux v2.9 requires **Kubernetes >= 1.33**. That is
 why `terraform/eks` and the k3s role are pinned to 1.33. Argo CD is far more
@@ -226,29 +230,161 @@ never suppress the output of the thing whose failure you are testing — scenari
 02 hid a rejected patch and reported "Healthy" for 96 seconds — and never let a
 test harness rewrite git history.
 
-## 4c. Progressive delivery (canary / blue-green)
+## 4c. Progressive delivery (canary / blue-green) -- all measured
 
 **Neither Argo CD nor Flux does this.** Both stop at "apply the manifests" —
 what you get is a Kubernetes RollingUpdate with no traffic weighting, no metric
 gates and no automatic rollback. Scenario 05 measures exactly what that costs.
 
 It needs a SEPARATE controller: **Argo Rollouts** (Argo side) or **Flagger**
-(Flux side). Manifests for both live in `gitops/progressive/`.
+(Flux side). Manifests live in `gitops/progressive/`.
 
-Measured on EKS v1.33:
+### Argo Rollouts — two safety nets, each blind to the other's failure
 
-- **Argo Rollouts canary works** — 25/50/75 promotion with pauses, ~120s end to
-  end. On a broken image it **capped the blast radius at 25% and stopped, but
-  did NOT roll back**. Steps pause; they do not judge.
-- **The analysis trap**: an `AnalysisTemplate` curling `/healthz` reported
-  `Successful` while a broken pod sat there. Not a bug — without `trafficRouting`
-  there is no separate canary Service, so it hit the STABLE Service backed by
-  healthy old pods. **Analysis is only meaningful with a traffic provider.**
-- **Flagger** initialised and confirmed its architecture (`podinfo` scaled to
-  0/0, `podinfo-primary` 2/2 — it keeps your Deployment object but runs its own
-  copy). Its analysis did not complete, for capacity reasons below.
+`gitops/progressive/rollouts-nginx/`, scenario 06. Measured on EKS v1.33:
 
-### The EKS limit that blocks it: pods per node, not CPU
+| failure | caught by | how long |
+|---|---|---|
+| broken image, never becomes ready | `progressDeadlineAbort: true` | 100s |
+| healthy but too slow (SLO breach) | the `AnalysisTemplate` | 50s |
+
+**`progressDeadlineAbort` is the line that was missing.** Without it,
+`progressDeadlineSeconds` only *marks* the rollout Degraded and leaves the canary
+in place — which is what produced the earlier "blast radius capped at 25%, but no
+rollback".
+
+**And analysis genuinely cannot see the broken-image case, even with traffic
+routing.** Argo Rollouts only re-points the canary Service at the new ReplicaSet
+once that ReplicaSet has an *available pod*, so a canary in `ImagePullBackOff`
+leaves both Services on the stable hash:
+
+```
+$ kubectl get svc podinfo-canary -o jsonpath='{.spec.selector}'
+{"app":"podinfo","rollouts-pod-template-hash":"86d9ccdc4d"}   <- stable's hash
+```
+
+The `AnalysisRun` reports `Successful`, correctly — there is no canary to
+measure. So the two mechanisms are not redundant, and a rollout configured with
+only one has a blind spot.
+
+The earlier "analysis trap" in `gitops/progressive/rollouts/` is kept
+deliberately: it curls the one Service selecting all four pods, so a broken
+canary is missed 75% of the time.
+
+### Flagger — metric-driven, and it needs two things nobody mentions
+
+`gitops/progressive/flagger/`, scenario 07. Measured:
+
+- good release: `Progressing` 10→50 by stepWeight, `Promoting`, `Finalising`,
+  **`Succeeded` in 150s**
+- bad release: weight never advanced past 10, `failedChecks` 1→5,
+  **`Failed` and rolled back at t+90s** — on metrics alone, with no
+  AnalysisTemplate written anywhere
+
+Both of these produce the *same* misleading error, and neither is a Flagger fault:
+
+```
+Halt advancement no values found for nginx metric request-success-rate
+probably podinfo.demo-flagger is not receiving traffic
+```
+
+1. **ingress-nginx ships with `controller.metrics.enabled=false`.** No
+   `nginx_ingress_controller_requests` series ever exists. Flagger's bundled
+   Prometheus also needs `prometheus.io/scrape` pod annotations to find it.
+2. **The load-test webhook must go through the ingress**, with the Host header
+   the Ingress matches. Pointing `hey` at the Service generates plenty of real
+   traffic that nginx never counts.
+
+**Experiment hygiene, learned the hard way:** `request-success-rate` is a *rate
+over the last minute of namespace-wide counters*. A `hey ... /status/500` left
+running from a previous test makes the next good release fail at "success rate
+36.89% < 99%" while every manual curl returns 200. Scenario 07 now kills stray
+load and waits out the rate window before measuring.
+
+### A/B testing is NOT an Argo Rollouts feature on nginx
+
+`gitops/progressive/ab-testing/`, scenario 08. `setHeaderRoute` is rejected at
+admission:
+
+```
+spec.strategy.steps[1].setHeaderRoute: Invalid value: {...}:
+SetHeaderRoute requires TrafficRouting, supports Istio and ALB and Apisix
+```
+
+The Rollout goes to `Degraded` with **zero replicas** — no pod is ever created.
+Note `trafficRouting.nginx` **is** supported for weighted canaries (scenario 06
+relies on it); header and mirror routing are the exclusions. ALB would work, but
+the AWS Load Balancer Controller needs IRSA and `iam:CreateRole` here is
+restricted to three exact role names.
+
+Rebuilt on ingress-nginx's own annotations — two Ingresses, **same host and
+path**, one marked canary. Measured, 20 requests each:
+
+| request | result |
+|---|---|
+| no header | 20 A / 0 B |
+| `X-Cohort: beta` | 0 A / **20 B** |
+| `X-Cohort: control` | 20 A / 0 B |
+| `Cookie: ab-cohort=always` | 0 A / **20 B** |
+
+At `canary-weight: 0` throughout — nginx evaluates header and cookie matches
+**before** weight, and that precedence is what makes A/B possible rather than
+just a canary.
+
+## 4d. Helm, secrets, webhooks, Flux Operator
+
+**Helm** (`gitops/helm/`, scenario 10). Both "support Helm"; only one runs it.
+Release Secrets in the namespace: **Flux 1, Argo CD 0** — Argo CD runs
+`helm template` and applies the YAML, so `helm list` is empty and `helm rollback`
+does not exist.
+
+Drift on the chart's Deployment, `kubectl scale --replicas=5`:
+
+| | result |
+|---|---|
+| Argo CD | back to 2 in **10s** (selfHeal, event-driven) |
+| Flux, `driftDetection` unset — **the default** | still 5 after **180s**, `Ready=True reason=InstallSucceeded` |
+| Flux, `driftDetection.mode: enabled` | corrected in ~20s at `interval: 1m` |
+
+Two separate gaps: it is **off by default**, and when on it runs on the
+**reconcile interval** rather than a watch. `Ready` describes the last
+`helm upgrade`, not whether the cluster matches the chart.
+
+**Secrets** (`gitops/secrets/`, scenario 09). Both sealed-secrets and SOPS+age,
+because they fail differently. The `SealedSecret` unseals in `demo-secrets` and
+is **refused** in another namespace (`no key could decrypt secret`) — the
+namespace is inside the envelope. SOPS keeps the manifest structure readable in
+a diff; a `SealedSecret` diff is one opaque blob. **A rebuilt cluster generates a
+new sealing key, so every committed `SealedSecret` is dead** unless you backed
+the key up. Regenerate with `scripts/secrets-seal.sh`.
+
+**Argo CD webhook** (`scripts/argocd-webhook.sh`, scenario 11). It *does* work on
+a playground. Verified with a signed payload: **HTTP 200, both Applications
+refreshed immediately**, against ~155s of polling.
+
+- **Use the HTTPS NodePort, not HTTP.** argocd-server answers HTTP with a **307**,
+  and GitHub does not follow redirects for webhook delivery — the hook reads as
+  delivered and Argo CD never hears about it. Measured: 307 on :30083, 200 on
+  :30084.
+- The self-signed cert means `insecure_ssl=1`, so the HMAC is doing all the
+  actual work. Set `webhook.github.secret`; argocd-server caches it and re-reads
+  on restart.
+- Sign the test payload in python, not `openssl dgst`: the signed bytes and the
+  sent bytes must be identical, and shell quoting of JSON breaks that.
+- Registering the hook needs `gh` or two clicks — this laptop has neither `gh`
+  nor an HTTPS token (the remote is SSH), so that last step is manual.
+
+**Flux Operator** (`gitops/flux-operator/`, scenario 12). Adopted a live
+`flux install` in **12s** without disturbing either Kustomization, and its
+`kustomize.patches` reached the controllers. **Flux does have a web UI** — the
+operator serves it on port **9080** (`http-web`), `<title>Flux Status</title>`.
+AGPL-3.0, which is a procurement question rather than a technical one.
+
+Worth knowing before handing over: installing the operator does **not** take over
+an existing `flux-system`. Until a `FluxInstance` exists it only *observes*,
+publishing a `FluxReport` that inventories whatever is already running.
+
+### The EKS limit that blocked it: pods per node, not CPU -- SOLVED
 
 ```
 0/2 nodes are available: 2 Too many pods
@@ -258,19 +394,54 @@ max_pods/node: 17
 
 Every EKS pod takes a **real VPC IP from an ENI**, so pod density is capped by
 instance type. A `t3.medium` allows **17 pods** however idle the CPU is. Argo CD
-(7) + Flux (4) + Rollouts + ingress-nginx + Flagger + Prometheus exhausts three
+(7) + Flux (5) + Rollouts + ingress-nginx + Flagger + Prometheus exhausts three
 nodes. **This is invisible on k3s**, which uses an overlay network.
 
-The fix is prefix delegation, not bigger nodes:
+**`./scripts/eks-up.sh` fixes it. Use that, not `terraform apply` directly.**
+Verified 2026-08-20: **110 allocatable pods per node, and 58 pods running with
+0 Pending** — which does not fit under the old ceiling.
 
-```bash
-kubectl -n kube-system set env daemonset aws-node ENABLE_PREFIX_DELEGATION=true
+Two halves are required and only one of them is well known:
+
+1. `ENABLE_PREFIX_DELEGATION=true` on the `aws-node` daemonset, so the CNI hands
+   out /28 prefixes instead of single IPs.
+2. **kubelet's `--max-pods`, pinned in the nodeadm config.** nodeadm computes 17
+   from the instance type at bootstrap and kubelet reads it once. Flip only the
+   daemonset and the node keeps advertising 17 forever — verified.
+
+And the ordering is load-bearing: the daemonset must already carry the env var
+*before a node joins*. `eks-up.sh` therefore runs three phases — cluster with the
+ASG at zero, patch the CNI, then scale up.
+
+**"Use a bigger instance" is not available here.** An organization SCP denies
+`ec2:RunInstances` for every type except `t3.medium`:
+
+```
+is not authorized to perform: ec2:RunInstances ... with an explicit deny in a
+service control policy: p-3m2d0vav
 ```
 
-17 -> ~110 pods on a t3.medium. **It only applies to nodes that join afterwards**
-— kubelet computes `max-pods` at bootstrap, so existing nodes keep the old
-ceiling (verified: they still reported 17 after enabling it). Set it before the
-nodes launch, or raise `node_max_size` / use a larger instance type.
+t3.large, t3.xlarge and m5.large were all refused. Prefix delegation is the only
+route, not a preference.
+
+### The bug this introduced, which cost 20 minutes
+
+The nodeadm document was a `<<-MIME` heredoc with `%{if}` around the kubelet
+block. `<<-` strips the smallest common indent across **all** lines, and a
+`%{if}` marker line participates in that calculation while contributing no
+output. Result:
+
+```yaml
+    cidr: 10.100.0.0/16
+      kubelet:          # 6 spaces
+    config:             # 4 spaces
+```
+
+Three EC2 instances ran for 20 minutes and never registered. **Nothing reports
+this** — EC2 says the launch succeeded, the ASG says Healthy, and the cluster
+simply has no nodes. It is now built with `yamlencode`, which cannot emit
+misindented YAML. Reach for `yamlencode` whenever generated YAML is
+indentation-sensitive.
 
 ## 5. What the playground does NOT allow
 
@@ -284,6 +455,8 @@ Verified by running it, not by reading docs:
 | `iam:CreateRole` | only for `eksClusterRole`, `eksWorkerNodeRole`, `AmazonEKSFargatePodExecutionRole` — **exact names** |
 | `iam:ListAttachedUserPolicies` | **DENIED** — you cannot enumerate your own permissions |
 | `us-east-1e` | no `t3.medium`, and EKS will not put a control plane there |
+| every instance type except `t3.medium` | **DENIED by an organization SCP.** t3.large, t3.xlarge and m5.large all refused. "Use a bigger node" is not an available answer |
+| `servicequotas:GetServiceQuota` | **DENIED by an SCP** — you cannot read your own quotas either |
 
 **Self-managed nodes are the way through, and they work.** A managed node group
 is not privileged magic — it is AWS running launch template + autoscaling group
@@ -351,6 +524,35 @@ re-run, which hides it.
 Rancher both CrashLoopBackOff'd because their probe budgets assumed a healthy
 CPU. The role already widens Kong's; Rancher may still need
 `failureThreshold: 90` patched onto its `startupProbe`. See drills/15 and 17.
+
+**Generated YAML: use `yamlencode`, never an indented heredoc.** Terraform's
+`<<-` strips the smallest common indent across all lines, and `%{if}` marker
+lines participate in that calculation while emitting nothing. Moving a directive
+silently reindents everything after it. Cost here: three EC2 nodes that ran for
+20 minutes without joining, with no error anywhere.
+
+**`kubectl set image` does not work on a CRD.** It resolves the type against
+kubectl's compiled-in scheme rather than API discovery:
+
+```
+no kind "Rollout" is registered for version "argoproj.io/v1alpha1"
+```
+
+Use `kubectl patch`, which goes straight to the API server. The same applies to
+`kubectl set env`, `kubectl scale` on custom kinds, and friends.
+
+**Setting `args` without `command` replaces the image's CMD.** The podinfo image
+has no ENTRYPOINT, so adding `args: ["--random-delay"]` made the container try to
+exec `--random-delay` as a binary. Set both.
+
+**Check the image tag exists before concluding a controller judged anything.**
+`podinfo:6.7.2` and `6.7.3` do not exist — the releases jump from 6.7.x to 6.9.x.
+Flagger reported "canary deployment not ready" and then "Canary failed! Scaling
+down", which is indistinguishable from a metric-driven rollback at a glance.
+
+**A scenario must print what it READ, not what it expected.** The first version
+of scenario 06 printed "aborted and rolled back" while its `kubectl set image`
+had silently failed. Same class of bug as scenario 02. Assert, then report.
 
 **Diagnose memory vs CPU before acting:**
 ```bash
