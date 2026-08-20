@@ -14,9 +14,21 @@ metadata:
   name: flux
   namespace: flux-system
   annotations:
-    # The operator only acts on an instance carrying this annotation. It is a
-    # deliberate safety catch: applying the CRD does not, by itself, let
-    # anything start rewriting flux-system.
+    # Timing, not opt-in. How often the operator re-renders the distribution and
+    # re-applies it, and how long it will wait for that to settle.
+    #
+    # Worth knowing before applying this at all: installing the operator does
+    # NOT take over an existing flux-system. Until a FluxInstance exists the
+    # operator only OBSERVES -- it publishes a FluxReport that inventories
+    # whatever is already running, including a plain `flux install`:
+    #
+    #   kubectl -n flux-system get fluxreport flux -o yaml
+    #   version=v2.9.4 status=Installed
+    #   Kustomization: ready=2   GitRepository: ready=1   HelmRelease: ready=1
+    #
+    # Applying this object is the handover. From here the operator owns the
+    # controllers and `flux install` should never be run against this cluster
+    # again.
     fluxcd.controlplane.io/reconcileEvery: "1h"
     fluxcd.controlplane.io/reconcileTimeout: "5m"
 spec:

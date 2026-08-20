@@ -3,24 +3,85 @@ kind: Namespace
 metadata:
   name: demo-ab
 ---
+# Variant A -- what everyone gets by default.
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: podinfo-a
+  namespace: demo-ab
+spec:
+  replicas: 2
+  selector:
+    matchLabels: {app: podinfo, variant: a}
+  template:
+    metadata:
+      labels: {app: podinfo, variant: a}
+    spec:
+      containers:
+        - name: podinfo
+          image: ghcr.io/stefanprodan/podinfo:6.7.1
+          ports: [{containerPort: 9898}]
+          env:
+            # podinfo echoes this on GET /, which is what makes the experiment
+            # verifiable from a terminal instead of merely configured.
+            - name: PODINFO_UI_MESSAGE
+              value: "variant-A"
+          resources:
+            requests: {cpu: 25m, memory: 32Mi}
+            limits:   {memory: 128Mi}
+          readinessProbe:
+            httpGet: {path: /readyz, port: 9898}
+            initialDelaySeconds: 3
+---
+# Variant B -- reachable ONLY by the cohort. Same image on purpose: the thing
+# being tested is the routing, and an identical image removes every other
+# explanation for a difference in the response.
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: podinfo-b
+  namespace: demo-ab
+spec:
+  replicas: 2
+  selector:
+    matchLabels: {app: podinfo, variant: b}
+  template:
+    metadata:
+      labels: {app: podinfo, variant: b}
+    spec:
+      containers:
+        - name: podinfo
+          image: ghcr.io/stefanprodan/podinfo:6.7.1
+          ports: [{containerPort: 9898}]
+          env:
+            - name: PODINFO_UI_MESSAGE
+              value: "variant-B"
+          resources:
+            requests: {cpu: 25m, memory: 32Mi}
+            limits:   {memory: 128Mi}
+          readinessProbe:
+            httpGet: {path: /readyz, port: 9898}
+            initialDelaySeconds: 3
+---
 apiVersion: v1
 kind: Service
 metadata:
-  name: podinfo-stable
+  name: podinfo-a
   namespace: demo-ab
 spec:
-  selector: {app: podinfo}
+  selector: {app: podinfo, variant: a}
   ports: [{port: 9898, targetPort: 9898, name: http}]
 ---
 apiVersion: v1
 kind: Service
 metadata:
-  name: podinfo-canary
+  name: podinfo-b
   namespace: demo-ab
 spec:
-  selector: {app: podinfo}
+  selector: {app: podinfo, variant: b}
   ports: [{port: 9898, targetPort: 9898, name: http}]
 ---
+# The main Ingress. Everything that is not in the cohort lands here.
 apiVersion: networking.k8s.io/v1
 kind: Ingress
 metadata:
@@ -36,5 +97,41 @@ spec:
             pathType: Prefix
             backend:
               service:
-                name: podinfo-stable
+                name: podinfo-a
+                port: {number: 9898}
+---
+# The cohort Ingress. SAME host and path as the one above -- that is required,
+# not incidental: ingress-nginx pairs a canary Ingress with its non-canary twin
+# by matching host and path. Change either and the annotations are silently
+# ignored, and you get an ordinary second Ingress fighting the first.
+apiVersion: networking.k8s.io/v1
+kind: Ingress
+metadata:
+  name: podinfo-cohort
+  namespace: demo-ab
+  annotations:
+    nginx.ingress.kubernetes.io/canary: "true"
+    # Header first -- easy to drive from curl.
+    nginx.ingress.kubernetes.io/canary-by-header: "X-Cohort"
+    nginx.ingress.kubernetes.io/canary-by-header-value: "beta"
+    # Cookie as well. This is the one that gives an experiment a STABLE
+    # population: a browser that has been given `ab-cohort=always` stays in B
+    # for every subsequent request, where a header only sticks if something
+    # upstream keeps setting it.
+    nginx.ingress.kubernetes.io/canary-by-cookie: "ab-cohort"
+    # Deliberately 0. Header and cookie matches are evaluated BEFORE weight, so
+    # the cohort still reaches B while no random traffic does. This single line
+    # is what separates an A/B test from a canary.
+    nginx.ingress.kubernetes.io/canary-weight: "0"
+spec:
+  ingressClassName: nginx
+  rules:
+    - host: ab.local
+      http:
+        paths:
+          - path: /
+            pathType: Prefix
+            backend:
+              service:
+                name: podinfo-b
                 port: {number: 9898}

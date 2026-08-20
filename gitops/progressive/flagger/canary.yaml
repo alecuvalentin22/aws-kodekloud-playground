@@ -41,8 +41,24 @@ spec:
     webhooks:
       # Flagger generates load itself so the metrics have traffic to measure.
       # Without this a low-traffic canary has no signal and stalls.
+      #
+      # The URL must go through INGRESS-NGINX, with the Host header the podinfo
+      # Ingress matches on. Not the Service.
+      #
+      # request-success-rate for the nginx provider is computed from
+      # `nginx_ingress_controller_requests`, which only exists for requests that
+      # actually traversed nginx. Pointing hey straight at
+      # podinfo-canary.demo-flagger:9898 generates plenty of real traffic that
+      # the metric cannot see, and Flagger reports:
+      #
+      #   Halt advancement no values found for nginx metric request-success-rate
+      #   probably podinfo.demo-flagger is not receiving traffic
+      #
+      # -- which is literally true from Prometheus' point of view and reads as
+      # nonsense when you can see the requests being served. Measured: stuck at
+      # weight 10 with failedChecks climbing on a perfectly good release.
       - name: load-test
         url: http://flagger-loadtester.demo-flagger/
         timeout: 5s
         metadata:
-          cmd: "hey -z 1m -q 5 -c 2 http://podinfo-canary.demo-flagger:9898/"
+          cmd: "hey -z 1m -q 10 -c 2 -host podinfo.local http://ingress-nginx-controller.ingress-nginx/"

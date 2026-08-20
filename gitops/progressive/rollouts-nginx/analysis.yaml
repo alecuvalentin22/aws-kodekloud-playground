@@ -1,16 +1,38 @@
-# The same template as ../rollouts/analysis.yaml with ONE hostname changed, and
-# that one change is the difference between a check that means something and a
-# check that always passes.
+# Measured on EKS v1.33 with ingress-nginx traffic routing. Two things were
+# found here, and the second contradicts the obvious reading of the first.
 #
-#   ../rollouts/  ->  http://podinfo.demo-rollouts:9898/healthz
-#                     one Service selecting all 4 pods. 1 canary + 3 stable, so
-#                     a curl lands on a healthy pod 75% of the time. Measured:
-#                     Successful, with a broken pod in ImagePullBackOff.
+# 1. Pointing analysis at podinfo-canary instead of the shared Service is what
+#    makes it able to judge the canary at all. ../rollouts/ curls the one
+#    Service selecting every pod, so with 1 canary in 4 it hits a healthy old
+#    pod 75% of the time.
 #
-#   here          ->  http://podinfo-canary.demo-rollouts-nginx:9898/healthz
-#                     pinned by the controller to the canary ReplicaSet ONLY.
-#                     A broken canary has no ready endpoints, so the curl gets
-#                     connection-refused and the AnalysisRun fails.
+# 2. That is NOT sufficient for a release that never becomes ready. Argo
+#    Rollouts only re-points the canary Service at the new ReplicaSet once that
+#    ReplicaSet has available pods. A canary stuck in ImagePullBackOff never
+#    gets there, so BOTH Services keep the stable pod-template-hash:
+#
+#      $ kubectl get svc podinfo-canary -o jsonpath='{.spec.selector}'
+#      {"app":"podinfo","rollouts-pod-template-hash":"86d9ccdc4d"}   <- stable's
+#
+#    and the analysis passes, correctly, against stable pods. It is not lying;
+#    there is genuinely no canary to measure.
+#
+# So the two safety nets catch DIFFERENT failures and neither replaces the other:
+#
+#   never becomes ready  -> progressDeadlineAbort. Analysis cannot see it.
+#   ready but wrong      -> analysis. progressDeadline cannot see it, because
+#                           the rollout IS progressing, just toward something bad.
+#
+# This template covers the second, and it measures a LATENCY SLO rather than a
+# status code, for a reason worth stating out loud: the interesting bad release
+# is usually not the one that returns 500. It is the one that returns 200 in
+# four seconds. Every probe passes, every dashboard is green, and the users are
+# the monitoring.
+#
+# (A first attempt used `podinfo --random-error`, which fails 1 request in 3.
+# That turned out to fail /readyz too, so the pod never became ready and it was
+# just part 1 again with extra steps. Injecting a fault that a readiness probe
+# cannot see is the whole trick.)
 apiVersion: argoproj.io/v1alpha1
 kind: AnalysisTemplate
 metadata:
@@ -18,12 +40,9 @@ metadata:
   namespace: demo-rollouts-nginx
 spec:
   metrics:
-    - name: canary-responds
+    - name: canary-latency-slo
       count: 5
       interval: 20s
-      # Zero tolerance is right for a lab, wrong for production: a single
-      # network blip aborts a good release. Real deployments set failureLimit
-      # to 2-3 with a longer interval, or use consecutiveErrorLimit.
       failureLimit: 0
       provider:
         job:
@@ -38,9 +57,17 @@ spec:
                     command: [sh, -c]
                     args:
                       - |
-                        set -e
-                        code=$(curl -s -o /dev/null -w '%{http_code}' \
-                          --max-time 5 \
-                          http://podinfo-canary.demo-rollouts-nginx:9898/healthz || echo 000)
-                        echo "canary /healthz -> $code"
-                        test "$code" = "200"
+                        set -eu
+                        N=30; OK=0
+                        for i in $(seq 1 $N); do
+                          # --max-time 1 IS the SLO. A slow 200 counts as a
+                          # failure here, which is the entire point.
+                          code=$(curl -s -o /dev/null -w '%{http_code}' --max-time 1 \
+                            http://podinfo-canary.demo-rollouts-nginx:9898/ || echo 000)
+                          [ "$code" = "200" ] && OK=$((OK+1))
+                        done
+                        PCT=$((OK * 100 / N))
+                        echo "canary within 1s: $OK/$N = ${PCT}%"
+                        # 95%, not 100%. Zero tolerance on a sampled measurement
+                        # aborts good releases on one unlucky timeout.
+                        [ "$PCT" -ge 95 ]

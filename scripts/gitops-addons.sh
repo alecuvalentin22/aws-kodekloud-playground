@@ -48,7 +48,28 @@ if want nginx; then
     --set controller.resources.requests.cpu=50m \
     --set controller.resources.requests.memory=128Mi \
     --set controller.admissionWebhooks.enabled=false \
+    --set controller.metrics.enabled=true \
+    --set controller.podAnnotations."prometheus\.io/scrape"=true \
+    --set controller.podAnnotations."prometheus\.io/port"=10254 \
     --wait --timeout 10m
+  # ---------------------------------------------------------------------------
+  # metrics.enabled=true is REQUIRED by Flagger, and it is off by default.
+  #
+  # This is what actually stopped Flagger's analysis completing on the earlier
+  # attempt -- not capacity, which was the first guess. Flagger's nginx provider
+  # computes request-success-rate from `nginx_ingress_controller_requests`. With
+  # metrics disabled the controller never exports that series, the PromQL
+  # returns an empty vector, and Flagger reports:
+  #
+  #   Halt advancement no values found for nginx metric request-success-rate
+  #
+  # which reads like a Flagger problem and is an ingress-nginx setting.
+  #
+  # The podAnnotations matter just as much: Flagger's bundled Prometheus
+  # discovers targets with a `kubernetes-pods` job that keeps only pods
+  # annotated prometheus.io/scrape=true. Enabling the metrics port without
+  # advertising it leaves the series unexported just the same.
+  # ---------------------------------------------------------------------------
   # admissionWebhooks disabled on purpose. A ValidatingWebhookConfiguration is
   # cluster-scoped and outlives its pods: if the controller is evicted on a
   # tight node, EVERY Ingress apply cluster-wide starts failing, including the

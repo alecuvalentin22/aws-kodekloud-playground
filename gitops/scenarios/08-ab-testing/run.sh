@@ -1,74 +1,91 @@
 # QUESTION: Can you route a NAMED COHORT to a new version rather than a percentage?
-# EXPECT: Yes, with setHeaderRoute. And the same request must get the same answer every time.
+# EXPECT: Yes -- but not with Argo Rollouts on nginx. The routing is an ingress feature.
 #
-# The distinction being tested is not cosmetic. A canary is a random sample: the
-# same user can hit v1 and then v2 on the next click. That is fine when the
-# question is "is v2 crashing" and useless when the question is "does v2 convert
-# better" -- because you cannot attribute a conversion to a variant the user was
-# only sometimes in.
+# Two findings, and the first one is the reason this scenario is not a Rollout:
 #
-# So this scenario proves TWO things, and the second is the one people forget:
-#   1. the header reaches the canary at all
-#   2. no-header traffic NEVER reaches it -- weight stays 0
+#   Argo Rollouts `setHeaderRoute` DOES NOT SUPPORT NGINX. The Rollout is
+#   rejected at admission and goes to Degraded with zero replicas:
+#
+#     spec.strategy.steps[1].setHeaderRoute: Invalid value: {...}:
+#     SetHeaderRoute requires TrafficRouting, supports Istio and ALB and Apisix
+#
+#   Note `trafficRouting.nginx` IS supported for WEIGHTED canaries -- scenario
+#   06 uses it. It is header and mirror routing specifically that nginx is
+#   excluded from. ALB would work; the AWS Load Balancer Controller needs IRSA
+#   and this playground restricts iam:CreateRole to three exact role names.
+#
+#   The header routing itself needs no progressive-delivery controller at all.
+#   Two Ingresses, same host and path, one annotated canary-by-header. Where
+#   setHeaderRoute IS supported it writes these same annotations for you.
+#
+# MEASURED on EKS v1.33, ingress-nginx 4.15.1 -- 20 requests each:
+#
+#   no header                      20 variant-A    0 variant-B
+#   X-Cohort: beta                  0 variant-A   20 variant-B
+#   X-Cohort: control               20 variant-A    0 variant-B
+#   Cookie: ab-cohort=always        0 variant-A   20 variant-B
+#
+# Clean in both directions, at canary-weight 0 throughout.
+#
+# What gets measured: that the cohort reaches B and that ordinary traffic
+# NEVER does. The second half is the one people forget to check, and it is what
+# makes this an A/B test rather than a canary -- canary-weight is 0 throughout.
 
 _ab_ns=demo-ab
-_ab_url() { echo "http://$(kubectl get nodes -o jsonpath='{.items[0].status.addresses[?(@.type=="ExternalIP")].address}'):30090"; }
+_ab_url() {
+  echo "http://$(kubectl get nodes -o jsonpath='{.items[0].status.addresses[?(@.type=="ExternalIP")].address}'):30090"
+}
+
+# 20 requests, tally which variant answered.
+_tally() {
+  local url="$1"; shift
+  local i
+  for i in $(seq 1 20); do
+    curl -s --max-time 5 -H 'Host: ab.local' "$@" "$url/" 2>/dev/null \
+      | grep -o 'variant-[AB]' || echo "no-answer"
+  done | sort | uniq -c | sed 's/^/        /'
+}
 
 scenario_apply() {
-  [[ "$CTL" == "argocd" ]] || { echo "    (Argo Rollouts only)"; return 0; }
-  kubectl -n "$_ab_ns" get rollout podinfo >/dev/null 2>&1 || {
-    echo "    not installed; kubectl apply -f gitops/progressive/ab-testing/"; return 1; }
-
-  echo "    shipping variant B"
-  kubectl -n "$_ab_ns" patch rollout podinfo --type=json -p='[
-    {"op":"replace","path":"/spec/template/spec/containers/0/env/0/value","value":"variant-B"}
-  ]' 2>&1 | sed 's/^/      /'
+  [[ "$CTL" == "argocd" ]] || { echo "    (ingress-level; runs once, not per controller)"; return 0; }
+  kubectl -n "$_ab_ns" get ingress podinfo-cohort >/dev/null 2>&1 || {
+    echo "    not installed: kubectl apply -f gitops/progressive/ab-testing/"; return 1; }
+  kubectl -n "$_ab_ns" rollout status deploy/podinfo-a --timeout=180s | sed 's/^/    /'
+  kubectl -n "$_ab_ns" rollout status deploy/podinfo-b --timeout=180s | sed 's/^/    /'
 }
 
 scenario_observe() {
   [[ "$CTL" == "argocd" ]] || return 0
   local url; url=$(_ab_url)
 
-  echo "    waiting for the header route to be programmed..."
-  for i in $(seq 1 20); do
-    kubectl -n "$_ab_ns" get ingress 2>/dev/null | grep -q 'header' && break
-    sleep 10
-  done
+  echo
+  echo "    the two Ingresses -- note the identical host and path:"
+  kubectl -n "$_ab_ns" get ingress -o custom-columns='NAME:.metadata.name,HOST:.spec.rules[0].host,SVC:.spec.rules[0].http.paths[0].backend.service.name,CANARY:.metadata.annotations.nginx\.ingress\.kubernetes\.io/canary' --no-headers | sed 's/^/      /'
+  echo
+  echo "    cohort selection:"
+  kubectl -n "$_ab_ns" get ingress podinfo-cohort -o jsonpath='      header={.metadata.annotations.nginx\.ingress\.kubernetes\.io/canary-by-header}={.metadata.annotations.nginx\.ingress\.kubernetes\.io/canary-by-header-value} cookie={.metadata.annotations.nginx\.ingress\.kubernetes\.io/canary-by-cookie} weight={.metadata.annotations.nginx\.ingress\.kubernetes\.io/canary-weight}{"\n"}'
 
   echo
-  echo "    ingresses (the second one is created BY the controller):"
-  kubectl -n "$_ab_ns" get ingress --no-headers | sed 's/^/      /'
-  echo
-  echo "    the annotations that implement it:"
-  for ing in $(kubectl -n "$_ab_ns" get ingress -o name | grep -v 'ingress/podinfo$'); do
-    kubectl -n "$_ab_ns" get "$ing" -o jsonpath='{.metadata.name}: {.metadata.annotations}{"\n"}' \
-      2>/dev/null | sed 's/^/      /'
-  done
+  echo "      [1] 20 requests, NO header -- weight is 0, so ALL must be A:"
+  _tally "$url"
 
   echo
-  echo "    20 requests with NO header (must all be A -- weight is 0):"
-  for _ in $(seq 1 20); do
-    curl -s -H 'Host: ab.local' --max-time 3 "$url/" 2>/dev/null | grep -o 'variant-[AB]' || echo "?"
-  done | sort | uniq -c | sed 's/^/      /'
+  echo "      [2] 20 requests with X-Cohort: beta -- ALL must be B:"
+  _tally "$url" -H 'X-Cohort: beta'
 
   echo
-  echo "    20 requests WITH X-Cohort: beta (must all be B):"
-  for _ in $(seq 1 20); do
-    curl -s -H 'Host: ab.local' -H 'X-Cohort: beta' --max-time 3 "$url/" 2>/dev/null | grep -o 'variant-[AB]' || echo "?"
-  done | sort | uniq -c | sed 's/^/      /'
+  echo "      [3] 20 requests with X-Cohort: control -- header present but not"
+  echo "          matching. Must fall through to A, not to B:"
+  _tally "$url" -H 'X-Cohort: control'
 
   echo
-  echo "    -> a clean 20/0 split BOTH ways is the property a canary cannot give you"
-  echo "    -> the rollout is paused indefinitely; promote or abort ends the experiment:"
-  echo "         kubectl argo rollouts promote podinfo -n $_ab_ns"
-  echo "         kubectl argo rollouts abort   podinfo -n $_ab_ns"
+  echo "      [4] 20 requests with Cookie: ab-cohort=always -- ALL must be B."
+  echo "          This is the one that gives an experiment a stable population:"
+  _tally "$url" -H 'Cookie: ab-cohort=always'
+
+  echo
+  echo "    -> a clean 20/0 in BOTH directions is the property a canary cannot give"
+  echo "    -> [3] matters: a non-matching value must not leak into the cohort"
 }
 
-scenario_reset() {
-  [[ "$CTL" == "argocd" ]] || return 0
-  kubectl argo rollouts abort podinfo -n "$_ab_ns" >/dev/null 2>&1
-  kubectl -n "$_ab_ns" patch rollout podinfo --type=json -p='[
-    {"op":"replace","path":"/spec/template/spec/containers/0/env/0/value","value":"variant-A"}
-  ]' >/dev/null 2>&1
-  return 0
-}
+scenario_reset() { return 0; }

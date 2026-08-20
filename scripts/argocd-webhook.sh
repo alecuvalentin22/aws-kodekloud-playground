@@ -2,8 +2,9 @@
 # Expose Argo CD's webhook endpoint and register it with GitHub, to replace
 # polling with a push.
 #
-#   ./scripts/argocd-webhook.sh            print what it would do
-#   ./scripts/argocd-webhook.sh --apply    actually create the GitHub webhook
+#   ./scripts/argocd-webhook.sh            expose it, print what is left to do
+#   ./scripts/argocd-webhook.sh --test     prove it works, WITHOUT GitHub
+#   ./scripts/argocd-webhook.sh --apply    also register the hook (needs gh)
 #
 # ---------------------------------------------------------------------------
 # What this is worth, in numbers
@@ -26,8 +27,11 @@ export KUBECONFIG="${KUBECONFIG:-$HOME/.kube/andrei-lab-eks}"
 K="kubectl --context $CLUSTER"
 REPO="${REPO:-alecuvalentin22/aws-kodekloud-playground}"
 NODEPORT="${NODEPORT:-30083}"
-APPLY=false
-[[ "${1:-}" == "--apply" ]] && APPLY=true
+APPLY=false; TEST=false
+case "${1:-}" in
+  --apply) APPLY=true ;;
+  --test)  TEST=true  ;;
+esac
 
 # ---------------------------------------------------------------------------
 # 1. Argo CD's webhook endpoint has to be reachable FROM GitHub.
@@ -54,7 +58,19 @@ $K -n argocd patch svc argocd-server -p "{
 
 NODE_IP="$($K get nodes -o jsonpath='{.items[0].status.addresses[?(@.type=="ExternalIP")].address}')"
 [[ -n "$NODE_IP" ]] || { echo "no node ExternalIP -- cannot expose a webhook" >&2; exit 1; }
-HOOK_URL="http://$NODE_IP:$NODEPORT/api/webhook"
+
+# HTTPS, on the second NodePort. The plain-HTTP port is NOT usable: argocd-server
+# answers it with a 307 redirect to HTTPS, and GitHub does not follow redirects
+# for webhook delivery -- it records the 307 as the response and moves on. The
+# hook shows as "delivered", Argo CD never hears about it, and nothing anywhere
+# reports an error. Measured: HTTP 307 on :30083, HTTP 200 on :30084.
+#
+# The certificate is argocd-server's self-signed one, so the hook needs
+# insecure_ssl=1. In production this is an Ingress with a real certificate;
+# insecure_ssl on a public endpoint means the payload is confidential only by
+# obscurity, and the HMAC is doing all the actual work.
+HOOK_PORT=$((NODEPORT+1))
+HOOK_URL="https://$NODE_IP:$HOOK_PORT/api/webhook"
 echo "    endpoint: $HOOK_URL"
 
 # ---------------------------------------------------------------------------
@@ -81,18 +97,58 @@ $K -n argocd rollout status  deploy/argocd-server --timeout=300s
 # ---------------------------------------------------------------------------
 SG="$(aws eks describe-cluster --name "$CLUSTER" \
         --query 'cluster.resourcesVpcConfig.clusterSecurityGroupId' --output text)"
-echo "==> opening $NODEPORT on $SG to GitHub's hook ranges"
+echo "==> opening $NODEPORT/$HOOK_PORT on $SG to GitHub's hook ranges"
 HOOK_CIDRS="$(curl -s https://api.github.com/meta | python3 -c 'import sys,json;print(" ".join(c for c in json.load(sys.stdin)["hooks"] if ":" not in c))')"
 echo "    GitHub publishes its hook source ranges at api.github.com/meta:"
 echo "    $HOOK_CIDRS"
-if $APPLY; then
-  for cidr in $HOOK_CIDRS; do
+for cidr in $HOOK_CIDRS; do
+  for port in "$NODEPORT" "$HOOK_PORT"; do
     aws ec2 authorize-security-group-ingress --group-id "$SG" \
-      --protocol tcp --port "$NODEPORT" --cidr "$cidr" >/dev/null 2>&1 || true
+      --protocol tcp --port "$port" --cidr "$cidr" >/dev/null 2>&1 || true
   done
-  echo "    rules added"
-else
-  echo "    (dry run -- would add $(echo "$HOOK_CIDRS" | wc -w | tr -d ' ') rules)"
+done
+echo "    rules added (idempotent)"
+
+# ---------------------------------------------------------------------------
+# 3b. Prove the endpoint works WITHOUT involving GitHub.
+#
+# Worth doing separately, because the two things that break here fail in
+# completely different places: reachability is an AWS problem and the signature
+# is an Argo CD problem, and "the hook does not work" does not distinguish them.
+#
+# Signing is done in python rather than `openssl dgst`, because the body has to
+# be byte-identical between what is signed and what is sent -- passing JSON
+# through shell quoting and back is exactly how that stops being true.
+# ---------------------------------------------------------------------------
+if $TEST; then
+  echo
+  echo "==> sending a signed push event from this machine"
+  python3 - "$SECRET" "$NODE_IP" "$HOOK_PORT" "$REPO" <<'PYEOF'
+import sys, hmac, hashlib, json, ssl, urllib.request, urllib.error
+secret, ip, port, repo = sys.argv[1], sys.argv[2], sys.argv[3], sys.argv[4]
+body = json.dumps({
+    "ref": "refs/heads/main",
+    "repository": {"html_url": f"https://github.com/{repo}", "default_branch": "main"},
+}).encode()
+sig = "sha256=" + hmac.new(secret.encode(), body, hashlib.sha256).hexdigest()
+req = urllib.request.Request(
+    f"https://{ip}:{port}/api/webhook", data=body, method="POST",
+    headers={"X-GitHub-Event": "push", "Content-Type": "application/json",
+             "X-Hub-Signature-256": sig})
+try:
+    r = urllib.request.urlopen(req, context=ssl._create_unverified_context(), timeout=15)
+    print(f"    HTTP {r.status} -- accepted")
+except urllib.error.HTTPError as e:
+    print(f"    HTTP {e.code} -- {e.read().decode()[:120]}")
+    print("    400 with a correct signature usually means argocd-server is still")
+    print("    running with the OLD secret; it caches it and re-reads on restart.")
+except Exception as e:
+    print(f"    unreachable: {e}")
+    print("    that is the security group or the NodePort, not the signature.")
+PYEOF
+  echo "    argocd-server should have logged a refresh:"
+  $K -n argocd logs deploy/argocd-server --since=30s 2>/dev/null \
+    | grep -i 'refresh' | tail -3 | sed 's/^/      /'
 fi
 
 # ---------------------------------------------------------------------------
@@ -108,14 +164,19 @@ if $APPLY; then
     -f config[url]="$HOOK_URL" \
     -f config[content_type]=json \
     -f config[secret]="$SECRET" \
-    -f config[insecure_ssl]=0 >/dev/null
+    -f config[insecure_ssl]=1 >/dev/null
   echo "    created"
 else
   cat <<EOF
 
-Dry run. To create it:
+The endpoint is live. Registering it with GitHub needs the gh CLI, or two
+clicks in the UI -- Settings -> Webhooks -> Add webhook:
 
-  ./scripts/argocd-webhook.sh --apply
+  Payload URL   $HOOK_URL
+  Content type  application/json
+  Secret        $SECRET
+  SSL           disable verification (self-signed cert, see above)
+  Events        just the push event
 
 Then measure the difference -- that is the point:
 

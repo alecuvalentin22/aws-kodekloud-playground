@@ -12,4 +12,4 @@ creation_rules:
     encrypted_regex: '^(data|stringData)$'
     # Public key only. The matching private key never touches this repo -- it is
     # created by scripts/secrets-seal.sh and loaded into the cluster by hand.
-    age: age1placeholder0000000000000000000000000000000000000000000000000
+    age: age1lfl2s042smqk7dmjkkynwg4dhycjg7xeds2zt6pgyrl6pyzvy9dq764zde

@@ -22,6 +22,14 @@ spec:
           readinessProbe:
             httpGet: {path: /readyz, port: 9898}
             initialDelaySeconds: 3
+            # 6s, deliberately generous. The point of scenario 06 part 2 is a
+            # release that is HEALTHY BUT TOO SLOW, and a tight probe timeout
+            # would turn that into an ordinary unready-pod failure -- which
+            # progressDeadlineAbort already catches, making the analysis
+            # untestable. A probe answers "is this process alive"; it is not an
+            # SLO, and conflating the two is why plenty of latency regressions
+            # ship green.
+            timeoutSeconds: 6
 
   # 120s from the last progress before the rollout is considered stuck.
   progressDeadlineSeconds: 120
