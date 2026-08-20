@@ -180,3 +180,37 @@ resource "aws_iam_instance_profile" "node" {
   name  = var.node_role_name
   role  = var.create_iam_roles ? aws_iam_role.node[0].name : data.aws_iam_role.node[0].name
 }
+
+# ---------------------------------------------------------------------------
+# NODEPORT EXPOSURE
+#
+# The cluster security group admits the control plane and the nodes to each
+# other, and nothing else. Every NodePort service -- Argo CD's UI, the two
+# podinfo deployments, ingress-nginx -- is therefore unreachable until a rule
+# says otherwise.
+#
+# These were opened by hand during the first build, which is exactly the wrong
+# way round for a repo whose point is reproducibility: the cluster worked, and
+# rebuilding it produced a cluster where none of the URLs answered. Declaring
+# them here means `terraform apply` gets you a browsable lab.
+#
+# DEFAULT IS 0.0.0.0/0, deliberately, and it is worth being explicit about why:
+# this is a throwaway playground whose services are password-protected and whose
+# whole existence is measured in hours. In anything permanent, set
+# node_service_cidrs to your own /32 -- or better, put a load balancer with TLS
+# in front and never expose a NodePort at all.
+#
+# SSH is NOT in this list. Shell access stays scoped to a single address in
+# terraform/aws regardless of what happens here.
+# ---------------------------------------------------------------------------
+resource "aws_security_group_rule" "node_services" {
+  for_each = var.create_self_managed_nodes ? var.node_service_ports : {}
+
+  type              = "ingress"
+  security_group_id = aws_eks_cluster.this.vpc_config[0].cluster_security_group_id
+  protocol          = "tcp"
+  from_port         = each.value
+  to_port           = each.value
+  cidr_blocks       = var.node_service_cidrs
+  description       = "${each.key} (NodePort ${each.value})"
+}

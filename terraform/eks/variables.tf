@@ -224,3 +224,41 @@ variable "create_self_managed_nodes" {
   type        = bool
   default     = false
 }
+
+variable "node_service_ports" {
+  description = <<-EOT
+    NodePorts to open on the cluster security group, as name => port.
+
+    Named rather than a bare list so that `terraform state list` and the AWS
+    console both say WHAT each hole is for. A security group full of anonymous
+    30xxx rules is one nobody dares close.
+  EOT
+  type        = map(number)
+  default = {
+    argocd-ui-http    = 30083
+    argocd-ui-https   = 30084 # also the GitHub webhook endpoint
+    podinfo-argocd    = 30081
+    podinfo-flux      = 30082
+    podinfo-rollouts  = 30085
+    ingress-nginx     = 30090
+    ingress-nginx-tls = 30443
+  }
+}
+
+variable "node_service_cidrs" {
+  description = <<-EOT
+    Who may reach those NodePorts.
+
+    Defaults to the whole internet, which is a deliberate choice for a
+    time-boxed playground with password-protected services -- and the wrong
+    default for anything that outlives an afternoon. Narrow it to your own /32
+    with:
+
+      node_service_cidrs = ["$(curl -4 -s https://checkip.amazonaws.com)/32"]
+
+    Note `-4`: curl returns IPv6 on some networks and a security group rule
+    wants IPv4.
+  EOT
+  type        = list(string)
+  default     = ["0.0.0.0/0"]
+}
