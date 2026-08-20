@@ -14,12 +14,29 @@ metadata:
 spec:
   description: Side-by-side GitOps comparison workloads
 
+  # sourceRepos is an allowlist of WHERE MANIFESTS MAY COME FROM, and a Helm
+  # chart repository counts. Adding gitops/helm/argocd/podinfo.yaml -- an
+  # Application whose source is a chart, not this git repo -- failed with:
+  #
+  #   application repo https://stefanprodan.github.io/podinfo
+  #   is not permitted in project 'demo'
+  #
+  # Worth seeing once: the Application is rejected at the SPEC level. There is
+  # no failed sync to look at, no operationState, and `kubectl get app` shows
+  # Unknown/Unknown -- the reason lives only in status.conditions. Which is the
+  # boundary doing its job; a project that could pull a chart from anywhere on
+  # the internet is not much of a boundary.
   sourceRepos:
     - https://github.com/alecuvalentin22/aws-kodekloud-playground.git
+    - https://stefanprodan.github.io/podinfo
 
+  # Same story for destinations: each namespace is named explicitly. `*` here
+  # is the single most common way an AppProject stops being a boundary.
   destinations:
     - server: https://kubernetes.default.svc
       namespace: demo-argocd
+    - server: https://kubernetes.default.svc
+      namespace: demo-helm-argocd
 
   # Cluster-scoped resources this project may manage.
   #
