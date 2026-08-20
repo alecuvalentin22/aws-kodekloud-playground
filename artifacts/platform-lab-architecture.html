@@ -1,0 +1,802 @@
+<title>Platform Lab — Architecture</title>
+
+<style>
+  :root {
+    --paper:   #f3f5f6;
+    --surface: #ffffff;
+    --sunken:  #eaeef0;
+    --ink:     #151a1f;
+    --muted:   #5a6772;
+    --line:    #d5dde1;
+    --build:   #5b46c9;
+    --serve:   #0d7b74;
+    --warn:    #a8382e;
+    --build-wash: #ece9fb;
+    --serve-wash: #e0f0ee;
+    --warn-wash:  #f8e9e7;
+
+    --font-display: Georgia, "Iowan Old Style", "Palatino Linotype", serif;
+    --font-body: system-ui, -apple-system, "Segoe UI", Roboto, Helvetica, sans-serif;
+    --font-mono: ui-monospace, SFMono-Regular, "SF Mono", Menlo, Consolas, monospace;
+
+    --measure: 68ch;
+  }
+
+  @media (prefers-color-scheme: dark) {
+    :root:not([data-theme="light"]) {
+      --paper:   #121619;
+      --surface: #1a2026;
+      --sunken:  #161c21;
+      --ink:     #e4eaee;
+      --muted:   #93a2ad;
+      --line:    #2c353d;
+      --build:   #a495ff;
+      --serve:   #46cdc0;
+      --warn:    #ef8b7f;
+      --build-wash: #221d3d;
+      --serve-wash: #123330;
+      --warn-wash:  #33201d;
+    }
+  }
+
+  :root[data-theme="dark"] {
+    --paper:   #121619;
+    --surface: #1a2026;
+    --sunken:  #161c21;
+    --ink:     #e4eaee;
+    --muted:   #93a2ad;
+    --line:    #2c353d;
+    --build:   #a495ff;
+    --serve:   #46cdc0;
+    --warn:    #ef8b7f;
+    --build-wash: #221d3d;
+    --serve-wash: #123330;
+    --warn-wash:  #33201d;
+  }
+
+  * { box-sizing: border-box; }
+
+  body {
+    background: var(--paper);
+    color: var(--ink);
+    font-family: var(--font-body);
+    font-size: 16px;
+    line-height: 1.65;
+    margin: 0;
+    padding: 0 24px 96px;
+    -webkit-font-smoothing: antialiased;
+  }
+
+  .wrap { max-width: 1040px; margin: 0 auto; }
+  .prose { max-width: var(--measure); }
+
+  header.masthead {
+    padding: 64px 0 40px;
+    border-bottom: 1px solid var(--line);
+    margin-bottom: 48px;
+  }
+  .eyebrow {
+    font-family: var(--font-mono);
+    font-size: 12px;
+    letter-spacing: 0.12em;
+    text-transform: uppercase;
+    color: var(--muted);
+    margin: 0 0 14px;
+  }
+  h1 {
+    font-family: var(--font-display);
+    font-weight: 600;
+    font-size: clamp(34px, 5vw, 52px);
+    line-height: 1.1;
+    letter-spacing: -0.015em;
+    margin: 0 0 20px;
+    text-wrap: balance;
+  }
+  .standfirst {
+    font-size: 19px;
+    line-height: 1.55;
+    color: var(--muted);
+    max-width: 60ch;
+    margin: 0;
+  }
+  .standfirst strong { color: var(--ink); font-weight: 600; }
+
+  h2 {
+    font-family: var(--font-display);
+    font-weight: 600;
+    font-size: 28px;
+    line-height: 1.2;
+    letter-spacing: -0.01em;
+    margin: 64px 0 8px;
+    text-wrap: balance;
+  }
+  h2 .num {
+    font-family: var(--font-mono);
+    font-size: 13px;
+    color: var(--muted);
+    letter-spacing: 0.08em;
+    display: block;
+    margin-bottom: 6px;
+    font-weight: 400;
+  }
+  h3 {
+    font-family: var(--font-body);
+    font-weight: 650;
+    font-size: 16px;
+    letter-spacing: 0.005em;
+    margin: 32px 0 6px;
+  }
+  p { margin: 0 0 16px; }
+  a { color: var(--build); }
+
+  code {
+    font-family: var(--font-mono);
+    font-size: 0.875em;
+    background: var(--sunken);
+    border: 1px solid var(--line);
+    border-radius: 4px;
+    padding: 1px 5px;
+    white-space: nowrap;
+  }
+
+  /* ---- the two planes, the core mental model ---- */
+  .planes {
+    display: grid;
+    grid-template-columns: repeat(auto-fit, minmax(280px, 1fr));
+    gap: 16px;
+    margin: 28px 0 8px;
+  }
+  .plane {
+    border: 1px solid var(--line);
+    border-radius: 8px;
+    padding: 20px 22px;
+    background: var(--surface);
+  }
+  .plane.build { border-top: 3px solid var(--build); }
+  .plane.serve { border-top: 3px solid var(--serve); }
+  .plane h3 { margin: 0 0 4px; font-size: 17px; }
+  .plane.build h3 { color: var(--build); }
+  .plane.serve h3 { color: var(--serve); }
+  .plane .when {
+    font-family: var(--font-mono);
+    font-size: 12px;
+    color: var(--muted);
+    display: block;
+    margin-bottom: 10px;
+  }
+  .plane p { margin: 0; font-size: 15px; color: var(--muted); }
+  .plane p strong { color: var(--ink); font-weight: 600; }
+
+  /* ---- figures ---- */
+  figure {
+    margin: 32px 0 8px;
+    padding: 0;
+  }
+  .scroller {
+    overflow-x: auto;
+    background: var(--surface);
+    border: 1px solid var(--line);
+    border-radius: 8px;
+    padding: 20px;
+  }
+  figure svg { display: block; max-width: 100%; height: auto; min-width: 720px; }
+  figcaption {
+    font-size: 14px;
+    color: var(--muted);
+    margin-top: 12px;
+    max-width: 62ch;
+    line-height: 1.5;
+  }
+  figcaption b { color: var(--ink); font-weight: 600; }
+
+  /* svg text roles */
+  .n-title { font-family: var(--font-mono); font-size: 12.5px; font-weight: 600; }
+  .n-sub   { font-family: var(--font-body); font-size: 11px; }
+  .e-label { font-family: var(--font-body); font-size: 11px; font-style: italic; }
+  .zone-label { font-family: var(--font-mono); font-size: 11px; letter-spacing: 0.1em; }
+
+  /* ---- tables ---- */
+  .tablewrap { overflow-x: auto; margin: 24px 0 8px; }
+  table {
+    border-collapse: collapse;
+    width: 100%;
+    min-width: 560px;
+    font-size: 14.5px;
+    background: var(--surface);
+    border: 1px solid var(--line);
+    border-radius: 8px;
+  }
+  th, td {
+    text-align: left;
+    padding: 11px 14px;
+    border-bottom: 1px solid var(--line);
+    vertical-align: top;
+  }
+  thead th {
+    font-family: var(--font-mono);
+    font-size: 11.5px;
+    letter-spacing: 0.08em;
+    text-transform: uppercase;
+    color: var(--muted);
+    font-weight: 500;
+    background: var(--sunken);
+  }
+  tbody tr:last-child td { border-bottom: none; }
+  td code { white-space: nowrap; }
+
+  .pill {
+    display: inline-block;
+    font-family: var(--font-mono);
+    font-size: 11px;
+    padding: 2px 7px;
+    border-radius: 999px;
+    white-space: nowrap;
+  }
+  .pill.build { background: var(--build-wash); color: var(--build); }
+  .pill.serve { background: var(--serve-wash); color: var(--serve); }
+
+  /* ---- failure notes ---- */
+  .note {
+    border-left: 3px solid var(--warn);
+    background: var(--warn-wash);
+    border-radius: 0 6px 6px 0;
+    padding: 14px 18px;
+    margin: 20px 0;
+    font-size: 15px;
+  }
+  .note .lede {
+    font-family: var(--font-mono);
+    font-size: 11.5px;
+    letter-spacing: 0.08em;
+    text-transform: uppercase;
+    color: var(--warn);
+    display: block;
+    margin-bottom: 5px;
+  }
+  .note p { margin: 0; }
+  .note p + p { margin-top: 8px; }
+
+  footer {
+    margin-top: 72px;
+    padding-top: 24px;
+    border-top: 1px solid var(--line);
+    font-size: 13.5px;
+    color: var(--muted);
+  }
+</style>
+
+<div class="wrap">
+
+<header class="masthead">
+  <p class="eyebrow">Platform lab · AWS</p>
+  <h1>What builds what, and what calls what</h1>
+  <p class="standfirst">
+    A lab of five machines running Elasticsearch, two Kubernetes clusters, an API
+    gateway and an identity provider. <strong>Every arrow here was executed and
+    verified</strong>, not sketched from intent.
+  </p>
+</header>
+
+<section class="prose">
+  <h2><span class="num">The mental model</span>Two planes, and everything belongs to one</h2>
+  <p>
+    Almost every confusing question about this system resolves once you know which
+    plane a thing lives in. Terraform and Ansible <em>build</em>; Kong and Rancher
+    <em>serve</em>. They never run at the same time, and they fail in completely
+    different ways.
+  </p>
+</section>
+
+<div class="planes">
+  <div class="plane build">
+    <h3>Build plane</h3>
+    <span class="when">runs once, then exits</span>
+    <p>
+      <strong>Terraform</strong> makes machines and disks exist.
+      <strong>Ansible</strong> installs and configures software on them.
+      <strong>Helm</strong> deploys apps into Kubernetes. When these finish,
+      nothing of them is left running.
+    </p>
+  </div>
+  <div class="plane serve">
+    <h3>Runtime plane</h3>
+    <span class="when">stays up, answers requests</span>
+    <p>
+      <strong>Elasticsearch</strong>, <strong>Kong</strong>,
+      <strong>Keycloak</strong>, <strong>Rancher</strong>, <strong>RDS</strong>.
+      These are what a user or another service actually talks to. They know
+      nothing about Terraform or Ansible.
+    </p>
+  </div>
+</div>
+
+<section class="prose">
+  <h2><span class="num">Figure 1 · what deploys what</span>The build chain</h2>
+  <p>
+    Read this top to bottom. The important part is in the middle: Terraform does
+    not tell Ansible anything directly — it <em>writes a file</em>, and Ansible
+    reads that file. That file is the entire interface between the two tools.
+  </p>
+</section>
+
+<figure>
+  <div class="scroller">
+    <svg viewBox="0 0 900 660" role="img"
+         aria-label="Build chain: terraform bootstrap creates an S3 state bucket; terraform aws creates five EC2 instances, three EBS volumes and an RDS database, and writes inventory/hosts.ini; Ansible reads that inventory plus an encrypted vault file and runs playbooks that configure each host.">
+      <defs>
+        <marker id="ar" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="6" markerHeight="6" orient="auto-start-reverse">
+          <path d="M 0 0 L 10 5 L 0 10 z" fill="currentColor"/>
+        </marker>
+        <marker id="ar-b" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="6" markerHeight="6" orient="auto-start-reverse">
+          <path d="M 0 0 L 10 5 L 0 10 z" fill="var(--build)"/>
+        </marker>
+      </defs>
+
+      <!-- stage 1 -->
+      <rect x="40" y="30" width="230" height="52" rx="6" fill="var(--build-wash)" stroke="var(--build)" stroke-width="1.5"/>
+      <text x="155" y="52" class="n-title" fill="var(--build)" text-anchor="middle">terraform/bootstrap</text>
+      <text x="155" y="69" class="n-sub" fill="var(--muted)" text-anchor="middle">state has nowhere to live yet</text>
+
+      <g color="var(--muted)">
+        <line x1="270" y1="56" x2="386" y2="56" stroke="currentColor" stroke-width="1.5" marker-end="url(#ar)"/>
+      </g>
+      <text x="328" y="48" class="e-label" fill="var(--muted)" text-anchor="middle">creates</text>
+
+      <rect x="390" y="30" width="230" height="52" rx="6" fill="var(--surface)" stroke="var(--line)" stroke-width="1.5"/>
+      <text x="505" y="52" class="n-title" fill="var(--ink)" text-anchor="middle">S3 bucket</text>
+      <text x="505" y="69" class="n-sub" fill="var(--muted)" text-anchor="middle">holds all other state, locked</text>
+
+      <!-- stage 2 -->
+      <g color="var(--build)">
+        <line x1="155" y1="82" x2="155" y2="128" stroke="currentColor" stroke-width="1.5" marker-end="url(#ar-b)"/>
+      </g>
+      <text x="167" y="108" class="e-label" fill="var(--muted)">then</text>
+
+      <rect x="40" y="132" width="230" height="52" rx="6" fill="var(--build-wash)" stroke="var(--build)" stroke-width="1.5"/>
+      <text x="155" y="154" class="n-title" fill="var(--build)" text-anchor="middle">terraform/aws</text>
+      <text x="155" y="171" class="n-sub" fill="var(--muted)" text-anchor="middle">one apply, 18 resources</text>
+
+      <g color="var(--muted)">
+        <line x1="270" y1="158" x2="386" y2="158" stroke="currentColor" stroke-width="1.5" marker-end="url(#ar)"/>
+      </g>
+      <text x="328" y="150" class="e-label" fill="var(--muted)" text-anchor="middle">creates</text>
+
+      <rect x="390" y="118" width="470" height="80" rx="6" fill="var(--surface)" stroke="var(--line)" stroke-width="1.5"/>
+      <text x="410" y="140" class="n-title" fill="var(--ink)">5 × EC2</text>
+      <text x="410" y="157" class="n-sub" fill="var(--muted)">the machines everything runs on</text>
+      <text x="410" y="177" class="n-title" fill="var(--ink)">3 × EBS</text>
+      <text x="410" y="191" class="n-sub" fill="var(--muted)">one data disk per Elasticsearch node</text>
+      <text x="650" y="140" class="n-title" fill="var(--ink)">RDS</text>
+      <text x="650" y="157" class="n-sub" fill="var(--muted)">managed Postgres, private only</text>
+      <text x="650" y="177" class="n-title" fill="var(--ink)">Security group</text>
+      <text x="650" y="191" class="n-sub" fill="var(--muted)">who may reach which port</text>
+
+      <!-- the seam -->
+      <g color="var(--build)">
+        <line x1="155" y1="184" x2="155" y2="240" stroke="currentColor" stroke-width="1.5" marker-end="url(#ar-b)"/>
+      </g>
+      <text x="167" y="216" class="e-label" fill="var(--muted)">writes IPs + volume IDs</text>
+
+      <rect x="40" y="244" width="560" height="56" rx="6" fill="var(--build-wash)" stroke="var(--build)" stroke-width="2.5"/>
+      <text x="60" y="268" class="n-title" fill="var(--build)">inventory/hosts.ini</text>
+      <text x="60" y="286" class="n-sub" fill="var(--muted)">generated — the only thing Terraform hands to Ansible</text>
+      <text x="580" y="277" class="zone-label" fill="var(--build)" text-anchor="end">THE SEAM</text>
+
+      <!-- ansible -->
+      <g color="var(--build)">
+        <line x1="155" y1="300" x2="155" y2="352" stroke="currentColor" stroke-width="1.5" marker-end="url(#ar-b)"/>
+      </g>
+      <text x="167" y="330" class="e-label" fill="var(--muted)">reads</text>
+
+      <rect x="390" y="330" width="290" height="46" rx="6" fill="var(--surface)" stroke="var(--line)" stroke-width="1.5" stroke-dasharray="4 3"/>
+      <text x="410" y="350" class="n-title" fill="var(--ink)">group_vars/all/vault.yml</text>
+      <text x="410" y="366" class="n-sub" fill="var(--muted)">encrypted passwords</text>
+      <g color="var(--muted)">
+        <line x1="386" y1="353" x2="274" y2="367" stroke="currentColor" stroke-width="1.5" marker-end="url(#ar)"/>
+      </g>
+
+      <rect x="40" y="356" width="230" height="52" rx="6" fill="var(--build-wash)" stroke="var(--build)" stroke-width="1.5"/>
+      <text x="155" y="378" class="n-title" fill="var(--build)" text-anchor="middle">ansible-playbook</text>
+      <text x="155" y="395" class="n-sub" fill="var(--muted)" text-anchor="middle">connects over SSH</text>
+
+      <!-- fan out -->
+      <g color="var(--build)">
+        <line x1="155" y1="408" x2="155" y2="440" stroke="currentColor" stroke-width="1.5"/>
+        <line x1="155" y1="440" x2="735" y2="440" stroke="currentColor" stroke-width="1.5"/>
+        <line x1="155" y1="440" x2="155" y2="486" stroke="currentColor" stroke-width="1.5" marker-end="url(#ar-b)"/>
+        <line x1="445" y1="440" x2="445" y2="486" stroke="currentColor" stroke-width="1.5" marker-end="url(#ar-b)"/>
+        <line x1="735" y1="440" x2="735" y2="486" stroke="currentColor" stroke-width="1.5" marker-end="url(#ar-b)"/>
+      </g>
+      <text x="175" y="432" class="e-label" fill="var(--muted)">one playbook per group of hosts</text>
+
+      <rect x="40" y="490" width="230" height="126" rx="6" fill="var(--serve-wash)" stroke="var(--serve)" stroke-width="1.5"/>
+      <text x="155" y="512" class="n-title" fill="var(--serve)" text-anchor="middle">es-01 · es-02 · es-03</text>
+      <text x="60" y="536" class="n-sub" fill="var(--ink)">Elasticsearch ×3</text>
+      <text x="60" y="554" class="n-sub" fill="var(--ink)">Kibana &nbsp;·&nbsp; MinIO</text>
+      <text x="60" y="572" class="n-sub" fill="var(--ink)">PostgreSQL (on es-01)</text>
+      <text x="60" y="596" class="n-sub" fill="var(--muted)">playbooks/elastic.yml</text>
+
+      <rect x="330" y="490" width="230" height="126" rx="6" fill="var(--serve-wash)" stroke="var(--serve)" stroke-width="1.5"/>
+      <text x="445" y="512" class="n-title" fill="var(--serve)" text-anchor="middle">k3s-01</text>
+      <text x="350" y="536" class="n-sub" fill="var(--ink)">k3s cluster</text>
+      <text x="350" y="554" class="n-sub" fill="var(--ink)">Kong (API gateway)</text>
+      <text x="350" y="572" class="n-sub" fill="var(--ink)">Keycloak (identity)</text>
+      <text x="350" y="596" class="n-sub" fill="var(--muted)">playbooks/k8s.yml</text>
+
+      <rect x="620" y="490" width="230" height="126" rx="6" fill="var(--serve-wash)" stroke="var(--serve)" stroke-width="1.5"/>
+      <text x="735" y="512" class="n-title" fill="var(--serve)" text-anchor="middle">rke2-01</text>
+      <text x="640" y="536" class="n-sub" fill="var(--ink)">RKE2 cluster</text>
+      <text x="640" y="554" class="n-sub" fill="var(--ink)">cert-manager</text>
+      <text x="640" y="572" class="n-sub" fill="var(--ink)">Rancher (manages both)</text>
+      <text x="640" y="596" class="n-sub" fill="var(--muted)">playbooks/k8s.yml</text>
+    </svg>
+  </div>
+  <figcaption>
+    <b>Terraform and Ansible never talk to each other.</b> Terraform writes
+    <code>inventory/hosts.ini</code> containing the public IPs it just created and
+    the EBS volume IDs it just attached; Ansible reads that file to know which
+    machines exist. Delete the file and Ansible has no idea the lab exists —
+    regenerate it with <code>terraform apply</code>.
+  </figcaption>
+</figure>
+
+<section class="prose">
+  <h2><span class="num">Figure 2 · what calls what</span>The runtime call graph</h2>
+  <p>
+    Now forget every tool above — none of them is running. This is what a request
+    actually touches. The boundary in the middle matters more than any single box:
+    inside the VPC, services reach each other on private addresses; from outside,
+    only the ports opened in the security group are reachable at all.
+  </p>
+</section>
+
+<figure>
+  <div class="scroller">
+    <svg viewBox="0 0 900 600" role="img"
+         aria-label="Runtime call graph: a browser reaches Kong, Keycloak, Kibana and Rancher over the public internet. Inside the VPC, Kong forwards to an echo service, Kibana queries Elasticsearch, Elasticsearch writes snapshots to MinIO, and es-01 reaches RDS. The Rancher agent on k3s-01 dials outward to Rancher on rke2-01; Rancher never connects inward.">
+      <defs>
+        <marker id="ar2" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="6" markerHeight="6" orient="auto-start-reverse">
+          <path d="M 0 0 L 10 5 L 0 10 z" fill="currentColor"/>
+        </marker>
+        <marker id="ar2-s" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="6" markerHeight="6" orient="auto-start-reverse">
+          <path d="M 0 0 L 10 5 L 0 10 z" fill="var(--serve)"/>
+        </marker>
+      </defs>
+
+      <!-- vpc zone -->
+      <rect x="250" y="20" width="630" height="560" rx="10" fill="none" stroke="var(--line)" stroke-width="1.5" stroke-dasharray="6 4"/>
+      <text x="864" y="42" class="zone-label" fill="var(--muted)" text-anchor="end">AWS VPC</text>
+
+      <!-- browser -->
+      <rect x="30" y="240" width="170" height="60" rx="6" fill="var(--surface)" stroke="var(--ink)" stroke-width="1.5"/>
+      <text x="115" y="266" class="n-title" fill="var(--ink)" text-anchor="middle">Your browser</text>
+      <text x="115" y="284" class="n-sub" fill="var(--muted)" text-anchor="middle">public internet</text>
+
+      <!-- edges from browser -->
+      <g color="var(--serve)">
+        <path d="M 200 258 C 235 258 235 90 285 90" fill="none" stroke="currentColor" stroke-width="1.5" marker-end="url(#ar2-s)"/>
+        <path d="M 200 268 C 235 268 235 200 285 200" fill="none" stroke="currentColor" stroke-width="1.5" marker-end="url(#ar2-s)"/>
+        <path d="M 200 282 C 235 282 235 330 285 330" fill="none" stroke="currentColor" stroke-width="1.5" marker-end="url(#ar2-s)"/>
+        <path d="M 200 292 C 235 292 235 470 285 470" fill="none" stroke="currentColor" stroke-width="1.5" marker-end="url(#ar2-s)"/>
+      </g>
+      <text x="212" y="82" class="e-label" fill="var(--muted)">:30080</text>
+      <text x="212" y="192" class="e-label" fill="var(--muted)">:30081</text>
+      <text x="212" y="322" class="e-label" fill="var(--muted)">:5601</text>
+      <text x="212" y="462" class="e-label" fill="var(--muted)">:443</text>
+
+      <!-- kong -->
+      <rect x="290" y="62" width="200" height="56" rx="6" fill="var(--serve-wash)" stroke="var(--serve)" stroke-width="1.5"/>
+      <text x="390" y="84" class="n-title" fill="var(--serve)" text-anchor="middle">Kong</text>
+      <text x="390" y="101" class="n-sub" fill="var(--muted)" text-anchor="middle">gateway, on k3s-01</text>
+
+      <rect x="620" y="62" width="200" height="56" rx="6" fill="var(--surface)" stroke="var(--line)" stroke-width="1.5"/>
+      <text x="720" y="84" class="n-title" fill="var(--ink)" text-anchor="middle">echo service</text>
+      <text x="720" y="101" class="n-sub" fill="var(--muted)" text-anchor="middle">the thing being protected</text>
+
+      <g color="var(--muted)">
+        <line x1="490" y1="90" x2="614" y2="90" stroke="currentColor" stroke-width="1.5" marker-end="url(#ar2)"/>
+      </g>
+      <text x="552" y="82" class="e-label" fill="var(--muted)" text-anchor="middle">forwards</text>
+
+      <!-- keycloak -->
+      <rect x="290" y="172" width="200" height="56" rx="6" fill="var(--serve-wash)" stroke="var(--serve)" stroke-width="1.5"/>
+      <text x="390" y="194" class="n-title" fill="var(--serve)" text-anchor="middle">Keycloak</text>
+      <text x="390" y="211" class="n-sub" fill="var(--muted)" text-anchor="middle">issues signed tokens</text>
+
+      <g color="var(--muted)">
+        <path d="M 390 172 L 390 124" fill="none" stroke="currentColor" stroke-width="1.5" stroke-dasharray="4 3" marker-end="url(#ar2)"/>
+      </g>
+      <text x="400" y="152" class="e-label" fill="var(--muted)">public key, fetched once at deploy</text>
+
+      <!-- kibana -->
+      <rect x="290" y="302" width="200" height="56" rx="6" fill="var(--serve-wash)" stroke="var(--serve)" stroke-width="1.5"/>
+      <text x="390" y="324" class="n-title" fill="var(--serve)" text-anchor="middle">Kibana</text>
+      <text x="390" y="341" class="n-sub" fill="var(--muted)" text-anchor="middle">on es-01</text>
+
+      <rect x="620" y="302" width="200" height="56" rx="6" fill="var(--serve-wash)" stroke="var(--serve)" stroke-width="1.5"/>
+      <text x="720" y="324" class="n-title" fill="var(--serve)" text-anchor="middle">Elasticsearch ×3</text>
+      <text x="720" y="341" class="n-sub" fill="var(--muted)" text-anchor="middle">es-01 · es-02 · es-03</text>
+
+      <g color="var(--muted)">
+        <line x1="490" y1="330" x2="614" y2="330" stroke="currentColor" stroke-width="1.5" marker-end="url(#ar2)"/>
+      </g>
+      <text x="552" y="322" class="e-label" fill="var(--muted)" text-anchor="middle">queries</text>
+
+      <!-- minio + rds -->
+      <rect x="620" y="382" width="200" height="52" rx="6" fill="var(--surface)" stroke="var(--line)" stroke-width="1.5"/>
+      <text x="720" y="403" class="n-title" fill="var(--ink)" text-anchor="middle">MinIO</text>
+      <text x="720" y="420" class="n-sub" fill="var(--muted)" text-anchor="middle">snapshot target</text>
+      <g color="var(--muted)">
+        <path d="M 760 358 L 760 376" fill="none" stroke="currentColor" stroke-width="1.5" marker-end="url(#ar2)"/>
+      </g>
+      <text x="772" y="372" class="e-label" fill="var(--muted)">snapshots</text>
+
+      <rect x="290" y="382" width="200" height="52" rx="6" fill="var(--surface)" stroke="var(--line)" stroke-width="1.5"/>
+      <text x="390" y="403" class="n-title" fill="var(--ink)" text-anchor="middle">RDS Postgres</text>
+      <text x="390" y="420" class="n-sub" fill="var(--muted)" text-anchor="middle">no public address at all</text>
+      <g color="var(--muted)">
+        <path d="M 340 358 L 340 376" fill="none" stroke="currentColor" stroke-width="1.5" marker-end="url(#ar2)"/>
+      </g>
+      <text x="250" y="372" class="e-label" fill="var(--muted)">from es-01 only</text>
+
+      <!-- rancher -->
+      <rect x="290" y="442" width="200" height="56" rx="6" fill="var(--serve-wash)" stroke="var(--serve)" stroke-width="1.5"/>
+      <text x="390" y="464" class="n-title" fill="var(--serve)" text-anchor="middle">Rancher</text>
+      <text x="390" y="481" class="n-sub" fill="var(--muted)" text-anchor="middle">on rke2-01</text>
+
+      <rect x="620" y="500" width="200" height="56" rx="6" fill="var(--surface)" stroke="var(--line)" stroke-width="1.5"/>
+      <text x="720" y="522" class="n-title" fill="var(--ink)" text-anchor="middle">cluster agent</text>
+      <text x="720" y="539" class="n-sub" fill="var(--muted)" text-anchor="middle">runs on k3s-01</text>
+
+      <g color="var(--serve)">
+        <path d="M 620 528 C 540 528 540 480 494 476" fill="none" stroke="currentColor" stroke-width="2" marker-end="url(#ar2-s)"/>
+      </g>
+      <text x="556" y="512" class="e-label" fill="var(--serve)" text-anchor="middle">dials OUT, always</text>
+    </svg>
+  </div>
+  <figcaption>
+    <b>Two arrows are worth pausing on.</b> Kong never calls Keycloak per request —
+    it fetched the signing key once at deploy time and verifies signatures locally,
+    which is why a revoked token stays valid until it expires. And the Rancher
+    agent connects <em>outward</em>: Rancher never opens a connection to a cluster
+    it manages, which is how you manage a cluster behind NAT with no inbound ports.
+  </figcaption>
+</figure>
+
+<section class="prose">
+  <h2><span class="num">Figure 3 · the EKS build</span>Three phases, because one step is unrepeatable</h2>
+</section>
+
+<figure>
+  <svg viewBox="0 0 720 250" role="img" aria-label="The EKS cluster is built in three phases: create the control plane with the autoscaling group at zero, patch the CNI daemonset, then scale the nodes up. The middle phase must happen while no node exists."
+       style="max-width:100%;height:auto">
+    <defs>
+      <marker id="ar" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="7" markerHeight="7" orient="auto-start-reverse">
+        <polygon points="0,0 10,5 0,10" fill="currentColor"/>
+      </marker>
+      <marker id="ar-warn" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="7" markerHeight="7" orient="auto-start-reverse">
+        <polygon points="0,0 10,5 0,10" fill="#a8382e"/>
+      </marker>
+    </defs>
+
+    <text x="0" y="14" font-size="12" font-weight="700" fill="currentColor" letter-spacing="0.06em">PHASE 1</text>
+    <rect x="0" y="26" width="200" height="72" rx="6" fill="none" stroke="currentColor" stroke-width="1.5"/>
+    <text x="100" y="52" font-size="13" text-anchor="middle" fill="currentColor" font-weight="600">EKS control plane</text>
+    <text x="100" y="72" font-size="12" text-anchor="middle" fill="currentColor">autoscaling group</text>
+    <text x="100" y="88" font-size="12" text-anchor="middle" fill="currentColor" font-weight="700">desired = 0</text>
+
+    <line x1="206" y1="62" x2="254" y2="62" stroke="currentColor" stroke-width="1.5" marker-end="url(#ar)"/>
+
+    <text x="260" y="14" font-size="12" font-weight="700" fill="#a8382e" letter-spacing="0.06em">PHASE 2</text>
+    <rect x="260" y="26" width="200" height="72" rx="6" fill="none" stroke="#a8382e" stroke-width="2"/>
+    <text x="360" y="52" font-size="13" text-anchor="middle" fill="#a8382e" font-weight="600">patch the CNI</text>
+    <text x="360" y="72" font-size="12" text-anchor="middle" fill="#a8382e">prefix delegation on</text>
+    <text x="360" y="88" font-size="12" text-anchor="middle" fill="#a8382e" font-weight="700">while 0 nodes exist</text>
+
+    <line x1="466" y1="62" x2="514" y2="62" stroke="currentColor" stroke-width="1.5" marker-end="url(#ar)"/>
+
+    <text x="520" y="14" font-size="12" font-weight="700" fill="currentColor" letter-spacing="0.06em">PHASE 3</text>
+    <rect x="520" y="26" width="200" height="72" rx="6" fill="none" stroke="currentColor" stroke-width="1.5"/>
+    <text x="620" y="52" font-size="13" text-anchor="middle" fill="currentColor" font-weight="600">nodes join</text>
+    <text x="620" y="72" font-size="12" text-anchor="middle" fill="currentColor">kubelet reads max-pods</text>
+    <text x="620" y="88" font-size="12" text-anchor="middle" fill="currentColor" font-weight="700">once, here</text>
+
+    <line x1="360" y1="104" x2="360" y2="132" stroke="#a8382e" stroke-width="1.5" stroke-dasharray="4 3"/>
+    <line x1="360" y1="132" x2="614" y2="132" stroke="#a8382e" stroke-width="1.5" stroke-dasharray="4 3"/>
+    <line x1="614" y1="132" x2="614" y2="104" stroke="#a8382e" stroke-width="1.5" stroke-dasharray="4 3" marker-end="url(#ar-warn)"/>
+    <text x="487" y="150" font-size="11.5" text-anchor="middle" fill="#a8382e" font-style="italic">the setting is only read at this moment</text>
+
+    <line x1="0" y1="180" x2="720" y2="180" stroke="currentColor" stroke-width="0.75" opacity="0.35"/>
+    <text x="0" y="204" font-size="12.5" fill="currentColor" font-weight="700">Do phase 2 second, and:</text>
+    <text x="0" y="226" font-size="12.5" fill="currentColor">17 pods per node · 51 total · Argo CD + Flux + Rollouts + Flagger does not fit</text>
+    <text x="0" y="244" font-size="12.5" fill="currentColor">Do it in order: <tspan font-weight="700">110 pods per node · 330 total · 58 running, 0 pending</tspan></text>
+  </svg>
+  <figcaption>
+    <b>The one ordering rule in this repo that cannot be recovered from by
+    re-running.</b> Every other failure here is fixed by applying the correct
+    config again. This one is not: the pod ceiling is read by kubelet at boot and
+    never re-read, so a node that joined before the CNI was patched has to be
+    <em>terminated and replaced</em>. Hence a build script with three phases
+    rather than a single apply.
+  </figcaption>
+</figure>
+
+<section class="prose">
+  <h2><span class="num">Figure 4 · dependencies</span>Order that cannot be swapped</h2>
+  <p>
+    These are not preferences. Each one caused a real failure when it was wrong,
+    and most failed <em>silently</em> — the build reported success and the breakage
+    surfaced somewhere unrelated.
+  </p>
+</section>
+
+<div class="tablewrap">
+  <table>
+    <thead>
+      <tr>
+        <th>This must happen first</th>
+        <th>Before this</th>
+        <th>Or else</th>
+      </tr>
+    </thead>
+    <tbody>
+      <tr>
+        <td><code>storage</code> role mounts the disk</td>
+        <td><code>elasticsearch</code> role installs</td>
+        <td>Mounting over a directory that already holds data <em>hides</em> it. The cluster comes back empty.</td>
+      </tr>
+      <tr>
+        <td>Package installed, so the <code>elasticsearch</code> user exists</td>
+        <td><code>chown</code> of the data directory</td>
+        <td>You cannot chown to a user that does not exist yet; Elasticsearch then cannot write.</td>
+      </tr>
+      <tr>
+        <td>An ingress controller exists</td>
+        <td>Rancher is installed</td>
+        <td>Rancher's chart only makes an Ingress. With no controller, nothing serves it and no cluster can be imported.</td>
+      </tr>
+      <tr>
+        <td><code>cert-manager</code></td>
+        <td>Rancher</td>
+        <td>Rancher will not start without it — it needs an issuer for its certificate.</td>
+      </tr>
+      <tr>
+        <td>The credential <code>Secret</code></td>
+        <td>The <code>KongConsumer</code> that names it</td>
+        <td>Kong's admission webhook rejects a consumer whose credential is missing — and it succeeds on a re-run, so it only breaks on a clean cluster.</td>
+      </tr>
+      <tr>
+        <td>Keycloak is running and its realm imported</td>
+        <td>Kong's JWT credential is written</td>
+        <td>The signing key is generated with the realm. Hardcode it and the lab works exactly once.</td>
+      </tr>
+      <tr>
+        <td><code>cloud-init</code> has finished</td>
+        <td>Any <code>apt</code> command</td>
+        <td>Ubuntu runs its own apt jobs at boot. Race them and your install blocks on the dpkg lock, looking like it is just slow.</td>
+      </tr>
+      <tr>
+        <td>The CNI carries <code>ENABLE_PREFIX_DELEGATION</code></td>
+        <td>The first EKS node boots</td>
+        <td>kubelet computes its pod ceiling <em>once</em>, at bootstrap. Patch the daemonset afterwards and existing nodes keep advertising 17 pods forever, at 35% CPU.</td>
+      </tr>
+      <tr>
+        <td>An AppProject permits a repository and namespace</td>
+        <td>An Application that uses them</td>
+        <td>Rejected at the <em>spec</em> level — no failed sync, no operation to inspect, <code>Unknown/Unknown</code> in <code>kubectl get app</code>, reason only in <code>status.conditions</code>.</td>
+      </tr>
+      <tr>
+        <td>ingress-nginx exports metrics</td>
+        <td>Flagger runs a canary</td>
+        <td>Metrics are off by default, so the series never exists and Flagger halts with "not receiving traffic" while the app is visibly serving.</td>
+      </tr>
+    </tbody>
+  </table>
+</div>
+
+<section class="prose">
+  <h2><span class="num">Reference</span>Which machine runs what</h2>
+</section>
+
+<div class="tablewrap">
+  <table>
+    <thead>
+      <tr>
+        <th>Host</th>
+        <th>Runs</th>
+        <th>Reachable on</th>
+      </tr>
+    </thead>
+    <tbody>
+      <tr>
+        <td><code>es-01</code></td>
+        <td>Elasticsearch, Kibana, MinIO, PostgreSQL</td>
+        <td><code>:9200</code> <code>:5601</code> <code>:9001</code></td>
+      </tr>
+      <tr>
+        <td><code>es-02</code> <code>es-03</code></td>
+        <td>Elasticsearch</td>
+        <td>private only</td>
+      </tr>
+      <tr>
+        <td><code>k3s-01</code></td>
+        <td>k3s, Kong, Keycloak, Rancher agent</td>
+        <td><code>:30080</code> <code>:30081</code></td>
+      </tr>
+      <tr>
+        <td><code>rke2-01</code></td>
+        <td>RKE2, cert-manager, Rancher</td>
+        <td><code>:443</code></td>
+      </tr>
+      <tr>
+        <td><em>RDS</em></td>
+        <td>Managed PostgreSQL</td>
+        <td>no public address — configured <em>through</em> es-01</td>
+      </tr>
+    </tbody>
+  </table>
+</div>
+
+<section class="prose">
+  <h2><span class="num">If you are new to this</span>Four things that surprise everyone</h2>
+
+  <div class="note">
+    <span class="lede">A host cannot reach its own public IP</span>
+    <p>
+      A check running <em>on</em> es-01 that points at es-01's public address goes
+      out to the internet gateway and back into a firewall that only admits your
+      laptop. It times out while the service is perfectly healthy. Use
+      <code>127.0.0.1</code> or the private address for anything a host does to
+      itself.
+    </p>
+  </div>
+
+  <div class="note">
+    <span class="lede">Managed services have no host to log into</span>
+    <p>
+      RDS has no SSH and no public address, so there is nothing for Ansible to
+      connect to. It is configured <em>through</em> es-01, which is allowed to
+      reach it. That is the general shape for every managed service: you configure
+      a host that is permitted to talk to it, not the thing itself.
+    </p>
+  </div>
+
+  <div class="note">
+    <span class="lede">On EKS, "too small" can mean IP addresses</span>
+    <p>
+      A node with 65% of its CPU free refused to schedule anything, reporting
+      <em>Too many pods</em>. On EKS every pod gets a real address from the VPC,
+      handed out by network interfaces attached to the instance — and the number
+      of those is fixed by instance type. A small instance allows
+      <strong>17 pods</strong> no matter how idle it is.
+    </p>
+    <p>
+      So there are three separate ways to be "full", not two: memory, CPU, and
+      <em>addresses</em>. The third is invisible on Google Kubernetes Engine and
+      on k3s, which give pods addresses on a private overlay network instead. Same
+      manifests, same sizes, one cluster fits them and the other does not.
+    </p>
+  </div>
+
+  <div class="note">
+    <span class="lede">Two kinds of "too small" look identical</span>
+    <p>
+      One node froze because it ran out of memory; another failed because a
+      burstable instance had spent its CPU credits and was getting a fifth of the
+      CPU it appeared to have. Both look like "it's slow and things are crashing".
+    </p>
+    <p>
+      <code>free -m</code> tells you the first. <code>top</code> and the
+      <code>st</code> (steal) column tell you the second — and steal cannot be
+      fixed from inside the machine at all.
+    </p>
+  </div>
+</section>
+
+<footer>
+  Built with Terraform and Ansible; verified end to end against a live AWS
+  account, and rebuilt from zero on a fresh account to confirm it reproduces.
+  Every dependency and failure above was observed, not assumed.
+</footer>
+
+</div>

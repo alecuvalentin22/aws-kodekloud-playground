@@ -1,0 +1,763 @@
+<title>GitOps delivery styles — measured</title>
+
+<style>
+  :root {
+    --paper:   #f7f6f3;
+    --surface: #ffffff;
+    --sunken:  #eeece7;
+    --ink:     #1b1a17;
+    --muted:   #6b675f;
+    --line:    #ddd9d1;
+    --cluster: #a8541c;   /* Argo CD — watches the CLUSTER */
+    --source:  #1c5a9e;   /* Flux — watches the SOURCE */
+    --cluster-wash: #f7ece3;
+    --source-wash:  #e7eff8;
+    --warn:    #9c3227;
+    --warn-wash: #f8ebe8;
+
+    --f-head: ui-sans-serif, system-ui, -apple-system, "Segoe UI", Roboto, sans-serif;
+    --f-body: Georgia, "Iowan Old Style", "Palatino Linotype", serif;
+    --f-mono: ui-monospace, SFMono-Regular, "SF Mono", Menlo, Consolas, monospace;
+  }
+
+  @media (prefers-color-scheme: dark) {
+    :root:not([data-theme="light"]) {
+      --paper:   #17161a;
+      --surface: #1f1e23;
+      --sunken:  #1a191e;
+      --ink:     #eae7e1;
+      --muted:   #99938a;
+      --line:    #333139;
+      --cluster: #e2954f;
+      --source:  #6aa6e0;
+      --cluster-wash: #2e2118;
+      --source-wash:  #16283c;
+      --warn:    #ef8c7d;
+      --warn-wash: #33201d;
+    }
+  }
+  :root[data-theme="dark"] {
+    --paper:   #17161a;
+    --surface: #1f1e23;
+    --sunken:  #1a191e;
+    --ink:     #eae7e1;
+    --muted:   #99938a;
+    --line:    #333139;
+    --cluster: #e2954f;
+    --source:  #6aa6e0;
+    --cluster-wash: #2e2118;
+    --source-wash:  #16283c;
+    --warn:    #ef8c7d;
+    --warn-wash: #33201d;
+  }
+
+  * { box-sizing: border-box; }
+
+  body {
+    background: var(--paper);
+    color: var(--ink);
+    font-family: var(--f-body);
+    font-size: 17px;
+    line-height: 1.65;
+    margin: 0;
+    padding: 0 24px 96px;
+    -webkit-font-smoothing: antialiased;
+  }
+  .wrap { max-width: 1060px; margin: 0 auto; }
+  .prose { max-width: 66ch; }
+
+  header {
+    padding: 72px 0 36px;
+    border-bottom: 2px solid var(--ink);
+    margin-bottom: 44px;
+  }
+  .kicker {
+    font-family: var(--f-mono);
+    font-size: 12px;
+    letter-spacing: 0.14em;
+    text-transform: uppercase;
+    color: var(--muted);
+    margin: 0 0 16px;
+  }
+  h1 {
+    font-family: var(--f-head);
+    font-weight: 750;
+    font-size: clamp(36px, 5.5vw, 58px);
+    line-height: 1.02;
+    letter-spacing: -0.03em;
+    margin: 0 0 20px;
+    text-wrap: balance;
+  }
+  .stand { font-size: 20px; line-height: 1.5; color: var(--muted); max-width: 56ch; margin: 0; }
+  .stand strong { color: var(--ink); font-weight: 600; }
+
+  h2 {
+    font-family: var(--f-head);
+    font-weight: 700;
+    font-size: 27px;
+    letter-spacing: -0.02em;
+    line-height: 1.15;
+    margin: 60px 0 6px;
+    text-wrap: balance;
+  }
+  h2 .n {
+    display: block;
+    font-family: var(--f-mono);
+    font-size: 12px;
+    font-weight: 400;
+    letter-spacing: 0.1em;
+    color: var(--muted);
+    margin-bottom: 8px;
+    text-transform: uppercase;
+  }
+  h3 { font-family: var(--f-head); font-weight: 650; font-size: 17px; margin: 30px 0 6px; }
+  p { margin: 0 0 16px; }
+
+  code {
+    font-family: var(--f-mono);
+    font-size: 0.85em;
+    background: var(--sunken);
+    border: 1px solid var(--line);
+    border-radius: 4px;
+    padding: 1px 5px;
+    white-space: nowrap;
+  }
+  pre {
+    font-family: var(--f-mono);
+    font-size: 13px;
+    line-height: 1.6;
+    background: var(--surface);
+    border: 1px solid var(--line);
+    border-left: 3px solid var(--muted);
+    border-radius: 0 6px 6px 0;
+    padding: 14px 18px;
+    overflow-x: auto;
+    margin: 20px 0;
+  }
+  pre b { color: var(--ink); font-weight: 700; }
+
+  /* controller identity */
+  .who { display: grid; grid-template-columns: repeat(auto-fit, minmax(290px,1fr)); gap: 16px; margin: 28px 0 8px; }
+  .who > div { border: 1px solid var(--line); border-radius: 8px; padding: 20px 22px; background: var(--surface); }
+  .who .a { border-top: 3px solid var(--cluster); }
+  .who .f { border-top: 3px solid var(--source); }
+  .who h3 { margin: 0 0 2px; font-size: 18px; }
+  .who .a h3 { color: var(--cluster); }
+  .who .f h3 { color: var(--source); }
+  .who .watches { font-family: var(--f-mono); font-size: 12px; color: var(--muted); display: block; margin-bottom: 10px; }
+  .who p { margin: 0; font-size: 15.5px; color: var(--muted); }
+
+  .tablewrap { overflow-x: auto; margin: 26px 0 8px; }
+  table { border-collapse: collapse; width: 100%; min-width: 580px; font-size: 15px; background: var(--surface); border: 1px solid var(--line); border-radius: 8px; font-family: var(--f-head); }
+  th, td { text-align: left; padding: 11px 14px; border-bottom: 1px solid var(--line); vertical-align: top; }
+  thead th { font-family: var(--f-mono); font-size: 11px; letter-spacing: 0.09em; text-transform: uppercase; color: var(--muted); font-weight: 500; background: var(--sunken); }
+  tbody tr:last-child td { border-bottom: none; }
+  td.num { font-family: var(--f-mono); font-variant-numeric: tabular-nums; white-space: nowrap; }
+  .win-a { color: var(--cluster); font-weight: 700; }
+  .win-f { color: var(--source); font-weight: 700; }
+
+  figure { margin: 34px 0 8px; }
+  .scroll { overflow-x: auto; background: var(--surface); border: 1px solid var(--line); border-radius: 8px; padding: 20px; }
+  figure svg { display: block; max-width: 100%; height: auto; min-width: 700px; }
+  figcaption { font-size: 14.5px; color: var(--muted); margin-top: 12px; max-width: 62ch; line-height: 1.5; }
+  figcaption b { color: var(--ink); font-weight: 600; }
+  .t-title { font-family: var(--f-mono); font-size: 12.5px; font-weight: 600; }
+  .t-sub   { font-family: var(--f-head); font-size: 11px; }
+  .t-edge  { font-family: var(--f-head); font-size: 11px; font-style: italic; }
+  .t-zone  { font-family: var(--f-mono); font-size: 10.5px; letter-spacing: 0.1em; }
+
+  .verdict {
+    border-left: 3px solid var(--ink);
+    padding: 4px 0 4px 20px;
+    margin: 26px 0;
+    font-size: 19px;
+    line-height: 1.5;
+  }
+  .note { border-left: 3px solid var(--warn); background: var(--warn-wash); border-radius: 0 6px 6px 0; padding: 14px 18px; margin: 22px 0; font-size: 15.5px; }
+  .note .l { font-family: var(--f-mono); font-size: 11px; letter-spacing: 0.09em; text-transform: uppercase; color: var(--warn); display: block; margin-bottom: 5px; }
+  .note p { margin: 0; }
+  .note p + p { margin-top: 8px; }
+
+  footer { margin-top: 76px; padding-top: 22px; border-top: 1px solid var(--line); font-size: 13.5px; color: var(--muted); font-family: var(--f-head); }
+</style>
+
+<div class="wrap">
+
+<header>
+  <p class="kicker">Argo CD · Flux · Argo Rollouts · Flagger — measured on EKS v1.33</p>
+  <h1>Neither GitOps tool deploys the way you think</h1>
+  <p class="stand">
+    Argo CD and Flux both stop at <em>apply the manifests</em>. Canary, blue/green
+    and A/B are a <strong>different controller entirely</strong> — and mostly a
+    statement about your traffic layer.
+  </p>
+</header>
+
+<section class="prose">
+  <h2><span class="n">The thing people get wrong</span>Reconciliation is not delivery</h2>
+  <p>
+    GitOps guarantees the cluster <em>matches git</em>. It says nothing about
+    whether what is in git works. Push a broken image and both controllers will
+    deploy it faithfully, keep deploying it, and — if self-healing is on — undo
+    your attempt to fix it by hand.
+  </p>
+</section>
+
+<pre>a broken image tag, pushed to main
+
+argocd   serving=3  broken=1   for 105s   health: Progressing → Degraded
+flux     serving=3  broken=1   for 105s   ReconciliationSucceeded
+
+<b>git revert</b> + reconcile          →  both recovered in <b>26s</b></pre>
+
+<section class="prose">
+  <p>
+    Neither rolled back. What kept the service alive was <strong>Kubernetes, not
+    the GitOps controller</strong> — a Deployment's rolling update refuses to
+    scale down healthy old pods until new ones are Ready. That is the entire
+    free safety net.
+  </p>
+</section>
+
+<section class="prose">
+  <h2><span class="n">Orientation</span>One watches the cluster, one watches the source</h2>
+  <p>
+    Almost every measured difference between the two falls out of this single
+    design choice.
+  </p>
+</section>
+
+<div class="who">
+  <div class="a">
+    <h3>Argo CD</h3>
+    <span class="watches">watches the CLUSTER, continuously</span>
+    <p>Notices drift in seconds. Polls git roughly every 3 minutes, so it is slower to see a commit — unless you add a webhook.</p>
+  </div>
+  <div class="f">
+    <h3>Flux</h3>
+    <span class="watches">watches the SOURCE, on an interval</span>
+    <p>Sees a commit within its interval. Only notices drift on that same tick, so a hand-edited cluster stays wrong for longer.</p>
+  </div>
+</div>
+
+<section class="prose">
+  <h2><span class="n">Measured</span>Each wins one, and it is the same mechanism</h2>
+</section>
+
+<div class="tablewrap">
+  <table>
+    <thead>
+      <tr><th>Scenario</th><th>Argo CD</th><th>Flux</th></tr>
+    </thead>
+    <tbody>
+      <tr>
+        <td>Manual drift undone</td>
+        <td class="num win-a">~10s</td>
+        <td class="num">still drifted at 80s</td>
+      </tr>
+      <tr>
+        <td><code>git push</code> → live</td>
+        <td class="num">155s</td>
+        <td class="num win-f">78s</td>
+      </tr>
+      <tr>
+        <td>Namespace deleted underneath it</td>
+        <td class="num win-a">recovered 24s</td>
+        <td class="num">gone at 120s, reporting <code>ready=True</code></td>
+      </tr>
+      <tr>
+        <td>Pod unschedulable</td>
+        <td class="num win-a">never broke</td>
+        <td class="num"><code>pending=1</code> for 84s, <code>ReconciliationSucceeded</code></td>
+      </tr>
+      <tr>
+        <td>Broken release</td>
+        <td class="num">no rollback</td>
+        <td class="num">no rollback</td>
+      </tr>
+    </tbody>
+  </table>
+</div>
+
+<div class="verdict">
+  Argo CD's status answers <em>“does the cluster match git, and is it healthy?”</em>
+  Flux's answers <em>“did my last apply succeed?”</em> For 84–120 seconds Flux
+  reported <code>True</code> while the workload was degraded or gone.
+</div>
+
+<section class="prose">
+  <p>
+    That is not a bug — Flux is reporting exactly what it measured, at the last
+    tick. But it decides where you put your alerts: <strong>with Flux, alert on
+    the workload; with Argo CD you can alert on the Application.</strong>
+  </p>
+</section>
+
+<section class="prose">
+  <h2><span class="n">Figure 1</span>The two add-ons invert each other</h2>
+  <p>
+    Progressive delivery needs a second controller. The two available ones take
+    opposite approaches to your existing Deployment, which is the first thing to
+    understand before choosing.
+  </p>
+</section>
+
+<figure>
+  <div class="scroll">
+    <svg viewBox="0 0 900 330" role="img"
+         aria-label="Argo Rollouts replaces your Deployment with a Rollout resource that it owns. Flagger keeps your Deployment object but scales it to zero and runs its own primary copy alongside a canary, with services it creates.">
+      <defs>
+        <marker id="ar" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="6" markerHeight="6" orient="auto-start-reverse">
+          <path d="M 0 0 L 10 5 L 0 10 z" fill="currentColor"/>
+        </marker>
+      </defs>
+
+      <text x="30" y="28" class="t-zone" fill="var(--cluster)">ARGO ROLLOUTS — REPLACES</text>
+      <rect x="30" y="44" width="170" height="50" rx="6" fill="var(--surface)" stroke="var(--line)" stroke-width="1.5" stroke-dasharray="4 3"/>
+      <text x="115" y="66" class="t-title" fill="var(--muted)" text-anchor="middle">Deployment</text>
+      <text x="115" y="83" class="t-sub" fill="var(--muted)" text-anchor="middle">deleted — you stop using it</text>
+
+      <g color="var(--muted)"><line x1="200" y1="69" x2="266" y2="69" stroke="currentColor" stroke-width="1.5" marker-end="url(#ar)"/></g>
+      <text x="233" y="61" class="t-edge" fill="var(--muted)" text-anchor="middle">becomes</text>
+
+      <rect x="270" y="44" width="180" height="50" rx="6" fill="var(--cluster-wash)" stroke="var(--cluster)" stroke-width="1.5"/>
+      <text x="360" y="66" class="t-title" fill="var(--cluster)" text-anchor="middle">Rollout</text>
+      <text x="360" y="83" class="t-sub" fill="var(--muted)" text-anchor="middle">a different kind entirely</text>
+
+      <g color="var(--muted)"><line x1="450" y1="69" x2="516" y2="69" stroke="currentColor" stroke-width="1.5" marker-end="url(#ar)"/></g>
+      <text x="483" y="61" class="t-edge" fill="var(--muted)" text-anchor="middle">owns</text>
+
+      <rect x="520" y="34" width="160" height="32" rx="5" fill="var(--surface)" stroke="var(--line)" stroke-width="1.5"/>
+      <text x="600" y="55" class="t-sub" fill="var(--ink)" text-anchor="middle">ReplicaSet · stable</text>
+      <rect x="520" y="74" width="160" height="32" rx="5" fill="var(--surface)" stroke="var(--cluster)" stroke-width="1.5"/>
+      <text x="600" y="95" class="t-sub" fill="var(--ink)" text-anchor="middle">ReplicaSet · canary</text>
+
+      <text x="700" y="58" class="t-sub" fill="var(--muted)">steps: 25 / 50 / 75</text>
+      <text x="700" y="76" class="t-sub" fill="var(--muted)">analysis optional</text>
+      <text x="700" y="94" class="t-sub" fill="var(--muted)">blue/green needs no mesh</text>
+
+      <line x1="30" y1="140" x2="870" y2="140" stroke="var(--line)" stroke-width="1"/>
+
+      <text x="30" y="176" class="t-zone" fill="var(--source)">FLAGGER — WRAPS</text>
+      <rect x="30" y="192" width="170" height="50" rx="6" fill="var(--source-wash)" stroke="var(--source)" stroke-width="1.5"/>
+      <text x="115" y="214" class="t-title" fill="var(--source)" text-anchor="middle">Deployment</text>
+      <text x="115" y="231" class="t-sub" fill="var(--muted)" text-anchor="middle">kept — but scaled to 0/0</text>
+
+      <g color="var(--muted)"><line x1="200" y1="217" x2="266" y2="217" stroke="currentColor" stroke-width="1.5" marker-end="url(#ar)"/></g>
+      <text x="233" y="209" class="t-edge" fill="var(--muted)" text-anchor="middle">copied</text>
+
+      <rect x="270" y="182" width="180" height="32" rx="5" fill="var(--surface)" stroke="var(--source)" stroke-width="1.5"/>
+      <text x="360" y="203" class="t-sub" fill="var(--ink)" text-anchor="middle">podinfo-primary · 2/2</text>
+      <rect x="270" y="222" width="180" height="32" rx="5" fill="var(--surface)" stroke="var(--line)" stroke-width="1.5"/>
+      <text x="360" y="243" class="t-sub" fill="var(--ink)" text-anchor="middle">podinfo-canary</text>
+
+      <g color="var(--muted)"><line x1="450" y1="217" x2="516" y2="217" stroke="currentColor" stroke-width="1.5" marker-end="url(#ar)"/></g>
+
+      <rect x="520" y="192" width="160" height="50" rx="6" fill="var(--surface)" stroke="var(--line)" stroke-width="1.5"/>
+      <text x="600" y="214" class="t-title" fill="var(--ink)" text-anchor="middle">Prometheus</text>
+      <text x="600" y="231" class="t-sub" fill="var(--muted)" text-anchor="middle">metrics gate the rollout</text>
+
+      <text x="700" y="206" class="t-sub" fill="var(--muted)">analysis is not optional</text>
+      <text x="700" y="224" class="t-sub" fill="var(--muted)">rolls back on its own</text>
+      <text x="700" y="242" class="t-sub" fill="var(--muted)">ships a load generator</text>
+    </svg>
+  </div>
+  <figcaption>
+    <b>Argo Rollouts replaces your Deployment; Flagger keeps the object but takes
+    over running it.</b> Seeing <code>podinfo 0/0</code> next to
+    <code>podinfo-primary 2/2</code> is the moment Flagger's model clicks — your
+    Deployment is now a template, not a running thing.
+  </figcaption>
+</figure>
+
+<section class="prose">
+  <h2><span class="n">Figure 2</span>What each style actually costs</h2>
+  <p>
+    The honest way to choose is by what infrastructure the style demands, not by
+    which sounds most sophisticated.
+  </p>
+</section>
+
+<figure>
+  <div class="scroll">
+    <svg viewBox="0 0 900 300" role="img"
+         aria-label="Four delivery styles ordered by infrastructure required: rolling update needs nothing and is built in; blue-green needs two services and no traffic layer; canary needs a traffic provider to weight requests; A/B needs header or cookie based routing.">
+      <defs>
+        <marker id="ar2" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="6" markerHeight="6" orient="auto-start-reverse">
+          <path d="M 0 0 L 10 5 L 0 10 z" fill="currentColor"/>
+        </marker>
+      </defs>
+      <g color="var(--muted)">
+        <line x1="40" y1="262" x2="860" y2="262" stroke="currentColor" stroke-width="1.5" marker-end="url(#ar2)"/>
+      </g>
+      <text x="40" y="284" class="t-sub" fill="var(--muted)">no extra infrastructure</text>
+      <text x="820" y="284" class="t-sub" fill="var(--muted)" text-anchor="end">needs a traffic layer</text>
+
+      <rect x="40" y="180" width="180" height="62" rx="6" fill="var(--surface)" stroke="var(--line)" stroke-width="1.5"/>
+      <text x="130" y="203" class="t-title" fill="var(--ink)" text-anchor="middle">RollingUpdate</text>
+      <text x="130" y="220" class="t-sub" fill="var(--muted)" text-anchor="middle">built into Kubernetes</text>
+      <text x="130" y="235" class="t-sub" fill="var(--muted)" text-anchor="middle">no gate, no rollback</text>
+
+      <rect x="245" y="140" width="180" height="102" rx="6" fill="var(--cluster-wash)" stroke="var(--cluster)" stroke-width="2"/>
+      <text x="335" y="163" class="t-title" fill="var(--cluster)" text-anchor="middle">Blue / green</text>
+      <text x="335" y="180" class="t-sub" fill="var(--muted)" text-anchor="middle">two Services, switch selector</text>
+      <text x="335" y="196" class="t-sub" fill="var(--muted)" text-anchor="middle">atomic · instant rollback</text>
+      <text x="335" y="216" class="t-sub" fill="var(--ink)" text-anchor="middle">MEASURED: paused for a human,</text>
+      <text x="335" y="231" class="t-sub" fill="var(--ink)" text-anchor="middle">active and preview on 2 hashes</text>
+
+      <rect x="450" y="120" width="185" height="122" rx="6" fill="var(--surface)" stroke="var(--line)" stroke-width="1.5"/>
+      <text x="542" y="143" class="t-title" fill="var(--ink)" text-anchor="middle">Canary</text>
+      <text x="542" y="160" class="t-sub" fill="var(--muted)" text-anchor="middle">shift a % of traffic</text>
+      <text x="542" y="176" class="t-sub" fill="var(--muted)" text-anchor="middle">needs a traffic provider</text>
+      <text x="542" y="196" class="t-sub" fill="var(--ink)" text-anchor="middle">MEASURED without one:</text>
+      <text x="542" y="211" class="t-sub" fill="var(--ink)" text-anchor="middle">promoted 25→50→75 by</text>
+      <text x="542" y="226" class="t-sub" fill="var(--ink)" text-anchor="middle">replica count, in 120s</text>
+
+      <rect x="660" y="160" width="180" height="82" rx="6" fill="var(--surface)" stroke="var(--line)" stroke-width="1.5" stroke-dasharray="5 4"/>
+      <text x="750" y="183" class="t-title" fill="var(--muted)" text-anchor="middle">A / B</text>
+      <text x="750" y="200" class="t-sub" fill="var(--muted)" text-anchor="middle">route by header or cookie</text>
+      <text x="750" y="216" class="t-sub" fill="var(--muted)" text-anchor="middle">needs per-request routing</text>
+      <text x="750" y="234" class="t-sub" fill="var(--muted)" text-anchor="middle">not built here</text>
+    </svg>
+  </div>
+  <figcaption>
+    <b>Blue/green is the sweet spot on a cluster with no mesh</b> — it repoints
+    Services rather than weighting traffic, so it works anywhere, at the cost of
+    being all-or-nothing. Canary without a traffic provider degrades to
+    splitting by replica count, which is an approximation, not a percentage.
+  </figcaption>
+</figure>
+
+<section class="prose">
+  <h2><span class="n">The trap</span>A canary that cannot judge is only containment</h2>
+</section>
+
+<pre>a <b>broken</b> image through a canary with steps but no analysis
+
+t+120s   phase=Progressing   step=0   serving=3  broken=1
+         message: "more replicas need to be updated"</pre>
+
+<section class="prose">
+  <p>
+    It capped the blast radius at 25% and stopped. It did <strong>not</strong>
+    roll back. Steps <em>pause</em>; they do not <em>judge</em>. Automatic
+    rollback needs an analysis step — and that is where the second trap lives.
+  </p>
+</section>
+
+<div class="note">
+  <span class="l">Measured — and the failure taught more than a pass would have</span>
+  <p>
+    An analysis template that curled the app's <code>/healthz</code> reported
+    <b>Successful while a broken pod sat there.</b>
+  </p>
+  <p>
+    Not a bug. Without traffic routing configured there is no separate canary
+    Service, so the check hit the <em>stable</em> Service — still backed by three
+    healthy old pods — and honestly returned 200. <strong>Analysis only means
+    something if it can address the canary in isolation, and that requires the
+    traffic layer you were trying to avoid.</strong>
+  </p>
+</div>
+
+<section class="prose">
+  <h2><span class="n">Resolved</span>Adding the traffic layer — and what it did <em>not</em> fix</h2>
+  <p>
+    Wiring <code>trafficRouting.nginx</code> gave the rollout a real
+    <code>podinfo-canary</code> Service, pinned by the controller to the canary
+    ReplicaSet. The obvious expectation is that analysis now catches the broken
+    image. <strong>It does not — and the reason is the more useful finding.</strong>
+  </p>
+</section>
+
+<pre>the SAME broken image, now WITH a traffic provider
+
+t+100s   phase=<b>Degraded</b>   "RolloutAborted"   weight=0   broken RS scaled to 0
+         analysisrun: <b>Successful</b>   ← still
+
+$ kubectl get svc podinfo-canary -o jsonpath='{.spec.selector}'
+{"app":"podinfo","rollouts-pod-template-hash":"<b>86d9ccdc4d</b>"}   ← the STABLE hash
+$ kubectl get svc podinfo-stable -o jsonpath='{.spec.selector}'
+{"app":"podinfo","rollouts-pod-template-hash":"<b>86d9ccdc4d</b>"}   ← identical</pre>
+
+<section class="prose">
+  <p>
+    Argo Rollouts only re-points the canary Service once the canary ReplicaSet
+    has an <em>available pod</em>. A canary stuck in <code>ImagePullBackOff</code>
+    never gets there, so both Services keep the stable hash and the analysis
+    correctly measures healthy old pods. There is genuinely no canary to judge.
+  </p>
+  <p>
+    What actually aborted it was one line that had been missing:
+    <code>progressDeadlineAbort: true</code>. Without it,
+    <code>progressDeadlineSeconds</code> only <em>marks</em> the rollout Degraded
+    and leaves the canary in place — which is exactly the "capped but stuck"
+    behaviour above.
+  </p>
+</section>
+
+<div class="tablewrap">
+  <table>
+    <thead><tr><th>Failure</th><th>Caught by</th><th>Time</th><th>Why the other is blind</th></tr></thead>
+    <tbody>
+      <tr>
+        <td>broken image — never becomes ready</td>
+        <td><code>progressDeadlineAbort</code></td>
+        <td class="num">100s</td>
+        <td>no canary Service is ever pointed at it, so analysis has nothing to measure</td>
+      </tr>
+      <tr>
+        <td>healthy but too slow — SLO breach</td>
+        <td>the <code>AnalysisTemplate</code></td>
+        <td class="num">50s</td>
+        <td>the rollout <em>is</em> progressing — toward something bad. No deadline is exceeded</td>
+      </tr>
+    </tbody>
+  </table>
+</div>
+
+<pre>the second case: a pod that is Ready and passing every probe
+
+t+20s   canary Service re-pointed to the NEW hash, weight=25
+t+40s   analysis job: <b>"canary within 1s: 0/30 = 0%"</b>
+t+50s   phase=<b>Degraded</b>   analysis=<b>Failed</b>   weight=0   traffic back on stable</pre>
+
+<section class="prose">
+  <p>
+    <strong>The two safety nets cover disjoint failures, and a rollout configured
+    with only one has a blind spot.</strong> Being able to say which one caught a
+    given incident is the difference between understanding a rollback and having
+    watched one.
+  </p>
+  <p>
+    Note also what the second case <em>is</em>: a release that returns 200 in four
+    seconds. Every probe green, every dashboard green, and the users are the
+    monitoring. A status-code check would have passed it.
+  </p>
+</section>
+
+<section class="prose">
+  <h2><span class="n">Choosing</span>Which of the two add-ons</h2>
+</section>
+
+<div class="tablewrap">
+  <table>
+    <thead><tr><th></th><th>Argo Rollouts</th><th>Flagger</th></tr></thead>
+    <tbody>
+      <tr><td>Your Deployment</td><td>replaced by a <code>Rollout</code></td><td>kept, scaled to zero, copied</td></tr>
+      <tr><td>Rollout driven by</td><td>explicit steps</td><td>metric analysis</td></tr>
+      <tr><td>Analysis</td><td>optional</td><td>the whole point</td></tr>
+      <tr><td>Blue/green without a mesh</td><td class="win-a">yes</td><td>yes (<code>kubernetes</code> provider)</td></tr>
+      <tr><td>Maturity, Aug 2026</td><td class="num">v1.9.1 · ~4 releases/20mo · pushed daily</td><td class="num">v1.44 · 8 yrs old · still <code>v1beta1</code></td></tr>
+    </tbody>
+  </table>
+</div>
+
+<section class="prose">
+  <p>
+    Flagger has more stars and a longer history; Argo Rollouts has visibly faster
+    development. If a team is already Flux-native, or wants metrics to be the
+    thing that decides, Flagger. Otherwise Argo Rollouts, and add analysis
+    deliberately rather than assuming steps give you safety.
+  </p>
+  <p>
+    Having now run both to completion, the sharper version of that advice:
+    <strong>Flagger is safe by default and hard to start</strong> — it will not
+    advance without metrics, which means it will not advance until the metrics
+    pipeline genuinely works. <strong>Argo Rollouts is easy to start and unsafe
+    by default</strong> — it ships a rollout that advances on a timer, and the
+    two things that make it judge (<code>progressDeadlineAbort</code> and an
+    <code>AnalysisTemplate</code>) are both opt-in. Neither default is wrong;
+    they fail in opposite directions.
+  </p>
+</section>
+
+<section class="prose">
+  <h2><span class="n">Flagger</span>The complete run, and the two things nobody mentions</h2>
+  <p>
+    Flagger's analysis never completed in the first attempt. The blocker was
+    assumed to be capacity. It was not — it was two configuration facts, and both
+    produce the <em>same</em> misleading error.
+  </p>
+</section>
+
+<pre>Halt advancement <b>no values found for nginx metric request-success-rate</b>
+probably podinfo.demo-flagger is not receiving traffic
+
+  ...while the application was visibly serving requests.</pre>
+
+<section class="prose">
+  <ol>
+    <li>
+      <strong>ingress-nginx ships with <code>controller.metrics.enabled=false</code>.</strong>
+      The <code>nginx_ingress_controller_requests</code> series never exists, so
+      the PromQL returns an empty vector. Reads like a Flagger fault; it is an
+      ingress-nginx setting.
+    </li>
+    <li>
+      <strong>The load generator was pointed at the Service.</strong> Real
+      traffic, bypassing nginx entirely, therefore never counted. Traffic the
+      metric cannot see is indistinguishable from no traffic.
+    </li>
+  </ol>
+  <p>
+    A third emerged only once those were fixed: <code>request-success-rate</code>
+    is a <em>rate over the last minute of namespace-wide counters</em>. Error
+    traffic left running from a previous experiment made the <em>next</em> good
+    release fail at <b>"success rate 36.89% &lt; 99%"</b> while every manual curl
+    returned 200. Experiment hygiene is part of the measurement.
+  </p>
+</section>
+
+<figure>
+<pre>GOOD release                          BAD release (500s injected)
+
+t+30s   Progressing  weight <b>10</b>       t+15s   weight 10  failedChecks <b>1</b>
+t+45s                weight <b>20</b>       t+30s   weight 10  failedChecks <b>2</b>
+t+60s                weight <b>30</b>       t+45s   weight 10  failedChecks <b>3</b>
+t+75s                weight <b>40</b>       t+60s   weight 10  failedChecks <b>4</b>
+t+90s                weight <b>50</b>       t+75s   weight 10  failedChecks <b>5</b>
+t+105s  <b>Promoting</b>                    t+90s   <b>Failed</b> — weight 0, rolled back
+t+135s  <b>Finalising</b>
+t+150s  <b>Succeeded</b></pre>
+<figcaption>
+  <b>The weight never advances past 10 on the bad release.</b> Flagger's
+  <code>stepWeight</code> is not a schedule, it is a reward for passing — where
+  Argo Rollouts' steps advance on a timer unless something stops them.
+  <strong>90 seconds to a completed rollback with no analysis template written
+  anywhere</strong>, because the metrics <em>are</em> the loop.
+</figcaption>
+</figure>
+
+<section class="prose">
+  <h2><span class="n">A/B</span>Not a canary, and not an Argo Rollouts feature here</h2>
+  <p>
+    A canary is a <em>random percentage</em>; the same user can see v1 then v2 on
+    the next click. A/B is a <em>predicate on the request</em> — same cohort, same
+    answer, every time. That stability is not a nicety: a conversion metric
+    measured over a randomly re-sampled population is not attributable to
+    anything.
+  </p>
+  <p>
+    The obvious implementation is an Argo Rollouts <code>setHeaderRoute</code>
+    step. It is rejected at admission:
+  </p>
+</section>
+
+<pre>spec.strategy.steps[1].setHeaderRoute: Invalid value: {...}:
+<b>SetHeaderRoute requires TrafficRouting, supports Istio and ALB and Apisix</b>
+
+  → Rollout goes straight to Degraded, with <b>zero replicas</b>. No pod is ever created.</pre>
+
+<section class="prose">
+  <p>
+    Weighted <code>trafficRouting.nginx</code> <em>is</em> supported — the canary
+    above depends on it. Header and mirror routing are the exclusions. So the
+    routing was built on ingress-nginx's own annotations instead: two Ingresses,
+    <strong>same host and path</strong>, one marked canary.
+  </p>
+</section>
+
+<div class="tablewrap">
+  <table>
+    <thead><tr><th>20 requests, sent with…</th><th>variant A</th><th>variant B</th></tr></thead>
+    <tbody>
+      <tr><td>no header</td><td class="num">20</td><td class="num">0</td></tr>
+      <tr><td><code>X-Cohort: beta</code></td><td class="num">0</td><td class="num win-a">20</td></tr>
+      <tr><td><code>X-Cohort: control</code> — present, not matching</td><td class="num">20</td><td class="num">0</td></tr>
+      <tr><td><code>Cookie: ab-cohort=always</code></td><td class="num">0</td><td class="num win-a">20</td></tr>
+    </tbody>
+  </table>
+</div>
+
+<section class="prose">
+  <p>
+    All of it at <code>canary-weight: 0</code>. nginx evaluates header and cookie
+    matches <strong>before</strong> weight, and that precedence is the whole
+    mechanism — get it backwards and you have a canary with extra steps. The
+    third row is the one worth checking: a non-matching value must fall through
+    to A, not leak into the cohort.
+  </p>
+</section>
+
+<section class="prose">
+  <h2><span class="n">Prerequisite</span>The EKS limit that blocked all of this</h2>
+  <p>
+    None of the above fitted on the cluster at first, and the error pointed
+    nowhere near the cause.
+  </p>
+</section>
+
+<pre>0/2 nodes are available: <b>2 Too many pods</b>
+cpu 680m (35%)          ← plenty of CPU free
+max_pods/node: <b>17</b></pre>
+
+<section class="prose">
+  <p>
+    On EKS every pod takes a <strong>real VPC IP from an ENI</strong>, so pod
+    density is capped by instance type, not by CPU or memory. A
+    <code>t3.medium</code> allows 17 pods however idle it is. Argo CD, Flux,
+    Rollouts, ingress-nginx, Flagger and Prometheus together exceeded three
+    nodes. <strong>This is invisible on GKE and on k3s</strong>, which use overlay
+    networks.
+  </p>
+  <p>
+    <code>ENABLE_PREFIX_DELEGATION</code> is the well-known half of the fix. The
+    half that is not: <strong>kubelet computes <code>max-pods</code> once, at
+    bootstrap.</strong> Flip only the daemonset and existing nodes keep
+    advertising 17 forever. You need the CNI setting, <em>and</em>
+    <code>--max-pods</code> pinned in the node bootstrap config, <em>and</em> the
+    daemonset patched before any node joins — three phases, not one
+    <code>terraform apply</code>.
+  </p>
+  <p>
+    "Use a bigger instance" was not available: an organization SCP denies
+    <code>ec2:RunInstances</code> for every type except <code>t3.medium</code>.
+    Result after the fix: <strong>110 allocatable pods per node, 58 running, 0
+    Pending.</strong>
+  </p>
+</section>
+
+<div class="note">
+  <span class="l">Two rules these experiments encode, both paid for</span>
+  <p>
+    <strong>Break it through git, not <code>kubectl</code>.</strong> The first
+    broken-release scenario used <code>kubectl set image</code>; Argo CD's
+    selfHeal reverted it in 12s, so it measured selfHeal rather than a bad
+    release — and made Flux look worse purely because its interval had not
+    elapsed.
+  </p>
+  <p>
+    <strong>Never suppress the output of the thing whose failure you are testing,
+    and assert before you conclude.</strong> One scenario hid a rejected patch and
+    reported "Healthy" for 96 seconds. Another printed "aborted and rolled back"
+    while its <code>kubectl set image</code> had silently failed —
+    <code>set</code> resolves types against kubectl's compiled-in scheme and
+    cannot touch a CRD at all.
+  </p>
+</div>
+
+<section class="prose">
+  <h2><span class="n">Honesty</span>What is still not proven</h2>
+  <p>
+    Multi-cluster GitOps, image automation, and progressive delivery driven by
+    real production metrics rather than a synthetic load generator. Ephemeral
+    per-pull-request environments are configured on the Flux side and render an
+    empty set, because nothing in the repository carries the trigger label —
+    correct behaviour that looks identical to a broken provider.
+  </p>
+  <p>
+    Each is written up in the repository with what it would require.
+  </p>
+</section>
+
+<footer>
+  Measured on EKS v1.33 with three self-managed t3.medium nodes — Argo CD v3.5.1,
+  Flux v2.9.4, Argo Rollouts v1.9.1, Flagger v1.44.0, ingress-nginx 4.15.1,
+  flux-operator v0.58.1. Every number here came from a scripted scenario that can
+  be re-run; nothing is quoted from documentation. Where a first attempt was
+  wrong, the wrong result is kept alongside the corrected one, because the gap
+  between them is the part worth reading.
+</footer>
+
+</div>
