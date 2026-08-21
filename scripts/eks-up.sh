@@ -38,6 +38,15 @@ cd "$HERE/terraform/eks"
 DESIRED="${NODE_DESIRED:-3}"
 MAXPODS="${NODE_MAX_PODS:-110}"
 
+# A DEDICATED kubeconfig, matching every other script here.
+#
+# Without this, `aws eks update-kubeconfig` below writes into ~/.kube/config --
+# which on this laptop sits next to production contexts. A lab context beside a
+# production one in a single file is how a delete lands on the wrong cluster,
+# and it is the one mistake this repo says out loud that it will not make.
+CLUSTER_NAME="${CLUSTER:-andrei-lab-eks}"
+export KUBECONFIG="${KUBECONFIG:-$HOME/.kube/$CLUSTER_NAME}"
+
 command -v terraform >/dev/null || { echo "terraform not on PATH" >&2; exit 1; }
 command -v kubectl   >/dev/null || { echo "kubectl not on PATH" >&2; exit 1; }
 
@@ -49,11 +58,29 @@ terraform apply -auto-approve \
 
 CLUSTER="$(terraform output -raw cluster_name)"
 REGION="${AWS_DEFAULT_REGION:-${AWS_REGION:-us-east-1}}"
-aws eks update-kubeconfig --name "$CLUSTER" --region "$REGION"
+# --alias so the context is named, not the full ARN; gitops-install.sh addresses
+# it as `kubectl --context "$CLUSTER"`.
+aws eks update-kubeconfig --name "$CLUSTER" --region "$REGION" --alias "$CLUSTER"
+echo "    kubeconfig -> $KUBECONFIG (context $CLUSTER)"
 
 echo
 echo "==> Phase 2/3: prefix delegation, before any node exists"
-kubectl -n kube-system rollout status daemonset/aws-node --timeout=180s
+# WAIT FOR THE DAEMONSET TO EXIST, do not assume it.
+#
+# EKS installs vpc-cni as a default component shortly AFTER CreateCluster
+# returns, so there is a window in which the cluster is ACTIVE and aws-node does
+# not exist yet. `rollout status` does not wait through that -- it exits
+# immediately with "daemonsets.apps \"aws-node\" not found", which with
+# `set -e` kills the build at the one step that cannot be redone later.
+echo "    waiting for the vpc-cni daemonset to appear..."
+for _ in $(seq 1 60); do
+  kubectl -n kube-system get daemonset aws-node >/dev/null 2>&1 && break
+  sleep 5
+done
+kubectl -n kube-system get daemonset aws-node >/dev/null 2>&1 || {
+  echo "aws-node never appeared -- refusing to launch nodes without prefix delegation" >&2
+  exit 1
+}
 kubectl -n kube-system set env daemonset aws-node \
   ENABLE_PREFIX_DELEGATION=true \
   WARM_PREFIX_TARGET=1

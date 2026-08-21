@@ -1,0 +1,62 @@
+# What is verified live, and what is not
+
+Written at the end of the 2026-08-20 session, when the playground expired. The
+distinction matters: this repo's whole claim is that its numbers come from
+running things, so anything that has *not* been run should say so rather than
+sit in the same tone as everything that has.
+
+## Verified against a live EKS v1.33 cluster (account 637423470040)
+
+| | Evidence |
+|---|---|
+| Three-phase pod-density fix | 110 allocatable pods/node, 58 pods running, 0 Pending |
+| Argo CD + Flux reconciling one repo | 3 Applications Synced/Healthy, 2 Kustomizations Ready |
+| Scenario 06 — Rollouts rollback | broken image aborted at 100s; slow release aborted at 50s, "canary within 1s: 0/30" |
+| Scenario 07 — Flagger | Succeeded in 150s; Failed and rolled back at 90s |
+| Scenario 08 — A/B | 20/0 in all four directions at weight 0 |
+| Scenario 09 — sealed secrets | unsealed in `demo-secrets`, refused in `demo-secrets-evil` |
+| Scenario 10 — Helm | Flux 1 release Secret / Argo CD 0; drift 10s vs never vs ~20s |
+| Scenario 11 — webhook | signed payload → HTTP 200 → both Applications refreshed |
+| Scenario 12 — Flux Operator | FluxInstance Ready in 12s; UI HTTP 200 on :9080 |
+| NodePorts public via Terraform | 7 rules applied; 200 from all three node IPs |
+
+## NOT yet run end to end
+
+**`scripts/eks-up.sh`.** Its three phases were executed by hand — `terraform
+apply` with the ASG at zero, `kubectl set env` on the daemonset, `terraform
+apply` to scale up — and the script was written around them afterwards. It has
+never been invoked as a script. Two bugs were found by reading it after the
+cluster was gone, and both are fixed but unproven:
+
+- it called `aws eks update-kubeconfig` with **no `KUBECONFIG` exported**, so it
+  would have written a lab context into `~/.kube/config`, next to production
+  ones — the exact mistake this repo says it will not make
+- it called `rollout status daemonset/aws-node` immediately after cluster
+  creation. EKS installs vpc-cni shortly *after* `CreateCluster` returns, and
+  `rollout status` does not wait for a missing object — it exits with "not
+  found", which under `set -e` kills the build at the one step that cannot be
+  redone later
+
+**`./scripts/scenario run 06`** and **`run 10 --only argocd`** with their final
+versions. Both were rewritten after their last full run; the individual
+measurements above were taken by hand or from the Flux side. The logic is the
+same, but the wrappers have not been executed as written.
+
+**The kubeconfig unification** (`CLUSTER` → `KUBECONFIG`) was made after the
+cluster expired. Scripts parse and `make help` prints the right path, but no
+command has run against a cluster with it.
+
+## First thing to do on the next playground
+
+```bash
+./scripts/eks-up.sh            # this is the test
+make kubeconfig                # MAXPODS must read 110, not 17
+./scripts/scenario run 06 --only argocd
+./scripts/scenario run 10 --only argocd
+```
+
+If those four pass, everything in this repo has been run as written.
+
+Also expect: **the committed `SealedSecret` will not decrypt.** A fresh cluster
+generates a new sealing key. `make secrets` re-seals. That is documented
+behaviour, not a regression.
