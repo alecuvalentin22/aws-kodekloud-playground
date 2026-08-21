@@ -84,6 +84,16 @@ echo "==> waiting for Argo CD"
 $K -n argocd rollout status deploy/argocd-server --timeout=600s
 $K -n argocd rollout status deploy/argocd-repo-server --timeout=600s
 
+# argocd-server ships as ClusterIP, so the NodePort security-group rules that
+# terraform/eks opens point at nothing until this patch lands. The UI answering
+# 000 on :30084 while the firewall is wide open is that, not a network problem.
+# scripts/argocd-webhook.sh does the same patch; doing it here means the UI is
+# reachable straight after an install, webhook or no webhook.
+echo "==> exposing the Argo CD UI on NodePort 30083/30084"
+$K -n argocd patch svc argocd-server -p '{"spec":{"type":"NodePort","ports":[
+  {"name":"http","port":80,"targetPort":8080,"nodePort":30083},
+  {"name":"https","port":443,"targetPort":8080,"nodePort":30084}]}}' >/dev/null
+
 echo "==> bootstrapping Argo CD from git (the only manual apply)"
 $K apply -f gitops/argocd/bootstrap/root-app.yaml
 

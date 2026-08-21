@@ -34,6 +34,14 @@ Everything below was re-run from scratch on a brand-new account, which is what
 | `gitops-install.sh` + `gitops-addons.sh` | exit 0, 32 pods running, 0 pending |
 | Scenario 06, run **twice back to back** | identical both times, both parts roll back |
 | Scenario 10 `--only argocd` | `helm list` empty, 0 release Secrets, drift corrected in 10s |
+| NodePorts opened by Terraform, no manual step | 7 rules present after `eks-up.sh`; 30081/30082/30084/30090 all 200 |
+| Argo CD webhook | signed payload → HTTP 200 → both Applications refreshed |
+| A/B routing | no header → A, `X-Cohort: beta` → B, cookie → B |
+
+A fifth bug: the NodePort **firewall** rules were open but `argocd-server` ships
+as `ClusterIP`, so :30084 answered `000` while the security group was wide open.
+Exposing the UI is now part of `gitops-install.sh` rather than a side effect of
+running the webhook script.
 
 Four bugs surfaced and were fixed in the process — see the git log for
 2026-08-21. The two that mattered: `eks-up.sh` would have written into
