@@ -245,8 +245,27 @@ It needs a SEPARATE controller: **Argo Rollouts** (Argo side) or **Flagger**
 
 | failure | caught by | how long |
 |---|---|---|
-| broken image, never becomes ready | `progressDeadlineAbort: true` | 100s |
-| healthy but too slow (SLO breach) | the `AnalysisTemplate` | 50s |
+| broken image, never becomes ready | `progressDeadlineAbort: true` | 80–131s |
+| healthy but too slow (SLO breach) | the `AnalysisTemplate` | 30–50s |
+
+The ranges are honest: `progressDeadlineSeconds` is 120 and the observed abort
+lands a reconcile either side of it. Do not quote a single figure.
+
+**And the deadline only behaves that way on a ReplicaSet the rollout has not
+seen before.** Argo Rollouts keys a ReplicaSet by pod-template hash, so
+re-shipping a template it already has REUSES the old one — and a reused
+ReplicaSet did **not** abort at all:
+
+| | broken image |
+|---|---|
+| fresh ReplicaSet | Degraded at **t+131s** |
+| ReplicaSet reused from an earlier run | still `Progressing` at **t+420s** |
+
+Same cluster, same manifests, same `Healthy` baseline. This is why
+`scenario_reset` in scenario 06 deletes every zero-scaled ReplicaSet rather than
+just running `undo` — without that, a second run measures a dirty baseline and
+reads as `progressDeadlineAbort` being unreliable. `revisionHistoryLimit: 2`
+does not save you; two is already enough to hit the reuse.
 
 **`progressDeadlineAbort` is the line that was missing.** Without it,
 `progressDeadlineSeconds` only *marks* the rollout Degraded and leaves the canary

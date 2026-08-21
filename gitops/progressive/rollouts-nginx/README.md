@@ -59,3 +59,29 @@ which one caught a given failure:
 
 - **analysis** catches a release that is *running but wrong* (errors, latency)
 - **progressDeadlineAbort** catches a release that *never becomes ready at all*
+
+## Why the files are numbered
+
+`kubectl apply -f <directory>` reads files in **alphabetical order**, and
+alphabetical is not dependency order. Unnumbered, this directory sorted
+`analysis` → `app` → `rollout`, so the `AnalysisTemplate` was applied before the
+Namespace that contains it:
+
+```
+Error from server (NotFound): error when creating "analysis.yaml":
+namespaces "demo-rollouts-nginx" not found
+```
+
+The Namespace then landed, the Rollout landed, and the Rollout went
+**`Degraded`** — referencing an `AnalysisTemplate` that had never been created.
+Two files applied cleanly, the third silently missing, and the failure surfaced
+on a different object than the one that failed.
+
+It works on a **re-run**, because by then the namespace exists. That is the
+dangerous part: it only breaks on a clean cluster, which is exactly where a
+reproducibility claim gets tested. The same trap is documented for
+`KongConsumer` in `AGENTS.md` §6.
+
+Numeric prefixes make alphabetical order *be* dependency order. A
+`kustomization.yaml` with an explicit `resources:` list would do the same job
+and is the better choice once a directory has more than a handful of files.

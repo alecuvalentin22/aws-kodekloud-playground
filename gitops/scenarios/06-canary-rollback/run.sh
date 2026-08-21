@@ -19,8 +19,11 @@
 #
 # MEASURED on EKS v1.33, ingress-nginx 4.15.1, argo-rollouts v1.9.1:
 #
-#   part 1  broken image
-#     t+100s  Degraded, "RolloutAborted", weight 0, broken ReplicaSet scaled to 0
+#   part 1  broken image, from a FRESH ReplicaSet
+#     t+131s  Degraded, "RolloutAborted", weight 0, broken ReplicaSet scaled to 0
+#     (progressDeadlineSeconds is 120; the extra ~11s is reconcile lag. A first
+#      run measured 100s. Treat it as "the deadline, give or take a reconcile",
+#      not as a precise figure.)
 #     analysisrun: Successful  <- and correctly so; both Services still carried
 #     the stable pod-template-hash, because the canary RS never had a ready pod
 #
@@ -41,11 +44,24 @@ _weight(){ kubectl -n "$_ns" get ingress podinfo-podinfo-canary \
 _analysis(){ kubectl -n "$_ns" get analysisrun --sort-by=.metadata.creationTimestamp \
              --no-headers 2>/dev/null | tail -1 | awk '{print $2}'; }
 
-# Print what the controller is doing until it settles. Returns the final phase.
+# Where analysis job output is collected as it happens.
+_ANALYSIS_LOG="${TMPDIR:-/tmp}/scenario06-analysis.$$"
+
+# Print what the controller is doing until it settles.
+#
+# It also scrapes the analysis job logs on every tick, because Argo Rollouts
+# garbage-collects those pods shortly after the AnalysisRun ends. Reading them
+# afterwards returns either nothing or -- worse -- the logs of an EARLIER run,
+# which is how the first version of this scenario printed "100%" three times
+# while the run it was describing had failed at 0%.
 _watch() {
-  local label="$1" max="${2:-24}" i phase
+  local label="$1" max="${2:-24}" i phase p
+  : > "$_ANALYSIS_LOG"
   for i in $(seq 1 "$max"); do
     sleep 10
+    for p in $(kubectl -n "$_ns" get pods -o name 2>/dev/null | grep 'canary-'); do
+      kubectl -n "$_ns" logs "$p" 2>/dev/null | grep -h 'within 1s' >> "$_ANALYSIS_LOG"
+    done
     phase=$(_phase)
     printf "      t+%-4ss phase=%-12s weight=%-4s analysis=%-12s %s\n" \
       "$((i*10))" "${phase:-?}" "$(_weight)" "$(_analysis)" \
@@ -53,14 +69,23 @@ _watch() {
     [[ "$phase" == "Degraded" ]] && break
     [[ "$phase" == "Healthy" && $i -gt 2 ]] && break
   done
-  echo "$phase"
+  sort -u "$_ANALYSIS_LOG" -o "$_ANALYSIS_LOG" 2>/dev/null || true
 }
 
 # Report from what was read, never from what was expected.
 # For part 2 the image is IDENTICAL on both sides -- only the args differ -- so
 # the marker is searched in the running pods' full container spec, not the tag.
 _verdict() {
-  local want_phase="$1" bad_marker="$2" phase serving
+  local want_phase="$1" bad_marker="$2" phase serving i
+  # Aborting is not instantaneous: the controller marks the rollout Degraded and
+  # THEN scales the bad ReplicaSet down. Sampling immediately catches that gap
+  # and reports "not rolled back" about a rollback in progress -- which is
+  # exactly what the first run of this scenario did.
+  for i in $(seq 1 18); do
+    kubectl -n "$_ns" get rs -o jsonpath='{range .items[?(@.spec.replicas>0)]}{.spec.template.spec.containers[0].image}{.spec.template.spec.containers[0].args}{"\n"}{end}' 2>/dev/null \
+      | grep -q -- "$bad_marker" || break
+    sleep 10
+  done
   phase=$(_phase)
   serving=$(kubectl -n "$_ns" get pods -l app=podinfo \
               -o jsonpath='{range .items[?(@.status.phase=="Running")]}{.spec.containers[0].image}{" "}{.spec.containers[0].args}{"\n"}{end}' \
@@ -112,7 +137,6 @@ scenario_observe() {
   echo "      ^ SAME hash. The canary Service was never re-pointed, because the"
   echo "        canary ReplicaSet never had an available pod. So the analysis"
   echo "        measured stable pods and passed. progressDeadlineAbort caught it."
-  sleep 20
   _verdict Degraded broken
 
   # -------------------------------------------------------------------------
@@ -148,11 +172,14 @@ scenario_observe() {
 
   _watch "part2" 30
   echo
-  echo "      the analysis job actually measured:"
-  kubectl -n "$_ns" logs -l job-name --tail=2 --prefix=false 2>/dev/null | grep -i 'within 1s' | tail -3 | sed 's/^/        /'
+  echo "      what the analysis jobs actually measured (captured live):"
+  if [[ -s "$_ANALYSIS_LOG" ]]; then
+    sed 's/^/        /' "$_ANALYSIS_LOG"
+  else
+    echo "        (no job output captured -- the AnalysisRun never reached a job)"
+  fi
   kubectl -n "$_ns" get analysisrun --sort-by=.metadata.creationTimestamp --no-headers 2>/dev/null \
     | tail -1 | sed 's/^/      analysisrun: /'
-  sleep 10
   _verdict Degraded random-delay
 
   echo
@@ -161,6 +188,20 @@ scenario_observe() {
   echo "    -> a canary configured with only one of the two has a blind spot"
 }
 
+# A FULL reset, and the ReplicaSet deletion is the load-bearing part.
+#
+# `undo` + restoring the image is not enough. Argo Rollouts keys a ReplicaSet by
+# pod-template hash, so re-shipping a template it has seen before REUSES the old
+# ReplicaSet -- and on a reused ReplicaSet the progress deadline behaves
+# differently. Measured on one cluster, same manifests, same Healthy baseline:
+#
+#   fresh ReplicaSet      broken image aborted at t+131s   (deadline is 120s)
+#   pre-existing one      still Progressing at t+420s, never aborted
+#
+# So a second run of part 1 without this cleanup measures nothing, and looks
+# like progressDeadlineAbort being unreliable rather than a dirty baseline.
+# revisionHistoryLimit: 2 does not save you -- it caps history, and two is
+# already enough to hit the reuse.
 scenario_reset() {
   [[ "$CTL" == "argocd" ]] || return 0
   kubectl -n "$_ns" patch rollout podinfo --type=json -p='[
@@ -173,5 +214,16 @@ scenario_reset() {
     {"op":"remove","path":"/spec/template/spec/containers/0/command"}
   ]' >/dev/null 2>&1
   kubectl argo rollouts promote podinfo -n "$_ns" --full >/dev/null 2>&1
+
+  # Wait for the good template to be serving, THEN drop every ReplicaSet that is
+  # scaled to zero, so the next run cannot reuse one.
+  local i
+  for i in $(seq 1 30); do
+    [[ "$(_phase)" == "Healthy" ]] && break
+    sleep 10
+  done
+  kubectl -n "$_ns" delete rs \
+    $(kubectl -n "$_ns" get rs -o jsonpath='{range .items[?(@.spec.replicas==0)]}{.metadata.name}{" "}{end}' 2>/dev/null) \
+    >/dev/null 2>&1
   return 0
 }

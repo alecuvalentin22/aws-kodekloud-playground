@@ -20,7 +20,30 @@ sit in the same tone as everything that has.
 | Scenario 12 — Flux Operator | FluxInstance Ready in 12s; UI HTTP 200 on :9080 |
 | NodePorts public via Terraform | 7 rules applied; 200 from all three node IPs |
 
-## NOT yet run end to end
+## Re-verified 2026-08-21 on a second playground (account 471112703240)
+
+Everything below was re-run from scratch on a brand-new account, which is what
+"reproducible" has to mean:
+
+| | Result |
+|---|---|
+| `./scripts/eks-up.sh` end to end | exit 0, all three phases, **110 max-pods on all 3 nodes in one run** |
+| `~/.kube/config` left alone | **identical checksum before and after**, 0 lab contexts added |
+| `make kubeconfig` | writes the dedicated file, prints MAXPODS 110 |
+| `scripts/scenario` with no `KUBECONFIG` exported | finds the cluster |
+| `gitops-install.sh` + `gitops-addons.sh` | exit 0, 32 pods running, 0 pending |
+| Scenario 06, run **twice back to back** | identical both times, both parts roll back |
+| Scenario 10 `--only argocd` | `helm list` empty, 0 release Secrets, drift corrected in 10s |
+
+Four bugs surfaced and were fixed in the process — see the git log for
+2026-08-21. The two that mattered: `eks-up.sh` would have written into
+`~/.kube/config`, and `kubectl apply -f gitops/progressive/rollouts-nginx/`
+applied files alphabetically, so the `AnalysisTemplate` preceded its Namespace
+and the Rollout came up `Degraded` referencing a template that was never
+created. Both only fail on a clean cluster, which is precisely where a
+reproducibility claim gets tested.
+
+## Previously NOT run end to end (now all run)
 
 **`scripts/eks-up.sh`.** Its three phases were executed by hand — `terraform
 apply` with the ASG at zero, `kubectl set env` on the daemonset, `terraform
