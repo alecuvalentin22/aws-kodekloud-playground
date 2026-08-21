@@ -240,6 +240,7 @@ variable "node_service_ports" {
     podinfo-argocd    = 30081
     podinfo-flux      = 30082
     podinfo-rollouts  = 30085
+    flux-ui           = 30086 # UNAUTHENTICATED -- see node_service_cidrs
     ingress-nginx     = 30090
     ingress-nginx-tls = 30443
   }
@@ -251,8 +252,22 @@ variable "node_service_cidrs" {
 
     Defaults to the whole internet, which is a deliberate choice for a
     time-boxed playground with password-protected services -- and the wrong
-    default for anything that outlives an afternoon. Narrow it to your own /32
-    with:
+    default for anything that outlives an afternoon.
+
+    ONE OF THEM IS NOT PASSWORD-PROTECTED, and the asymmetry is worth knowing
+    before copying this anywhere. Argo CD's UI asks for a password. The Flux
+    Operator UI on 30086 does not: it answers 200 with no WWW-Authenticate
+    header at all. Opening it publishes a read-only view of everything the
+    cluster is running to anyone who has the node IP.
+
+    Fine for a lab that exists for three hours. For anything else, either drop
+    flux-ui from node_service_ports and reach it over a port-forward:
+
+      kubectl -n flux-system port-forward svc/flux-operator 9080:9080
+
+    or put it behind an ingress that authenticates.
+
+    Narrow everything to your own /32 with:
 
       node_service_cidrs = ["$(curl -4 -s https://checkip.amazonaws.com)/32"]
 

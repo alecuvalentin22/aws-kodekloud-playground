@@ -164,6 +164,19 @@ if want flux-operator; then
   $K apply --server-side --force-conflicts \
     -f "https://github.com/controlplaneio-fluxcd/flux-operator/releases/download/${FLUXOP_VERSION}/install.yaml" >/dev/null
   $K -n flux-system rollout status deploy/flux-operator --timeout=600s
+
+  # The operator serves its web UI on 9080 but ships the Service as ClusterIP,
+  # so the NodePort rule terraform/eks opens points at nothing until this patch.
+  # Exactly the same trap as argocd-server: firewall wide open, port answers 000,
+  # and it reads as a networking problem when it is a Service type.
+  #
+  # Unlike Argo CD, this UI has NO authentication -- 200 with no
+  # WWW-Authenticate header. Read-only, but it does show everything the cluster
+  # is running. See var.node_service_cidrs.
+  echo "    exposing the Flux UI on NodePort 30086 (no password -- read the notes)"
+  $K -n flux-system patch svc flux-operator -p '{"spec":{"type":"NodePort","ports":[
+    {"name":"http-web","port":9080,"targetPort":9080,"nodePort":30086},
+    {"name":"http","port":8080,"targetPort":8080}]}}' >/dev/null
 fi
 
 echo
@@ -174,8 +187,8 @@ echo "    pods pending: $($K get pods -A --no-headers | grep -c Pending)"
 
 cat <<EOF
 
-  Flux Web UI     kubectl -n flux-system port-forward svc/flux-operator 9080:9080
-                  http://localhost:9080
+  Flux Web UI     http://<any-node-ip>:30086       NO PASSWORD -- unlike Argo CD
+                  or: kubectl -n flux-system port-forward svc/flux-operator 9080:9080
   Rollouts UI     kubectl argo rollouts dashboard -n demo-rollouts-nginx
                   http://localhost:3100
   ingress-nginx   NodePort 30090 on any node

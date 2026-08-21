@@ -37,6 +37,7 @@ Everything below was re-run from scratch on a brand-new account, which is what
 | NodePorts opened by Terraform, no manual step | 7 rules present after `eks-up.sh`; 30081/30082/30084/30090 all 200 |
 | Argo CD webhook | signed payload → HTTP 200 → both Applications refreshed |
 | A/B routing | no header → A, `X-Cohort: beta` → B, cookie → B |
+| Flux Operator UI on :30086 | 200 from all three nodes, `<title>Flux Status</title>` |
 
 A fifth bug: the NodePort **firewall** rules were open but `argocd-server` ships
 as `ClusterIP`, so :30084 answered `000` while the security group was wide open.

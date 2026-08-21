@@ -393,8 +393,13 @@ refreshed immediately**, against ~155s of polling.
 - Registering the hook needs `gh` or two clicks — this laptop has neither `gh`
   nor an HTTPS token (the remote is SSH), so that last step is manual.
 
-**Flux Operator** (`gitops/flux-operator/`, scenario 12). Adopted a live
-`flux install` in **12s** without disturbing either Kustomization, and its
+**Flux Operator** (`gitops/flux-operator/`, scenario 12). Its UI is on NodePort
+**30086** — and note the asymmetry with Argo CD: **it has no authentication at
+all**, answering 200 with no `WWW-Authenticate` header. Read-only, but it shows
+everything the cluster runs. Fine for a three-hour lab, wrong anywhere else;
+drop `flux-ui` from `node_service_ports` and port-forward instead.
+
+Adopted a live `flux install` in **12s** without disturbing either Kustomization, and its
 `kustomize.patches` reached the controllers. **Flux does have a web UI** — the
 operator serves it on port **9080** (`http-web`), `<title>Flux Status</title>`.
 AGPL-3.0, which is a procurement question rather than a technical one.
