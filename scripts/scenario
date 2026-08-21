@@ -21,7 +21,11 @@ set -uo pipefail
 
 ROOT="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
 SCEN_DIR="$ROOT/gitops/scenarios"
-export KUBECONFIG="${KUBECONFIG:-$HOME/.kube/eks-real}"
+# Must match scripts/gitops-install.sh. These disagreed once -- eks-real here,
+# andrei-lab-eks there -- and the symptom was "No cluster." against a healthy
+# cluster, which sends you debugging the wrong thing entirely.
+CLUSTER="${CLUSTER:-andrei-lab-eks}"
+export KUBECONFIG="${KUBECONFIG:-$HOME/.kube/$CLUSTER}"
 
 c_hdr()  { printf "\n\033[1m%s\033[0m\n" "$*"; }
 c_ctl()  { printf "\033[36m  [%s]\033[0m %s\n" "$1" "${*:2}"; }

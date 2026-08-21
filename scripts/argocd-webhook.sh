@@ -23,7 +23,7 @@
 set -euo pipefail
 
 CLUSTER="${CLUSTER:-andrei-lab-eks}"
-export KUBECONFIG="${KUBECONFIG:-$HOME/.kube/andrei-lab-eks}"
+export KUBECONFIG="${KUBECONFIG:-$HOME/.kube/$CLUSTER}"
 K="kubectl --context $CLUSTER"
 REPO="${REPO:-alecuvalentin22/aws-kodekloud-playground}"
 NODEPORT="${NODEPORT:-30083}"

@@ -12,8 +12,18 @@
 SHELL := /bin/bash
 .DEFAULT_GOAL := help
 
-KUBECONFIG ?= $(HOME)/.kube/eks-real
+# ONE kubeconfig path for the whole repo. This was two -- the Makefile and
+# scripts/scenario said eks-real, the three install scripts said
+# andrei-lab-eks -- so `./scripts/scenario run 06` on a clean shell reported
+# "No cluster" against a cluster that was running fine. It only ever worked
+# because KUBECONFIG happened to be exported by hand.
+#
+# Never $(HOME)/.kube/config: this laptop has production contexts there, and a
+# lab context sitting beside them is how a delete goes to the wrong cluster.
+CLUSTER    ?= andrei-lab-eks
+KUBECONFIG ?= $(HOME)/.kube/$(CLUSTER)
 export KUBECONFIG
+export CLUSTER
 
 TF_AWS  := terraform/aws
 TF_EKS  := terraform/eks
@@ -47,8 +57,12 @@ eks: ## build the EKS cluster (three-phase, prefix delegation before nodes join)
 
 .PHONY: kubeconfig
 kubeconfig: ## write a DEDICATED kubeconfig (never touches ~/.kube/config)
-	aws eks update-kubeconfig --region us-east-1 --name andrei-lab-eks --alias eks-real
-	@kubectl get nodes
+	aws eks update-kubeconfig --region us-east-1 --name $(CLUSTER) --alias $(CLUSTER)
+	@kubectl get nodes -o custom-columns=\
+'NAME:.metadata.name,STATUS:.status.conditions[-1].type,MAXPODS:.status.allocatable.pods'
+	@echo
+	@echo "MAXPODS must read 110. If it reads 17, prefix delegation did not reach"
+	@echo "the nodes before they booted -- rebuild with ./scripts/eks-up.sh."
 
 .PHONY: ec2
 ec2: ## build the EC2 lab (Elasticsearch, k3s, RKE2)

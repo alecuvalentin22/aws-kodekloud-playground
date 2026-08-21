@@ -18,7 +18,7 @@ ARGOCD_VERSION="${ARGOCD_VERSION:-v3.5.1}"
 
 # Its own kubeconfig. A lab context sitting next to a production one in
 # ~/.kube/config is how people run a delete against the wrong cluster.
-export KUBECONFIG="${KUBECONFIG:-$HOME/.kube/andrei-lab-eks}"
+export KUBECONFIG="${KUBECONFIG:-$HOME/.kube/$CLUSTER}"
 K="kubectl --context $CLUSTER"
 
 echo "==> kubeconfig -> $KUBECONFIG"

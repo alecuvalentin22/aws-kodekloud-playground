@@ -12,7 +12,7 @@ set -euo pipefail
 
 HERE="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
 CLUSTER="${CLUSTER:-andrei-lab-eks}"
-export KUBECONFIG="${KUBECONFIG:-$HOME/.kube/andrei-lab-eks}"
+export KUBECONFIG="${KUBECONFIG:-$HOME/.kube/$CLUSTER}"
 K="kubectl --context $CLUSTER"
 
 ROLLOUTS_VERSION="${ROLLOUTS_VERSION:-v1.9.1}"
