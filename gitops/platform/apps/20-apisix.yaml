@@ -17,6 +17,23 @@ spec:
     chart: apisix
     targetRevision: 2.17.0
     helm:
+      # RELEASE NAME, and it is the difference between adopting an existing
+      # release and installing a second one beside it.
+      #
+      # Argo CD defaults a Helm release name to the APPLICATION name. This
+      # Application is called platform-apisix, so without this line Helm renders
+      # everything as release "platform-apisix" -- new Secrets, new
+      # ConfigMaps, a new StatefulSet -- while the script-installed release
+      # "apisix" carries on untouched. Two releases, one namespace, both
+      # half-working.
+      #
+      # The symptom is NOT a conflict, which is what makes it confusing: the
+      # Application sits Sync=OutOfSync Health=Missing, because from its point
+      # of view none of its resources exist yet. Here it wedged on the etcd
+      # subchart's pre-upgrade hook, whose pod stayed ContainerCreating forever
+      # waiting on a Secret belonging to a release that had never been
+      # installed.
+      releaseName: apisix
       valuesObject:
         apisix:
           deployment: {mode: traditional}

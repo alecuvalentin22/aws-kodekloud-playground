@@ -17,6 +17,7 @@ spec:
     chart: kube-prometheus-stack
     targetRevision: 88.6.2
     helm:
+      releaseName: kube-prometheus-stack
       # Booleans as real booleans. Passing these through `--set-string` on the
       # command line made serviceMonitorSelectorNilUsesHelmValues the STRING
       # "false" -- truthy in a template -- so the flag did the opposite of what

@@ -31,9 +31,52 @@ spec:
       namespace: observability
     - server: https://kubernetes.default.svc
       namespace: apisix
-    # NOT argocd. An Application allowed to write into the argocd namespace can
-    # reconcile Argo CD's own RBAC ConfigMap, which is effectively cluster
-    # admin however narrow the rest of this looks.
+    # argocd IS required, and this is the tension the app-of-apps pattern forces
+    # on you: the root Application's job is to create child Application objects,
+    # and those live in the argocd namespace. Exclude it and the root fails
+    # before it does anything:
+    #
+    #   InvalidSpecError: application destination server '...' and namespace
+    #   'argocd' do not match any of the allowed destinations in project
+    #   'platform'
+    #
+    # The dangerous thing was never the namespace, it was what an Application
+    # could WRITE there -- Argo CD's own RBAC ConfigMap and its Secrets, which
+    # is effectively cluster admin. So allow the namespace and constrain the
+    # KINDS instead, with namespaceResourceWhitelist below.
+    - server: https://kubernetes.default.svc
+      namespace: argocd
+
+  # The real control on the argocd namespace. This project may create exactly
+  # these kinds anywhere it is allowed to deploy -- which means it can manage
+  # child Applications, and CANNOT touch argocd-cm, argocd-rbac-cm or
+  # argocd-secret even though it now has the namespace.
+  #
+  # A whitelist rather than a blacklist on purpose: a blacklist has to
+  # anticipate every dangerous kind, and a chart that adds one later gets it for
+  # free.
+  namespaceResourceWhitelist:
+    - {group: "argoproj.io", kind: Application}
+    - {group: "argoproj.io", kind: AppProject}
+    - {group: "", kind: Namespace}
+    - {group: "", kind: Service}
+    - {group: "", kind: ServiceAccount}
+    - {group: "", kind: ConfigMap}
+    - {group: "", kind: Secret}
+    - {group: "", kind: PersistentVolumeClaim}
+    - {group: "apps", kind: Deployment}
+    - {group: "apps", kind: StatefulSet}
+    - {group: "apps", kind: DaemonSet}
+    - {group: "batch", kind: Job}
+    - {group: "batch", kind: CronJob}
+    - {group: "policy", kind: PodDisruptionBudget}
+    - {group: "networking.k8s.io", kind: Ingress}
+    - {group: "networking.k8s.io", kind: NetworkPolicy}
+    - {group: "rbac.authorization.k8s.io", kind: Role}
+    - {group: "rbac.authorization.k8s.io", kind: RoleBinding}
+    - {group: "autoscaling", kind: HorizontalPodAutoscaler}
+    - {group: "monitoring.coreos.com", kind: "*"}
+    - {group: "apisix.apache.org", kind: "*"}
 
   # Platform genuinely needs cluster-scoped resources -- but enumerated, not '*'.
   # Anything not on this list is refused at sync with a readable error, which is

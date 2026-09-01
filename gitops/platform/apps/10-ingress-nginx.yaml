@@ -17,6 +17,7 @@ spec:
     chart: ingress-nginx
     targetRevision: 4.15.1
     helm:
+      releaseName: ingress-nginx
       valuesObject:
         controller:
           replicaCount: 1
