@@ -57,7 +57,22 @@ fi
 # the rest of this repo: never add capacity you have not proven, take one out
 # at a time.
 # ---------------------------------------------------------------------------
-echo "==> APISIX gateway $APISIX_CHART (3 replicas) + etcd (3 members)"
+# etcd first, and separately -- the apisix chart's bundled etcd runs an unpinned
+# bitnamilegacy:latest image and ships a pre-upgrade hook that deadlocks Argo CD
+# on a fresh install. See gitops/platform/apps/15-etcd.yaml.
+echo "==> etcd $ETCD_CHART (3 members, pinned image, no pre-upgrade hook)"
+helm repo add bitnami https://charts.bitnami.com/bitnami >/dev/null 2>&1 || true
+helm repo update bitnami >/dev/null
+helm upgrade --install apisix-etcd bitnami/etcd \
+  --kube-context "$CLUSTER" --namespace "$NS" --version "$ETCD_CHART" \
+  --set preUpgradeJob.enabled=false \
+  --set replicaCount=3 \
+  --set auth.rbac.create=false \
+  --set persistence.enabled=true --set persistence.size=8Gi \
+  --set resources.requests.cpu=50m --set resources.requests.memory=128Mi \
+  --wait --timeout 10m
+
+echo "==> APISIX gateway $APISIX_CHART (3 replicas), external etcd"
 helm upgrade --install apisix apisix/apisix \
   --kube-context "$CLUSTER" \
   --namespace "$NS" \
@@ -72,10 +87,8 @@ helm upgrade --install apisix apisix/apisix \
   --set metrics.serviceMonitor.namespace="$NS" \
   --set-string apisix.admin.credentials.admin="$ADMIN_KEY" \
   --set apisix.admin.allow.ipList[0]=0.0.0.0/0 \
-  --set etcd.enabled=true \
-  --set etcd.replicaCount=3 \
-  --set etcd.resources.requests.cpu=50m \
-  --set etcd.resources.requests.memory=128Mi \
+  --set etcd.enabled=false \
+  --set externalEtcd.host[0]=http://apisix-etcd.apisix.svc.cluster.local:2379 \
   --wait --timeout 15m
 
 # Two chart facts that cost a wasted install if you assume otherwise:

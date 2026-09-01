@@ -1,0 +1,72 @@
+# Wave 5. APISIX's config store, deployed SEPARATELY from the APISIX chart.
+#
+# Two independent reasons, and either alone would justify it.
+#
+# 1. SECURITY / FRESHNESS. The apisix chart's bundled etcd runs
+#    `docker.io/bitnamilegacy/etcd:latest` -- an UNPINNED tag from Bitnami's
+#    ARCHIVED catalogue. `latest` means the running version is whatever was
+#    pushed most recently and is not recorded anywhere; `bitnamilegacy` means it
+#    is the frozen shelf rather than the maintained one. Everything else in this
+#    repo is pinned to a current release (see versions.env) and this was the one
+#    component quietly not. The bitnami/etcd chart runs a pinned
+#    `bitnami/etcd:3.6.4-debian-12-r3`.
+#
+# 2. IT DEADLOCKS UNDER ARGO CD. The bundled etcd ships a Helm `pre-upgrade`
+#    hook. Argo CD maps `pre-install` AND `pre-upgrade` both to `PreSync` and,
+#    per its own docs, "cannot know if it is running a first-time install or
+#    upgrade -- every operation is a sync". So on a FRESH install it runs a
+#    pre-upgrade hook that real Helm would never run. That hook mounts
+#    `secret/apisix-etcd-jwt-token`, which is created by the main sync -- which
+#    is blocked waiting for the hook. Measured: pod ContainerCreating for 10+
+#    minutes, Application stuck OutOfSync/Missing/Running, no error anywhere.
+#
+#    `preUpgradeJob.enabled: false` below removes the hook entirely.
+#
+# The apisix chart's own values say the bundled etcd is "only for development
+# and testing purposes... if you want to use etcd in production, we recommend
+# you install etcd by yourself and use externalEtcd". This is that.
+apiVersion: argoproj.io/v1alpha1
+kind: Application
+metadata:
+  name: platform-etcd
+  namespace: argocd
+  annotations:
+    argocd.argoproj.io/sync-wave: "5"
+spec:
+  project: platform
+  destination:
+    server: https://kubernetes.default.svc
+    namespace: apisix
+  source:
+    repoURL: https://charts.bitnami.com/bitnami
+    chart: etcd
+    targetRevision: 12.0.18
+    helm:
+      releaseName: apisix-etcd
+      valuesObject:
+        # THE LINE THAT BREAKS THE DEADLOCK.
+        preUpgradeJob:
+          enabled: false
+        replicaCount: 3
+        auth:
+          # No RBAC, matching what the bundled etcd did. The store is reachable
+          # only from inside the cluster and holds gateway routes, not secrets.
+          # Turn this on for anything real.
+          rbac:
+            create: false
+        persistence:
+          enabled: true
+          size: 8Gi
+        resources:
+          requests: {cpu: 50m, memory: 128Mi}
+        # etcd is a quorum system: 2 of 3 must stay up through a node drain.
+        pdb:
+          create: true
+          minAvailable: 2
+  syncPolicy:
+    automated: {prune: true, selfHeal: true}
+    syncOptions:
+      - CreateNamespace=true
+      - ServerSideApply=true
+      - ServerSideDiff=true
+      - FailOnSharedResource=true

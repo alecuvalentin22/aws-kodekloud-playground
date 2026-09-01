@@ -65,10 +65,21 @@ spec:
             # serviceMonitorSelector picks it up. Without it the gateway serves
             # 886 metric lines that nothing scrapes, silently.
             labels: {release: kube-prometheus-stack}
+        # BUNDLED ETCD OFF. It is deployed by platform-etcd (wave 5) instead --
+        # see 15-etcd.yaml for the two reasons: the bundled one runs an unpinned
+        # bitnamilegacy:latest image, and its pre-upgrade hook deadlocks Argo CD
+        # on a fresh install.
         etcd:
-          enabled: true
-          replicaCount: 3
-          resources: {requests: {cpu: 50m, memory: 128Mi}}
+          enabled: false
+        externalEtcd:
+          host:
+            - http://apisix-etcd.apisix.svc.cluster.local:2379
+  # Needs the external etcd to be serving before APISIX will start.
+  # Sync waves order the Applications; they do not wait for readiness, so the
+  # gateway may restart a few times while etcd forms quorum. That is expected
+  # and self-correcting -- it is not the deadlock described in 15-etcd.yaml,
+  # which never resolves.
+  #
   # IGNORED ON PURPOSE: the Admin API key.
   #
   # It is generated per-install into secret/apisix-admin and must NOT live in
