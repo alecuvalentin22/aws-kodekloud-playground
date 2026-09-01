@@ -24,6 +24,22 @@ spec:
         config:
           provider: {syncPeriod: 1m}
           kubernetes: {ingressClass: apisix}
+  # TWO APPLICATIONS MUST NOT CLAIM ONE OBJECT, and this chart forces the issue.
+  #
+  # It ships an IngressClass with empty .spec.parameters. platform-apisix-wiring
+  # (wave 30) owns the real one, with the GatewayProxy reference that makes the
+  # controller work at all. With both Applications claiming it and selfHeal on,
+  # they take turns reverting each other and the gateway silently stops routing
+  # every time the chart's version wins.
+  #
+  # Same rule as Argo-CD-vs-Flux at the top of the README, one layer down: one
+  # owner per object. The wiring app owns it; this app ignores it.
+  ignoreDifferences:
+    - group: networking.k8s.io
+      kind: IngressClass
+      name: apisix
+      jsonPointers:
+        - /spec/parameters
   syncPolicy:
     automated: {prune: true, selfHeal: true}
     syncOptions:

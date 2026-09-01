@@ -53,3 +53,61 @@ install, and adoption has a specific failure mode — Helm ownership metadata
 
 That is exactly T-21 in the backlog and it is worth reproducing deliberately
 rather than tripping over. See `scenario 15`.
+
+## What adoption actually looked like
+
+Handing four script-installed Helm releases to Argo CD, measured:
+
+| Application | outcome |
+|---|---|
+| `platform-storage` | Synced/Healthy |
+| `platform-ingress-nginx` | Synced/Healthy |
+| `platform-observability` | Synced/Healthy |
+| `platform-apisix-wiring` | Synced/Healthy |
+| `platform-apisix` | **OutOfSync**/Healthy |
+| `platform-apisix-controller` | **OutOfSync**/Healthy |
+
+Everything ended **Healthy**, and `helm list -A` still shows exactly one release
+per chart — so the adoption worked; nothing was duplicated and nothing broke.
+The gateway kept serving throughout.
+
+### Finding 1 — `helm.releaseName` is the whole game
+
+Argo CD names the Helm release after the **Application**. Without
+`helm.releaseName`, `platform-apisix` rendered a brand-new release called
+`platform-apisix` beside the script's `apisix` — two releases, one namespace.
+
+The symptom is not a conflict, which is what makes it hard to read: the
+Application sits `OutOfSync`/**`Missing`**, because from its point of view none
+of its resources exist. Here it then wedged for seven minutes on the etcd
+subchart's pre-upgrade hook, whose pod stayed `ContainerCreating` waiting on a
+Secret belonging to a release that had never been installed.
+
+### Finding 2 — adoption inherits every hand-patch as permanent drift
+
+The two APISIX Applications remain `OutOfSync` and the reason is honest: the
+install script *patched* things Helm does not know about — the gateway
+NodePort, `topologySpreadConstraints`, `maxSurge: 0`, the ServiceMonitor's
+`port`/`release` label, a generated Admin API key. Git does not express any of
+it, so Argo CD correctly reports a difference forever.
+
+**That is the real lesson of adopting a script-managed release: git has to
+express everything the script did, or you trade "a script nobody remembers
+running" for "a permanent diff nobody can action".** The second is better —
+it is at least visible — but it is not done.
+
+Closing it means moving those patches into the `valuesObject`, or into a
+kustomize overlay, and deleting them from the script. That is the remaining
+work, and it is deliberately not hidden behind an `ignoreDifferences` blanket.
+
+### Finding 3 — one owner per object, one layer down
+
+The controller chart ships an `IngressClass` with empty `.spec.parameters`;
+`platform-apisix-wiring` owns the real one carrying the `GatewayProxy`
+reference. Both Applications claimed it, and with `selfHeal` on they would take
+turns reverting each other — the gateway silently losing its routing every time
+the chart's version won. The controller Application now yields it via
+`ignoreDifferences`.
+
+Exactly the same rule as Argo CD vs Flux at the top of this file, and it applies
+between two Argo CD Applications just as much as between two controllers.
