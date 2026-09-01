@@ -90,4 +90,24 @@ spec:
     - {group: "networking.k8s.io", kind: IngressClass}
     - {group: "admissionregistration.k8s.io", kind: ValidatingWebhookConfiguration}
     - {group: "admissionregistration.k8s.io", kind: MutatingWebhookConfiguration}
+    # ValidatingAdmissionPolicy / -Binding are the CEL-based admission kinds
+    # (GA in 1.30), and they are a DIFFERENT kind from the webhook
+    # configurations above -- listing the webhooks does not cover them.
+    #
+    # Missing them failed the sync outright rather than degrading:
+    #
+    #   one or more synchronization tasks are not valid:
+    #   resource admissionregistration.k8s.io:ValidatingAdmissionPolicy
+    #   is not permitted in project platform (retried 5 times)
+    #
+    # and the Application still reported Healthy, because everything that HAD
+    # been applied was fine. Healthy means "what exists is working", not
+    # "what git asked for exists". apisix-ingress-controller 2.x ships these to
+    # guard Gateway API upgrades.
+    #
+    # This is the cost of an enumerated whitelist over '*', and it is the cost
+    # worth paying: a chart adding a new cluster-scoped kind stops the sync and
+    # tells you which kind, instead of silently acquiring it.
+    - {group: "admissionregistration.k8s.io", kind: ValidatingAdmissionPolicy}
+    - {group: "admissionregistration.k8s.io", kind: ValidatingAdmissionPolicyBinding}
     - {group: "apisix.apache.org", kind: GatewayProxy}

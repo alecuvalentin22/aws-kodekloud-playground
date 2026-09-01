@@ -111,3 +111,65 @@ the chart's version won. The controller Application now yields it via
 
 Exactly the same rule as Argo CD vs Flux at the top of this file, and it applies
 between two Argo CD Applications just as much as between two controllers.
+
+## Two errors this surfaced, one fixed and one open
+
+### Fixed — an enumerated whitelist has to be kept up to date
+
+The controller Application's sync **failed outright**, five retries, while the
+Application still read `Healthy`:
+
+```
+one or more synchronization tasks are not valid:
+resource admissionregistration.k8s.io:ValidatingAdmissionPolicy
+is not permitted in project platform (retried 5 times)
+```
+
+`ValidatingAdmissionPolicy` and `ValidatingAdmissionPolicyBinding` are the
+CEL-based admission kinds (GA in 1.30) and are **different kinds** from the
+`ValidatingWebhookConfiguration` already on the list — enumerating the webhook
+did not cover them. apisix-ingress-controller 2.x ships them to guard Gateway
+API upgrades.
+
+Two things worth taking from it. `Healthy` means *"what exists is working"*, not
+*"what git asked for exists"* — the app was Healthy through five failed syncs.
+And this is the price of an enumerated `clusterResourceWhitelist` over `'*'`: a
+chart that starts shipping a new cluster-scoped kind **stops** and names it,
+instead of silently acquiring it. That is the right trade, but it is a trade.
+
+### Open — `SharedResourceWarning` on the IngressClass
+
+```
+SharedResourceWarning: IngressClass/apisix is part of applications
+argocd/platform-apisix-controller and platform-apisix-wiring
+```
+
+`ignoreDifferences` does **not** fix this. It suppresses the diff and leaves
+ownership shared, so the warning stands. Nothing is currently broken — the
+gateway routes correctly and `parameters` survives — but two Applications
+claiming one object is precisely the condition this README opens by warning
+against, and it should not be left.
+
+The chart templates its IngressClass unconditionally; there is no `create`
+toggle. So there are exactly two honest options:
+
+1. **`gatewayProxy.createDefault: true`.** The chart then creates both the
+   GatewayProxy and an IngressClass already wired to it — one owner, no
+   warning, no hand-written wiring. The cost is that the chart inlines the
+   admin key as a literal:
+
+   ```yaml
+   adminKey: {value: edd1c9f034335f136f87ad84b625c8f1, type: AdminKey}
+   ```
+
+   which is APISIX's published default, in git. Setting a real key there is
+   worse. This only works if the chart grows support for a `secretKeyRef`.
+
+2. **Keep the hand-written GatewayProxy** (which reads the key from a Secret)
+   and stop `platform-apisix-wiring` from managing the IngressClass, letting the
+   controller Application own it — then find another way to set `parameters`,
+   because the chart does not expose them.
+
+Option 1 is cleaner and less secure; option 2 is more secure and needs a
+mechanism that does not exist yet. **Unresolved**, deliberately, rather than
+papered over with a wider `ignoreDifferences`.

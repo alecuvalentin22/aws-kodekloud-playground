@@ -95,6 +95,13 @@ release label, a generated admin key. Git expresses none of it. Moving those
 into `valuesObject` is the remaining work; it is not hidden behind a blanket
 `ignoreDifferences`, so the diff stays visible and actionable.
 
+**Open, not hidden:** `platform-apisix-controller` still raises a
+`SharedResourceWarning` on `IngressClass/apisix` — two Applications claim it.
+`ignoreDifferences` suppresses the diff but not the ownership. Nothing is broken
+(the gateway routes, `parameters` survives) and the two ways to resolve it are
+written out in `gitops/platform/README.md`; both have a real cost, so it is
+recorded rather than rushed.
+
 **Not verified:** Flux's equivalent of the platform layer is described in
 `gitops/platform/README.md` but not written or applied — the platform is
 Argo-CD-owned on purpose. And no `kubectl drain` has been run, so the HA claim

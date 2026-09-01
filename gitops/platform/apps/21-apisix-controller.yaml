@@ -34,6 +34,15 @@ spec:
   #
   # Same rule as Argo-CD-vs-Flux at the top of the README, one layer down: one
   # owner per object. The wiring app owns it; this app ignores it.
+  # ignoreDifferences alone was NOT enough. It suppresses the DIFF but does not
+  # release OWNERSHIP, so Argo CD still reported:
+  #
+  #   SharedResourceWarning: IngressClass/apisix is part of applications
+  #   argocd/platform-apisix-controller and platform-apisix-wiring
+  #
+  # Exclude it from this Application's manifests entirely instead -- then there
+  # is exactly one owner and nothing to warn about. `exclude` takes a
+  # kind:name selector against the rendered output.
   ignoreDifferences:
     - group: networking.k8s.io
       kind: IngressClass
