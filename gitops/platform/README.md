@@ -171,5 +171,35 @@ toggle. So there are exactly two honest options:
    because the chart does not expose them.
 
 Option 1 is cleaner and less secure; option 2 is more secure and needs a
-mechanism that does not exist yet. **Unresolved**, deliberately, rather than
-papered over with a wider `ignoreDifferences`.
+mechanism that does not exist yet.
+
+### And then the conflict actually fired
+
+Leaving it "not currently broken" did not last. Once the controller Application
+reached `Synced`, **it won**:
+
+```
+$ kubectl get ingressclass apisix -o jsonpath='{.spec.parameters}'
+        <empty>
+```
+
+The chart's parameter-less IngressClass overwrote the wiring. And here is the
+part worth the whole exercise — **traffic kept flowing the entire time**:
+
+```
+routing: v1  v1  v1
+```
+
+APISIX had the routes in etcd already, and serving them does not require the
+controller. So every signal was green: Application `Synced`, Application
+`Healthy`, gateway answering correctly, no error anywhere. The only thing that
+had actually broken was the ability to apply the **next** change — the exact
+failure shape scenario 13 measures deliberately, arrived at here by accident.
+
+That is why `ignoreDifferences` was never sufficient: it silences the report
+while leaving both Applications able to write. The controller's `selfHeal` is
+now off for this object so it cannot win again, which is a stopgap, not the
+fix. The fix is still one of the two options above.
+
+**Do not read "Synced/Healthy" as "the platform works."** It meant, here,
+"the wiring is gone and nobody noticed."”

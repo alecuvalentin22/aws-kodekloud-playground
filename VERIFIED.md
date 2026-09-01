@@ -95,12 +95,14 @@ release label, a generated admin key. Git expresses none of it. Moving those
 into `valuesObject` is the remaining work; it is not hidden behind a blanket
 `ignoreDifferences`, so the diff stays visible and actionable.
 
-**Open, not hidden:** `platform-apisix-controller` still raises a
-`SharedResourceWarning` on `IngressClass/apisix` — two Applications claim it.
-`ignoreDifferences` suppresses the diff but not the ownership. Nothing is broken
-(the gateway routes, `parameters` survives) and the two ways to resolve it are
-written out in `gitops/platform/README.md`; both have a real cost, so it is
-recorded rather than rushed.
+**Open, and it fired.** Two Applications claimed `IngressClass/apisix`. Once
+`platform-apisix-controller` reached `Synced` it won, and
+`.spec.parameters` — the GatewayProxy reference the controller needs — went
+**empty**. Traffic kept flowing the whole time, because APISIX serves from etcd
+and does not need the controller to do so, so every signal stayed green while
+the ability to apply the *next* change was gone. Restored by hand; the
+controller's `selfHeal` is off for that object as a stopgap. The two real fixes,
+and their costs, are in `gitops/platform/README.md`. This is not resolved.
 
 **Not verified:** Flux's equivalent of the platform layer is described in
 `gitops/platform/README.md` but not written or applied — the platform is
