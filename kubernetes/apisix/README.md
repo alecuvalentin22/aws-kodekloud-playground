@@ -61,3 +61,25 @@ Every other service in this lab is on a public NodePort. The APISIX **Admin
 API** is not, and that is a decision rather than an oversight: it is
 authenticated only by a static shared key, and it can rewrite every route in the
 gateway. It stays `ClusterIP`.
+
+## Measured
+
+`make scenario ID=13` — control plane vs data plane:
+
+| | gateway | signal | breaks |
+|---|---|---|---|
+| controller down, CRD changed | serves **stale** config 90s+, `3/3` Ready | **none at all** | correctness |
+| etcd down | keeps serving correctly | `HTTP 500 / 503, failed to sync` immediately | ability to change |
+
+Recovery from the control-plane stall took **53s** after the controller
+returned, consistent with `syncPeriod: 1m`.
+
+`make scenario ID=14` — the canary blind spot, on a 90/10 split with v2 broken:
+
+| view | success | fires? |
+|---|---|---|
+| `sum by (route, code)` | 652/663 = **98.3%** | no |
+| `sum by (route, code, node)`, v2 only | 36/47 = **76.6%** | yes |
+
+Same samples, same window, one `GROUP BY` apart. APISIX already emits the
+upstream `node` label — the blind spot is in the query, not the gateway.

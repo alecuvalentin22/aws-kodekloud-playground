@@ -24,6 +24,32 @@
 # config.provider.syncPeriod is 1m by default, so hop A can SELF-HEAL within a
 # minute of the controller returning. That is why this scenario measures how
 # long the stale window lasts rather than just asserting that it exists.
+#
+# MEASURED on EKS 1.33, APISIX 3.18.0, apisix-ingress-controller 2.2.0:
+#
+#   HOP A -- controller scaled to 0, ApisixRoute repointed v1 -> v2
+#     t+10s .. t+90s   CRD says demo-v2, gateway serves v1, ctl=0/0 gw=3/3
+#                      Admin API still holds the OLD route
+#     recovery         converged 53s after the controller came back
+#     signal emitted   NONE. Gateway Ready, pods Ready, probes passing, no
+#                      error in any log, nothing on any dashboard.
+#
+#   HOP B -- etcd scaled to 0 under a healthy gateway
+#     t+10s .. t+40s   gateway KEEPS SERVING (serves=v2 throughout)
+#     controller logs  loud and immediate:
+#                        HTTP 500: AxiosError: Request failed with status 503
+#                        failed to sync resources
+#                        failed to sync 1 configs
+#
+# So the two hops fail in opposite directions:
+#   A is silent and breaks CORRECTNESS  (serving the wrong config, quietly)
+#   B is loud   and breaks CHANGE       (serving fine, cannot be updated)
+#
+# The operational conclusion is the interesting part: the alert people write is
+# "is the gateway up", and it would have caught NEITHER. Both hops leave the
+# gateway up and serving. The alert that catches hop A is
+# "controller's last successful sync is older than N", and it is not a metric
+# anything ships by default.
 
 _ns=apisix
 _demo=demo-apisix
