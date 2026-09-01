@@ -52,6 +52,29 @@ and the Rollout came up `Degraded` referencing a template that was never
 created. Both only fail on a clean cluster, which is precisely where a
 reproducibility claim gets tested.
 
+## APISIX + observability, 2026-09-01 (account 471112918502)
+
+| | Result |
+|---|---|
+| `eks-up.sh` preflight | caught the rotated IP and refused in ~5s |
+| 4 nodes, 110 max-pods | one script run |
+| `make observability` | Prometheus, Grafana, Alertmanager, node-exporter, kube-state-metrics |
+| `make apisix` | gateway 3/3 across 3 distinct nodes, etcd 3/3, controller + ADC |
+| demo route through the gateway | `curl -H 'Host: demo.apisix.local'` → `v1` |
+| Scenario 13 | hop A silent for 90s, converged 53s; hop B loud, traffic unaffected |
+| Scenario 14 | 183/17 split, 40/40 header, 98.3% vs 76.6% blind-spot contrast |
+
+**Not run this session:** T-22 (JWT/OIDC at the gateway), T-25 (rate limiting
+across replicas), T-26 (etcd ops), T-27 (standalone mode), T-28 (the Kong vs
+APISIX table). Scenario 13's `scenario_reset` and scenario 14's have both been
+exercised, but neither scenario has been run twice back-to-back the way
+scenario 06 was, so their idempotence is unproven.
+
+**Also unverified:** the HA claims in `kubernetes/apisix/ha.yaml`. The PDB and
+the 3-node spread are applied and visible, but no `kubectl drain` has been run
+against them, so "a drain does not drop traffic" is currently a design intent
+rather than a measurement. T-20's acceptance criteria asks for that explicitly.
+
 ## Previously NOT run end to end (now all run)
 
 **`scripts/eks-up.sh`.** Its three phases were executed by hand — `terraform
