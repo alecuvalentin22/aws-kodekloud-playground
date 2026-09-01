@@ -146,12 +146,39 @@ variable "node_disk_size" {
 }
 
 variable "public_access_cidrs" {
-  description = "Who may reach the public Kubernetes API endpoint. Your /32 -- curl -s ifconfig.me"
+  description = <<-EOT
+    Who may reach the public Kubernetes API endpoint.
+
+    THIS WAS A /32 AND IT COST TWO REBUILDS. A home or office IP rotates, and
+    on this playground `eks:UpdateClusterConfig` is DENIED -- so the allowlist
+    is immutable after CreateCluster and a rotation means the API is
+    unreachable until the cluster is destroyed and rebuilt. It happened once
+    between sessions, and once MID-SESSION, after the preflight had already
+    passed. A preflight cannot help with the second case.
+
+    Widened to the /24s the address has actually appeared in. That is a
+    deliberate trade, not laziness:
+
+      - the EKS API authenticates with IAM and authorises with RBAC. The CIDR
+        allowlist is defence-in-depth against a stolen credential, not the
+        primary control.
+      - a /24 still excludes the entire internet bar one ISP pool.
+      - the alternative is a 25-minute rebuild every time a DHCP lease turns
+        over, which is a real cost that was paid twice.
+
+    For anything long-lived, narrow this back to a /32 and accept the rebuild,
+    or use a private endpoint with a bastion -- which is what `endpoint_private_access`
+    is already set up for.
+
+    SSH is NOT governed by this. It stays scoped to a single address in
+    terraform/aws regardless of what happens here.
+  EOT
   type        = list(string)
+  default     = ["86.121.140.0/24", "188.26.231.0/24"]
 
   validation {
     condition     = !contains(var.public_access_cidrs, "0.0.0.0/0")
-    error_message = "Refusing to expose the Kubernetes API to the whole internet. Use your own /32."
+    error_message = "Refusing 0.0.0.0/0 on the Kubernetes API endpoint. A /24 is a trade; the whole internet is not."
   }
 }
 

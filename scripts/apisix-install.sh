@@ -66,6 +66,8 @@ helm repo update bitnami >/dev/null
 helm upgrade --install apisix-etcd bitnami/etcd \
   --kube-context "$CLUSTER" --namespace "$NS" --version "$ETCD_CHART" \
   --set preUpgradeJob.enabled=false \
+  --set image.repository=bitnamilegacy/etcd \
+  --set image.tag=3.6.4-debian-12-r4 \
   --set replicaCount=3 \
   --set auth.rbac.create=false \
   --set persistence.enabled=true --set persistence.size=8Gi \
@@ -89,6 +91,8 @@ helm upgrade --install apisix apisix/apisix \
   --set apisix.admin.allow.ipList[0]=0.0.0.0/0 \
   --set etcd.enabled=false \
   --set externalEtcd.host[0]=http://apisix-etcd.apisix.svc.cluster.local:2379 \
+  --set-string externalEtcd.user="" \
+  --set-string externalEtcd.password="" \
   --wait --timeout 15m
 
 # Two chart facts that cost a wasted install if you assume otherwise:

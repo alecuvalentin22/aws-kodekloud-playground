@@ -74,6 +74,18 @@ spec:
         externalEtcd:
           host:
             - http://apisix-etcd.apisix.svc.cluster.local:2379
+          # user MUST be empty. It defaults to "root", which makes APISIX try to
+          # authenticate against an etcd where RBAC is disabled (see 15-etcd.yaml,
+          # auth.rbac.create: false), and the gateway CrashLoopBackOffs with:
+          #
+          #   got malformed auth message: {"code":9,"message":"etcdserver:
+          #   authentication is not enabled"} from .../v3/auth/authenticate
+          #
+          # The two charts have to agree about whether auth exists. Enabling
+          # etcd RBAC and setting a real credential here is the production
+          # answer; matching them on "off" is the lab one, stated as such.
+          user: ""
+          password: ""
   # Needs the external etcd to be serving before APISIX will start.
   # Sync waves order the Applications; they do not wait for readiness, so the
   # gateway may restart a few times while etcd forms quorum. That is expected

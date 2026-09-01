@@ -21,6 +21,12 @@ spec:
     - https://kubernetes.github.io/ingress-nginx
     - https://prometheus-community.github.io/helm-charts
     - https://charts.apiseven.com
+    # etcd, deployed separately from the apisix chart -- see
+    # gitops/platform/apps/15-etcd.yaml. Forgetting this is what the allowlist
+    # is FOR: the Application was rejected at spec level with
+    #   "application repo https://charts.bitnami.com/bitnami is not permitted"
+    # rather than silently pulling a chart from an unreviewed source.
+    - https://charts.bitnami.com/bitnami
 
   destinations:
     - server: https://kubernetes.default.svc

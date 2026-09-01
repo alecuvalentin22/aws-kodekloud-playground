@@ -44,6 +44,40 @@ spec:
     helm:
       releaseName: apisix-etcd
       valuesObject:
+        # IMAGE: the honest state of this, because it is a supply-chain fact
+        # rather than a preference.
+        #
+        # Bitnami moved its versioned public images behind a subscription in
+        # 2025. Checking the registry directly:
+        #
+        #   docker.io/bitnami/etcd        NO tags at all -- not even latest
+        #   docker.io/bitnamilegacy/etcd  3.6.4-debian-12-r1 .. r4, and latest
+        #
+        # So the chart's own default (bitnami/etcd:3.6.4-debian-12-r3) is
+        # UNPULLABLE -- measured: ImagePullBackOff on all three replicas -- and
+        # the archived catalogue is the only place these images still exist.
+        # That is why the apisix chart pins bitnamilegacy in the first place.
+        #
+        # What this still buys over the bundled etcd, which is the point:
+        #   bundled   bitnamilegacy/etcd:latest             unpinned
+        #   here      bitnamilegacy/etcd:3.6.4-debian-12-r4 pinned, and r4 is
+        #                                                   NEWER than the r3
+        #                                                   the chart wanted
+        #
+        # An unpinned tag from an archived repo is the worst case: you cannot
+        # say what is running and it will never be patched. Pinned-from-archived
+        # is still not good -- it is frozen -- but it is at least KNOWN and
+        # reproducible, and check-versions.sh cannot lie about it.
+        #
+        # The genuinely maintained path is the upstream etcd image
+        # (quay.io/coreos/etcd), which this chart cannot use: its entrypoint
+        # scripts assume the Bitnami image layout. Moving to it means a
+        # different chart. NOT DONE HERE -- recorded as the real remaining risk.
+        image:
+          registry: docker.io
+          repository: bitnamilegacy/etcd
+          tag: 3.6.4-debian-12-r4
+
         # THE LINE THAT BREAKS THE DEADLOCK.
         preUpgradeJob:
           enabled: false
