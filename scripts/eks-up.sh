@@ -1,6 +1,6 @@
 #!/usr/bin/env bash
-# Build the EKS cluster in three phases, so that prefix delegation is in place
-# BEFORE the first node boots.
+# Build the EKS cluster in four phases: prefix delegation must be in place
+# BEFORE the first node boots, and storage must work before anything with a PVC.
 #
 #   ./scripts/eks-up.sh
 #
@@ -24,7 +24,7 @@
 # hard way: they kept reporting 17 afterwards. The daemonset has to be patched
 # while the autoscaling group is still at zero.
 #
-# Hence: cluster -> patch CNI -> scale nodes.
+# Hence: cluster -> patch CNI -> scale nodes -> storage.
 #
 # On the playground this is not a tuning exercise, it is the only option. An SCP
 # explicitly denies ec2:RunInstances for every instance type except t3.medium,
@@ -92,7 +92,7 @@ if [[ -f "$TFVARS" ]]; then
 fi
 command -v kubectl   >/dev/null || { echo "kubectl not on PATH" >&2; exit 1; }
 
-echo "==> Phase 1/3: control plane, autoscaling group at zero"
+echo "==> Phase 1/4: control plane, autoscaling group at zero"
 terraform apply -auto-approve \
   -var node_desired_size=0 \
   -var node_min_size=0 \
@@ -106,7 +106,7 @@ aws eks update-kubeconfig --name "$CLUSTER" --region "$REGION" --alias "$CLUSTER
 echo "    kubeconfig -> $KUBECONFIG (context $CLUSTER)"
 
 echo
-echo "==> Phase 2/3: prefix delegation, before any node exists"
+echo "==> Phase 2/4: prefix delegation, before any node exists"
 # WAIT FOR THE DAEMONSET TO EXIST, do not assume it.
 #
 # EKS installs vpc-cni as a default component shortly AFTER CreateCluster
@@ -136,7 +136,7 @@ kubectl -n kube-system get daemonset aws-node \
 echo "    ENABLE_PREFIX_DELEGATION=true confirmed on the daemonset spec"
 
 echo
-echo "==> Phase 3/3: $DESIRED nodes, joining with max-pods=$MAXPODS"
+echo "==> Phase 3/4: $DESIRED nodes, joining with max-pods=$MAXPODS"
 terraform apply -auto-approve \
   -var "node_desired_size=$DESIRED" \
   -var node_min_size=1 \
@@ -148,6 +148,42 @@ for _ in $(seq 1 60); do
   [[ "$n" -ge "$DESIRED" ]] && break
   sleep 10
 done
+
+# ---------------------------------------------------------------------------
+# Phase 4: a StorageClass that can actually provision.
+#
+# EKS 1.33 ships a `gp2` StorageClass marked default whose provisioner is
+# `kubernetes.io/aws-ebs` -- the IN-TREE driver, REMOVED from Kubernetes in
+# 1.27. So the cluster has a default StorageClass that can never bind a PVC.
+#
+# The symptom points somewhere else entirely:
+#
+#   0/4 nodes are available: pod has unbound immediate PersistentVolumeClaims
+#
+# which reads as scheduling or capacity. `kubectl get sc` shows a StorageClass
+# present and healthy-looking, and nothing says "this provisioner no longer
+# exists". APISIX's etcd StatefulSet sat Pending on it for 20 minutes.
+#
+# Both halves are needed -- the driver AND a StorageClass that uses it. Doing
+# this by hand twice is what put it here.
+# ---------------------------------------------------------------------------
+echo
+echo "==> Phase 4/4: EBS CSI driver + a StorageClass that can provision"
+if ! aws eks describe-addon --cluster-name "$CLUSTER" --addon-name aws-ebs-csi-driver      --region "$REGION" >/dev/null 2>&1; then
+  # The node role needs the policy before the driver can create volumes. Both
+  # of these are permitted on this playground, which is a pleasant surprise
+  # given how much of the EKS API is not.
+  aws iam attach-role-policy --role-name "${NODE_ROLE:-eksWorkerNodeRole}"     --policy-arn arn:aws:iam::aws:policy/service-role/AmazonEBSCSIDriverPolicy >/dev/null 2>&1 || true
+  aws eks create-addon --cluster-name "$CLUSTER" --addon-name aws-ebs-csi-driver     --region "$REGION" >/dev/null 2>&1 || true
+fi
+for _ in $(seq 1 40); do
+  [[ "$(aws eks describe-addon --cluster-name "$CLUSTER" --addon-name aws-ebs-csi-driver         --region "$REGION" --query 'addon.status' --output text 2>/dev/null)" == "ACTIVE" ]] && break
+  sleep 15
+done
+kubectl apply -f "$HERE/kubernetes/storageclass-gp3.yaml" >/dev/null
+# Demote gp2 so the dead in-tree class stops being the default.
+kubectl patch sc gp2 -p   '{"metadata":{"annotations":{"storageclass.kubernetes.io/is-default-class":"false"}}}' >/dev/null 2>&1 || true
+echo "    default StorageClass: $(kubectl get sc -o jsonpath='{range .items[?(@.metadata.annotations.storageclass\.kubernetes\.io/is-default-class=="true")]}{.metadata.name} ({.provisioner}){end}')"
 
 echo
 echo "==> Result"

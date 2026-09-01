@@ -11,6 +11,7 @@
 #   Flux     ->  demo-flux
 set -euo pipefail
 
+HERE="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
 CLUSTER="${CLUSTER:-andrei-lab-eks}"
 REGION="${REGION:-us-east-1}"
 REPO="${REPO:-https://github.com/alecuvalentin22/aws-kodekloud-playground.git}"
