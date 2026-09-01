@@ -1,0 +1,28 @@
+# The baseline route: everything to v1, no split. Scenario 15 patches this into
+# a weighted split and back.
+#
+# ApisixRoute is the CRD the ingress controller reconciles. In 2.x the
+# controller renders it and PUSHES it through the Admin API -- it never writes
+# to etcd itself. That distinction is what scenario 14 measures.
+apiVersion: apisix.apache.org/v2
+kind: ApisixRoute
+metadata:
+  name: demo
+  namespace: demo-apisix
+spec:
+  ingressClassName: apisix
+  http:
+    - name: demo
+      match:
+        hosts:
+          - demo.apisix.local
+        paths:
+          - /*
+      backends:
+        - serviceName: demo-v1
+          servicePort: 9898
+      plugins:
+        # Turned on from the start, because scenario 15's entire finding is
+        # about what these metrics DO NOT show you.
+        - name: prometheus
+          enable: true

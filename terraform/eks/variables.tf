@@ -243,6 +243,19 @@ variable "node_service_ports" {
     flux-ui           = 30086 # UNAUTHENTICATED -- see node_service_cidrs
     ingress-nginx     = 30090
     ingress-nginx-tls = 30443
+    grafana           = 30091
+    prometheus        = 30092 # UNAUTHENTICATED -- see node_service_cidrs
+    apisix-gateway    = 30093
+
+    # DELIBERATELY ABSENT: the APISIX Admin API.
+    #
+    # It is authenticated by a single static shared key and it can rewrite every
+    # route in the gateway -- so it is the one component here where "public
+    # because the lab is ephemeral" is not a good enough reason. It stays
+    # ClusterIP; reach it with a port-forward when you need it.
+    #
+    # Also absent: etcd. Nothing outside the cluster has any business reaching
+    # the gateway's config store directly.
   }
 }
 

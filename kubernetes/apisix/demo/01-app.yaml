@@ -1,0 +1,82 @@
+# The demo workload, in TWO versions, because everything downstream --
+# traffic-split, header matching, the broken-canary observability finding --
+# needs two distinguishable backends behind one route.
+#
+# Same image on purpose. Only PODINFO_UI_MESSAGE differs, so a response proves
+# WHICH version served it and nothing else can explain a difference.
+apiVersion: v1
+kind: Namespace
+metadata:
+  name: demo-apisix
+---
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: demo-v1
+  namespace: demo-apisix
+spec:
+  replicas: 2
+  selector:
+    matchLabels: {app: demo, version: v1}
+  template:
+    metadata:
+      labels: {app: demo, version: v1}
+    spec:
+      containers:
+        - name: podinfo
+          image: ghcr.io/stefanprodan/podinfo:6.7.1
+          ports: [{containerPort: 9898, name: http}]
+          env:
+            - name: PODINFO_UI_MESSAGE
+              value: "v1"
+          resources:
+            requests: {cpu: 25m, memory: 32Mi}
+            limits:   {memory: 128Mi}
+          readinessProbe:
+            httpGet: {path: /readyz, port: 9898}
+            initialDelaySeconds: 3
+---
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: demo-v2
+  namespace: demo-apisix
+spec:
+  replicas: 2
+  selector:
+    matchLabels: {app: demo, version: v2}
+  template:
+    metadata:
+      labels: {app: demo, version: v2}
+    spec:
+      containers:
+        - name: podinfo
+          image: ghcr.io/stefanprodan/podinfo:6.7.1
+          ports: [{containerPort: 9898, name: http}]
+          env:
+            - name: PODINFO_UI_MESSAGE
+              value: "v2"
+          resources:
+            requests: {cpu: 25m, memory: 32Mi}
+            limits:   {memory: 128Mi}
+          readinessProbe:
+            httpGet: {path: /readyz, port: 9898}
+            initialDelaySeconds: 3
+---
+apiVersion: v1
+kind: Service
+metadata:
+  name: demo-v1
+  namespace: demo-apisix
+spec:
+  selector: {app: demo, version: v1}
+  ports: [{port: 9898, targetPort: 9898, name: http}]
+---
+apiVersion: v1
+kind: Service
+metadata:
+  name: demo-v2
+  namespace: demo-apisix
+spec:
+  selector: {app: demo, version: v2}
+  ports: [{port: 9898, targetPort: 9898, name: http}]

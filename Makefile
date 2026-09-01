@@ -90,6 +90,13 @@ bootstrap: ## point both controllers at this repo
 	kubectl apply -f gitops/flux/clusters/eks/
 
 .PHONY: status
+observability: ## Prometheus + Grafana + Alertmanager (prerequisite for apisix scenarios)
+	./scripts/observability-install.sh
+
+apisix: ## Apache APISIX gateway + etcd + ingress controller, alongside Kong
+	./scripts/apisix-install.sh
+	kubectl --context $(CLUSTER) apply -f kubernetes/apisix/demo/
+
 addons: ## ingress-nginx, Argo Rollouts, Flagger, sealed-secrets, flux-operator
 	./scripts/gitops-addons.sh
 
