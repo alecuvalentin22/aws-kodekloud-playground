@@ -1,0 +1,61 @@
+# Wave 10. Needs the StorageClass from wave -10: etcd is a StatefulSet with
+# PVCs, and on the stock EKS gp2 class they never bind.
+apiVersion: argoproj.io/v1alpha1
+kind: Application
+metadata:
+  name: platform-apisix
+  namespace: argocd
+  annotations:
+    argocd.argoproj.io/sync-wave: "10"
+spec:
+  project: platform
+  destination:
+    server: https://kubernetes.default.svc
+    namespace: apisix
+  source:
+    repoURL: https://charts.apiseven.com
+    chart: apisix
+    targetRevision: 2.17.0
+    helm:
+      valuesObject:
+        apisix:
+          deployment: {mode: traditional}
+          prometheus: {enabled: true}
+          admin:
+            # 0.0.0.0/0 means "any pod in the cluster" -- the Admin API Service
+            # is ClusterIP and has no NodePort, deliberately. The chart default
+            # of 127.0.0.1/24 blocks the ingress controller, which is the one
+            # client that needs it.
+            allow: {ipList: ["0.0.0.0/0"]}
+        replicaCount: 3
+        service: {type: NodePort}
+        resources: {requests: {cpu: 50m, memory: 128Mi}}
+        metrics:
+          serviceMonitor:
+            enabled: true
+            namespace: apisix
+            # release label so kube-prometheus-stack's default
+            # serviceMonitorSelector picks it up. Without it the gateway serves
+            # 886 metric lines that nothing scrapes, silently.
+            labels: {release: kube-prometheus-stack}
+        etcd:
+          enabled: true
+          replicaCount: 3
+          resources: {requests: {cpu: 50m, memory: 128Mi}}
+  # IGNORED ON PURPOSE: the Admin API key.
+  #
+  # It is generated per-install into secret/apisix-admin and must NOT live in
+  # git. Argo CD would otherwise see the chart's default key as desired state
+  # and reset it on every sync -- reverting a secret to a published default,
+  # which is the worst possible kind of selfHeal.
+  ignoreDifferences:
+    - group: ""
+      kind: ConfigMap
+      name: apisix
+      jsonPointers:
+        - /data/config.yaml
+  syncPolicy:
+    automated: {prune: true, selfHeal: true}
+    syncOptions:
+      - CreateNamespace=true
+      - ServerSideApply=true

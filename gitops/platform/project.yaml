@@ -1,0 +1,50 @@
+# A SEPARATE project from `demo`, and the separation is the point.
+#
+# The `demo` project is deliberately tight: one namespace, no cluster-scoped
+# resources except Namespace itself. The platform cannot live inside that -- it
+# installs CRDs, ClusterRoles, StorageClasses, admission configuration. Widening
+# `demo` to fit would quietly hand the demo workloads cluster-admin.
+#
+# So: two projects, and the blast radius of each is stated rather than implied.
+apiVersion: argoproj.io/v1alpha1
+kind: AppProject
+metadata:
+  name: platform
+  namespace: argocd
+  finalizers:
+    - resources-finalizer.argocd.argoproj.io
+spec:
+  description: Cluster platform -- ingress, observability, gateway, storage
+
+  sourceRepos:
+    - https://github.com/alecuvalentin22/aws-kodekloud-playground.git
+    - https://kubernetes.github.io/ingress-nginx
+    - https://prometheus-community.github.io/helm-charts
+    - https://charts.apiseven.com
+
+  destinations:
+    - server: https://kubernetes.default.svc
+      namespace: kube-system
+    - server: https://kubernetes.default.svc
+      namespace: ingress-nginx
+    - server: https://kubernetes.default.svc
+      namespace: observability
+    - server: https://kubernetes.default.svc
+      namespace: apisix
+    # NOT argocd. An Application allowed to write into the argocd namespace can
+    # reconcile Argo CD's own RBAC ConfigMap, which is effectively cluster
+    # admin however narrow the rest of this looks.
+
+  # Platform genuinely needs cluster-scoped resources -- but enumerated, not '*'.
+  # Anything not on this list is refused at sync with a readable error, which is
+  # the behaviour you want the first time a chart quietly adds a MutatingWebhook.
+  clusterResourceWhitelist:
+    - {group: "", kind: Namespace}
+    - {group: "storage.k8s.io", kind: StorageClass}
+    - {group: "apiextensions.k8s.io", kind: CustomResourceDefinition}
+    - {group: "rbac.authorization.k8s.io", kind: ClusterRole}
+    - {group: "rbac.authorization.k8s.io", kind: ClusterRoleBinding}
+    - {group: "networking.k8s.io", kind: IngressClass}
+    - {group: "admissionregistration.k8s.io", kind: ValidatingWebhookConfiguration}
+    - {group: "admissionregistration.k8s.io", kind: MutatingWebhookConfiguration}
+    - {group: "apisix.apache.org", kind: GatewayProxy}

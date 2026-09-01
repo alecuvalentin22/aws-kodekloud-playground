@@ -1,0 +1,29 @@
+# App-of-apps. The ONE object applied by hand; everything else follows from git.
+#
+#   kubectl apply -f gitops/platform/root.yaml
+#
+# selfHeal is on, so this Application also re-creates any child Application
+# somebody deletes -- which is what makes "delete the platform and watch it come
+# back" a demo rather than an outage.
+apiVersion: argoproj.io/v1alpha1
+kind: Application
+metadata:
+  name: platform
+  namespace: argocd
+  finalizers:
+    - resources-finalizer.argocd.argoproj.io
+spec:
+  project: platform
+  destination:
+    server: https://kubernetes.default.svc
+    namespace: argocd
+  source:
+    repoURL: https://github.com/alecuvalentin22/aws-kodekloud-playground.git
+    targetRevision: main
+    path: gitops/platform/apps
+  syncPolicy:
+    automated:
+      prune: true
+      selfHeal: true
+    syncOptions:
+      - ServerSideApply=true

@@ -1,0 +1,31 @@
+# Wave 30. The GatewayProxy + IngressClass that tell the controller WHICH data
+# plane to push to. Without these it accepts every ApisixRoute and pushes them
+# nowhere, silently -- see kubernetes/apisix/gatewayproxy.yaml.
+#
+# Wave 30 rather than 20 because the GatewayProxy is a CRD owned by the
+# controller's chart: apply it too early and the resource kind does not exist.
+apiVersion: argoproj.io/v1alpha1
+kind: Application
+metadata:
+  name: platform-apisix-wiring
+  namespace: argocd
+  annotations:
+    argocd.argoproj.io/sync-wave: "30"
+spec:
+  project: platform
+  destination:
+    server: https://kubernetes.default.svc
+    namespace: apisix
+  source:
+    repoURL: https://github.com/alecuvalentin22/aws-kodekloud-playground.git
+    targetRevision: main
+    path: kubernetes/apisix
+    directory:
+      include: '{gatewayproxy.yaml,ha.yaml}'
+  syncPolicy:
+    automated: {prune: false, selfHeal: true}
+    syncOptions:
+      - ServerSideApply=true
+      # The GatewayProxy CRD arrives with the controller in wave 20. A dry run
+      # against a kind that does not exist yet fails the whole sync.
+      - SkipDryRunOnMissingResource=true

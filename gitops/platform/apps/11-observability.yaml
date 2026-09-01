@@ -1,0 +1,56 @@
+# Wave 0. Must exist before anything that ships a ServiceMonitor, because the
+# CRDs come from here.
+apiVersion: argoproj.io/v1alpha1
+kind: Application
+metadata:
+  name: platform-observability
+  namespace: argocd
+  annotations:
+    argocd.argoproj.io/sync-wave: "0"
+spec:
+  project: platform
+  destination:
+    server: https://kubernetes.default.svc
+    namespace: observability
+  source:
+    repoURL: https://prometheus-community.github.io/helm-charts
+    chart: kube-prometheus-stack
+    targetRevision: 88.6.2
+    helm:
+      # Booleans as real booleans. Passing these through `--set-string` on the
+      # command line made serviceMonitorSelectorNilUsesHelmValues the STRING
+      # "false" -- truthy in a template -- so the flag did the opposite of what
+      # it says and APISIX's metrics were scraped by nobody. valuesObject is
+      # typed YAML and cannot make that mistake, which is one concrete reason
+      # to prefer a manifest over a helm command line.
+      valuesObject:
+        prometheusOperator:
+          admissionWebhooks: {enabled: false, patch: {enabled: false}}
+          tls: {enabled: false}
+          resources: {requests: {cpu: 25m, memory: 64Mi}}
+        prometheus:
+          service: {type: NodePort, nodePort: 30092}
+          prometheusSpec:
+            retention: 2h
+            scrapeInterval: 30s
+            serviceMonitorSelectorNilUsesHelmValues: false
+            podMonitorSelectorNilUsesHelmValues: false
+            resources:
+              requests: {cpu: 100m, memory: 512Mi}
+              limits: {memory: 1Gi}
+        grafana:
+          service: {type: NodePort, nodePort: 30091}
+          persistence: {enabled: false}
+          resources: {requests: {cpu: 50m, memory: 128Mi}}
+        alertmanager:
+          alertmanagerSpec:
+            resources: {requests: {cpu: 25m, memory: 64Mi}}
+  syncPolicy:
+    automated: {prune: true, selfHeal: true}
+    syncOptions:
+      - CreateNamespace=true
+      - ServerSideApply=true
+      # kube-prometheus-stack's CRDs exceed the client-side apply annotation
+      # limit, same reason Argo CD's own install needs --server-side.
+      - ServerSideApply=true
+      - SkipDryRunOnMissingResource=true

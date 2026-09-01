@@ -1,0 +1,24 @@
+# Wave -10. Everything with a PVC depends on this, and on EKS the default
+# StorageClass is a trap -- see kubernetes/storageclass-gp3.yaml.
+apiVersion: argoproj.io/v1alpha1
+kind: Application
+metadata:
+  name: platform-storage
+  namespace: argocd
+  annotations:
+    argocd.argoproj.io/sync-wave: "-10"
+spec:
+  project: platform
+  destination:
+    server: https://kubernetes.default.svc
+    namespace: kube-system
+  source:
+    repoURL: https://github.com/alecuvalentin22/aws-kodekloud-playground.git
+    targetRevision: main
+    path: kubernetes
+    directory:
+      include: 'storageclass-gp3.yaml'
+  syncPolicy:
+    automated: {prune: false, selfHeal: true}
+    syncOptions:
+      - ServerSideApply=true
