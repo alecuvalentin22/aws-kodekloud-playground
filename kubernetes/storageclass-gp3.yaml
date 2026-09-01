@@ -1,0 +1,35 @@
+# A StorageClass that can actually provision, on a self-managed EKS cluster.
+#
+# EKS 1.33 ships a `gp2` StorageClass out of the box and it is a TRAP: its
+# provisioner is `kubernetes.io/aws-ebs`, the IN-TREE driver, which was removed
+# from Kubernetes in 1.27. So the cluster has a StorageClass, marked default,
+# that can never bind a single PVC.
+#
+# The symptom is one step removed from the cause. You see:
+#
+#   0/4 nodes are available: pod has unbound immediate PersistentVolumeClaims
+#
+# which reads like a scheduling or capacity problem. `kubectl get sc` shows a
+# StorageClass present and healthy-looking. Nothing says "this provisioner no
+# longer exists".
+#
+# The real fix is two parts, and installing the driver alone is not enough:
+#   1. the aws-ebs-csi-driver addon (plus AmazonEBSCSIDriverPolicy on the node
+#      role -- both permitted on this playground, unlike most EKS APIs)
+#   2. THIS StorageClass, using ebs.csi.aws.com, marked default in place of gp2
+#
+# gp3 rather than gp2 while we are here: cheaper, and baseline IOPS are not tied
+# to volume size.
+apiVersion: storage.k8s.io/v1
+kind: StorageClass
+metadata:
+  name: gp3
+  annotations:
+    storageclass.kubernetes.io/is-default-class: "true"
+provisioner: ebs.csi.aws.com
+volumeBindingMode: WaitForFirstConsumer
+allowVolumeExpansion: true
+reclaimPolicy: Delete
+parameters:
+  type: gp3
+  encrypted: "true"

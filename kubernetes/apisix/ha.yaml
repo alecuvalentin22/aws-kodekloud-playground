@@ -1,0 +1,20 @@
+# HA policy for the APISIX gateway, shipped explicitly rather than through the
+# chart's values.
+#
+# Two reasons. The chart's podDisruptionBudget block defines BOTH minAvailable
+# and maxUnavailable, and a PDB may set only one — so driving it from values
+# means guessing which the template wins on. And these objects are load-bearing
+# for scenario 13, which disrupts the gateway on purpose; they should be
+# readable in one file rather than reconstructed from a helm command line.
+apiVersion: policy/v1
+kind: PodDisruptionBudget
+metadata:
+  name: apisix-gateway
+  namespace: apisix
+spec:
+  # 2 of 3, so a node drain can take one gateway pod and no more. With 3
+  # replicas this is what makes `kubectl drain` safe rather than hopeful.
+  minAvailable: 2
+  selector:
+    matchLabels:
+      app.kubernetes.io/name: apisix

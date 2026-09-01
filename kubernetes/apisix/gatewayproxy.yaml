@@ -1,0 +1,55 @@
+# THE OBJECT EVERY v1.x TUTORIAL OMITS, because in v1.x it did not exist.
+#
+# apisix-ingress-controller 2.x learns WHERE TO PUSH from a GatewayProxy,
+# referenced by the IngressClass's `parameters`. The Helm chart creates the
+# IngressClass but leaves `parameters` empty, and there is no GatewayProxy at
+# all — so out of the box the controller has no data-plane target.
+#
+# The failure is completely silent. The controller runs, its pods are Ready, it
+# logs nothing at error level. The ApisixRoute is accepted by the API server and
+# gets NO status conditions whatsoever. The gateway answers 404, because as far
+# as it knows no route was ever configured. Nothing anywhere says "I do not know
+# which APISIX to talk to".
+#
+# Diagnose it with:
+#   kubectl get ingressclass apisix -o jsonpath='{.spec.parameters}'   # empty  -> this is the bug
+#   kubectl get apisixroute demo -n demo-apisix -o jsonpath='{.status}' # empty -> not reconciled
+---
+apiVersion: apisix.apache.org/v1alpha1
+kind: GatewayProxy
+metadata:
+  name: apisix-proxy-config
+  namespace: apisix
+spec:
+  provider:
+    type: ControlPlane
+    controlPlane:
+      # The Admin API, in-cluster. This is the "hop A" of scenario 13: the
+      # controller renders CRDs and PUSHES them here. It never touches etcd.
+      endpoints:
+        - http://apisix-admin.apisix:9180
+      auth:
+        type: AdminKey
+        adminKey:
+          # Read from the Secret the install script generated, NOT inlined and
+          # NOT the chart's well-known default key. The whole point of
+          # generating one is that it never appears in a manifest.
+          valueFrom:
+            secretKeyRef:
+              name: apisix-admin
+              key: key
+---
+# The IngressClass has to point at it. Without `parameters` the controller
+# matches the class, accepts the resources, and pushes them nowhere.
+apiVersion: networking.k8s.io/v1
+kind: IngressClass
+metadata:
+  name: apisix
+spec:
+  controller: apisix.apache.org/apisix-ingress-controller
+  parameters:
+    apiGroup: apisix.apache.org
+    kind: GatewayProxy
+    name: apisix-proxy-config
+    namespace: apisix
+    scope: Namespace

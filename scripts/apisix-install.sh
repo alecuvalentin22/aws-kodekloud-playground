@@ -61,13 +61,7 @@ helm upgrade --install apisix apisix/apisix \
   --version "$APISIX_CHART" \
   --set apisix.deployment.mode=traditional \
   --set service.type=NodePort \
-  --set service.http.nodePort=30093 \
   --set replicaCount=3 \
-  --set updateStrategy.type=RollingUpdate \
-  --set updateStrategy.rollingUpdate.maxSurge=0 \
-  --set updateStrategy.rollingUpdate.maxUnavailable=1 \
-  --set podDisruptionBudget.enabled=true \
-  --set podDisruptionBudget.minAvailable=2 \
   --set resources.requests.cpu=50m \
   --set resources.requests.memory=128Mi \
   --set apisix.prometheus.enabled=true \
@@ -81,17 +75,43 @@ helm upgrade --install apisix apisix/apisix \
   --set etcd.resources.requests.memory=128Mi \
   --wait --timeout 15m
 
-# admin.allow.ipList is 0.0.0.0/0 and that is NOT a contradiction of the note
+# Two chart facts that cost a wasted install if you assume otherwise:
+#
+#   1. There is NO service.http.nodePort value. The service block has type,
+#      servicePort and containerPort and nothing else -- so `--set
+#      service.http.nodePort=30093` is accepted by Helm, ignored by the chart,
+#      and you get a random 3xxxx port. Helm does not warn about values that no
+#      template reads. Pin it with a patch below instead.
+#
+#   2. podDisruptionBudget ships BOTH minAvailable (90%) and maxUnavailable (1).
+#      A PDB may set only one. Rather than fight the chart's defaults, the PDB
+#      and the rollout strategy are shipped as explicit manifests in
+#      kubernetes/apisix/ -- they are load-bearing for scenario 13 and worth
+#      being able to read directly.
+#
+# admin.allow.ipList = 0.0.0.0/0 is NOT a contradiction of the security note
 # above: it means "any pod inside the cluster", because the Admin API Service is
-# ClusterIP and unreachable from outside. Narrowing it further would block the
-# ingress controller, which is exactly the client that needs it.
+# ClusterIP and unreachable from outside. The chart default of 127.0.0.1/24
+# would block the ingress controller, which is the one client that needs it.
+
+echo "==> pinning the gateway NodePort to 30093 and applying HA policy"
+$K -n "$NS" patch svc apisix-gateway --type=json \
+  -p='[{"op":"replace","path":"/spec/ports/0/nodePort","value":30093}]' >/dev/null 2>&1 \
+  || $K -n "$NS" patch svc apisix-gateway -p '{"spec":{"type":"NodePort","ports":[{"name":"apisix-gateway","port":80,"targetPort":9080,"nodePort":30093,"protocol":"TCP"}]}}' >/dev/null
+$K apply -f "$HERE/kubernetes/apisix/ha.yaml" >/dev/null
 
 # Spread the gateway across nodes. Done as a patch rather than a chart value
 # because the chart's affinity key differs between versions, and a silently
 # ignored affinity block is worse than an explicit patch.
-$K -n "$NS" patch deploy apisix --type=merge -p '{"spec":{"template":{"spec":{
+$K -n "$NS" patch deploy apisix --type=merge -p '{"spec":{
+  "strategy":{"type":"RollingUpdate","rollingUpdate":{"maxSurge":0,"maxUnavailable":1}},
+  "template":{"spec":{
   "topologySpreadConstraints":[{"maxSkew":1,"topologyKey":"kubernetes.io/hostname",
   "whenUnsatisfiable":"ScheduleAnyway","labelSelector":{"matchLabels":{"app.kubernetes.io/name":"apisix"}}}]}}}}' >/dev/null
+# maxSurge 0 / maxUnavailable 1 -- never add capacity you have not proven, take
+# one out at a time. Same discipline as rolling the production clusters in the
+# rest of this repo, and it means a rollout cannot transiently exceed the node
+# budget on a 4-node lab.
 $K -n "$NS" rollout status deploy/apisix --timeout=300s
 
 # ---------------------------------------------------------------------------
@@ -108,6 +128,17 @@ helm upgrade --install apisix-ingress-controller apisix/apisix-ingress-controlle
   --set config.provider.syncPeriod=1m \
   --set config.kubernetes.ingressClass=apisix \
   --wait --timeout 10m
+
+# ---------------------------------------------------------------------------
+# The GatewayProxy. Without this the controller has no data-plane target and
+# fails SILENTLY -- see kubernetes/apisix/gatewayproxy.yaml. The chart creates
+# the IngressClass but leaves .spec.parameters empty, so this replaces it.
+# ---------------------------------------------------------------------------
+echo "==> wiring the controller to the gateway (GatewayProxy + IngressClass)"
+$K delete ingressclass apisix >/dev/null 2>&1 || true
+$K apply -f "$HERE/kubernetes/apisix/gatewayproxy.yaml" >/dev/null
+$K wait --for=condition=Ready pod -l app.kubernetes.io/name=apisix-ingress-controller \
+  -n "$NS" --timeout=120s >/dev/null 2>&1 || true
 
 echo
 echo "==> what is running"
