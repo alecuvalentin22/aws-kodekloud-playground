@@ -75,6 +75,31 @@ the 3-node spread are applied and visible, but no `kubectl drain` has been run
 against them, so "a drain does not drop traffic" is currently a design intent
 rather than a measurement. T-20's acceptance criteria asks for that explicitly.
 
+## Platform under GitOps, 2026-09-01
+
+The repo previously reconciled its workloads with Argo CD and Flux and installed
+its platform with a shell script. `gitops/platform/` closes that.
+
+| | Result |
+|---|---|
+| app-of-apps applied, 6 child Applications generated | yes |
+| Helm releases after adoption | **one per chart** — nothing duplicated |
+| gateway serving throughout | yes, `v1` on :30093 the whole time |
+| `platform-storage` / `-ingress-nginx` / `-observability` / `-apisix-wiring` | Synced/Healthy |
+| `platform-apisix` / `-apisix-controller` | **OutOfSync**/Healthy |
+
+**Known and deliberate:** the two APISIX Applications stay `OutOfSync` because
+the install script patched things Helm does not know about — NodePort,
+`topologySpreadConstraints`, `maxSurge: 0`, the ServiceMonitor's port and
+release label, a generated admin key. Git expresses none of it. Moving those
+into `valuesObject` is the remaining work; it is not hidden behind a blanket
+`ignoreDifferences`, so the diff stays visible and actionable.
+
+**Not verified:** Flux's equivalent of the platform layer is described in
+`gitops/platform/README.md` but not written or applied — the platform is
+Argo-CD-owned on purpose. And no `kubectl drain` has been run, so the HA claim
+in `kubernetes/apisix/ha.yaml` remains design intent.
+
 ## Previously NOT run end to end (now all run)
 
 **`scripts/eks-up.sh`.** Its three phases were executed by hand — `terraform
