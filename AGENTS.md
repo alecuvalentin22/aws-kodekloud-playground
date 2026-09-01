@@ -482,6 +482,7 @@ Verified by running it, not by reading docs:
 | every instance type except `t3.medium` | **DENIED by an organization SCP.** t3.large, t3.xlarge and m5.large all refused. "Use a bigger node" is not an available answer |
 | `servicequotas:GetServiceQuota` | **DENIED by an SCP** — you cannot read your own quotas either |
 | `eks:UpdateClusterConfig` | **DENIED.** The API endpoint's `public_access_cidrs` is therefore **immutable after CreateCluster** — see below |
+| `eks:DeleteAccessEntry` | **DENIED**, so `terraform destroy` cannot tear the cluster down — see below |
 
 **Self-managed nodes are the way through, and they work.** A managed node group
 is not privileged magic — it is AWS running launch template + autoscaling group
@@ -534,6 +535,31 @@ address you are stuck with. On a normal AWS account this is a one-line fix; here
 it is a destroy and recreate, roughly 20 minutes. `eks-up.sh` now preflights the
 tfvars IP against your actual one and refuses in about five seconds instead.
 Cost when it was learned: 11 minutes of hanging, then the rebuild anyway.
+
+**And `terraform destroy` cannot do that rebuild for you**, because
+`eks:DeleteAccessEntry` is denied too:
+
+```
+Error: deleting EKS Access Entry (...): AccessDeniedException:
+not authorized to perform: eks:DeleteAccessEntry
+```
+
+Terraform destroys dependents before their parent, so it tries the access entry
+first and stops there. `eks:DeleteCluster` **is** granted, and deleting a cluster
+removes its access entries implicitly — so the way through is out-of-band:
+
+```bash
+aws eks delete-cluster --name andrei-lab-eks
+# wait for it to disappear, then drop the orphaned state entry
+terraform -chdir=terraform/eks state rm 'aws_eks_access_entry.node[0]'
+./scripts/eks-up.sh
+```
+
+Worth noticing what this pair of denials means in combination: on this account a
+cluster is **immutable and not cleanly destroyable through IaC**. Terraform can
+build it and can neither reconfigure nor remove it. That is a fair thing to have
+an opinion about in an interview — it is the difference between "I ran
+terraform" and "I know what my IaC does not control".
 
 **`curl ifconfig.me` returns IPv6.** A security group rule wants IPv4. Use
 `curl -4`, or `python3 -c "import urllib.request;print(urllib.request.urlopen('https://checkip.amazonaws.com').read().decode())"`.
