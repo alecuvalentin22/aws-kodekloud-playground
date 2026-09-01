@@ -75,7 +75,14 @@ if [[ -f "$TFVARS" ]]; then
   # -4 matters: curl and friends return IPv6 on some networks, and a security
   # group rule wants IPv4.
   MYIP="$(python3 -c "import urllib.request;print(urllib.request.urlopen('https://checkip.amazonaws.com').read().decode().strip())" 2>/dev/null || true)"
-  WANT="$(grep -oE '[0-9]+\.[0-9]+\.[0-9]+\.[0-9]+/32' "$TFVARS" | head -1)"
+  # `|| true` is load-bearing. Once public_access_cidrs became /24s there was no
+  # /32 to find, grep exited 1, and under `set -e` a failing command
+  # substitution in an assignment kills the script -- with NO output at all,
+  # because this runs before the first echo. The build simply returned 1.
+  WANT="$(grep -oE '[0-9]+\.[0-9]+\.[0-9]+\.[0-9]+/32' "$TFVARS" | head -1 || true)"
+  # Only meaningful when the allowlist is a single /32. With a wider prefix the
+  # check cannot be a string compare, and the whole point of widening was that a
+  # rotation inside the prefix is now survivable -- so skip it.
   if [[ -n "$MYIP" && -n "$WANT" && "$WANT" != "$MYIP/32" ]]; then
     echo >&2
     echo "REFUSING: your public IP has changed since terraform.tfvars was written." >&2
@@ -88,7 +95,11 @@ if [[ -f "$TFVARS" ]]; then
     echo "  sed -i '' 's|$WANT|$MYIP/32|' $TFVARS" >&2
     exit 1
   fi
-  echo "==> Preflight: public IP $MYIP matches terraform.tfvars"
+  if [[ -n "$WANT" ]]; then
+    echo "==> Preflight: public IP $MYIP matches the /32 in terraform.tfvars"
+  else
+    echo "==> Preflight: allowlist is wider than a /32 ($(grep -oE '"[0-9./, "]+"' "$TFVARS" | head -1)); IP is $MYIP"
+  fi
 fi
 command -v kubectl   >/dev/null || { echo "kubectl not on PATH" >&2; exit 1; }
 
