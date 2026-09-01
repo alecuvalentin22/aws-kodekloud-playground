@@ -95,6 +95,13 @@ release label, a generated admin key. Git expresses none of it. Moving those
 into `valuesObject` is the remaining work; it is not hidden behind a blanket
 `ignoreDifferences`, so the diff stays visible and actionable.
 
+**Researched, and two of my explanations were wrong** — see
+`gitops/platform/README.md`. Argo CD never installs a Helm release (it runs
+`helm template`), so "adoption" and "a second release" were both incorrect
+framings; and most of the `platform-apisix` diff is server-side defaulting,
+likely triggered by `ServerSideApply=true` auto-enabling a diff strategy the
+docs mark **discontinued**. Untested hypothesis: add `ServerSideDiff=true`.
+
 **Open, and it fired.** Two Applications claimed `IngressClass/apisix`. Once
 `platform-apisix-controller` reached `Synced` it won, and
 `.spec.parameters` — the GatewayProxy reference the controller needs — went

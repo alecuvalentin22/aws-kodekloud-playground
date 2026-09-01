@@ -43,16 +43,25 @@ Waves matter here because two of these dependencies were discovered the hard
 way this session: etcd `Pending` on a StorageClass that could not provision, and
 a controller silently pushing nowhere because no `GatewayProxy` existed.
 
-## Adopting what a script already installed
+## "Adoption" is the wrong word, and the difference matters
 
-These charts are already installed as Helm releases from
-`scripts/*-install.sh`. Handing them to Argo CD is an **adoption**, not a fresh
-install, and adoption has a specific failure mode — Helm ownership metadata
-(`meta.helm.sh/release-name`, `meta.helm.sh/release-namespace`,
-`app.kubernetes.io/managed-by`) on objects Argo CD now also claims.
+These charts were installed as Helm releases by `scripts/*-install.sh`. Pointing
+an Argo CD Application at the same chart does **not** adopt that release —
+Argo CD never reads it. It simply starts managing the same *objects*, and the
+Helm release Secret sits there, ignored.
 
-That is exactly T-21 in the backlog and it is worth reproducing deliberately
-rather than tripping over. See `scenario 15`.
+That leftover Secret is a **latent hazard rather than a conflict**: nothing
+fights today, but anyone running `helm upgrade apisix` later becomes a second
+writer over objects Argo CD believes it owns. The community remedy is to remove
+the release metadata once Argo CD is managing the objects (`helm uninstall
+--keep-resources`, or deleting the release Secret). That is engineering-blog
+practice, **not** Argo CD documentation — Argo CD has no official
+"adopt an existing release" procedure, because from its side there is nothing
+to adopt.
+
+The honest fix for this repo is upstream of all that: the install scripts and
+the Applications should not both configure the same charts. One of them has to
+go. See `scenario 15`.
 
 ## What adoption actually looked like
 
@@ -71,11 +80,19 @@ Everything ended **Healthy**, and `helm list -A` still shows exactly one release
 per chart — so the adoption worked; nothing was duplicated and nothing broke.
 The gateway kept serving throughout.
 
-### Finding 1 — `helm.releaseName` is the whole game
+### Finding 1 — `helm.releaseName`, and a correction to how it works
 
-Argo CD names the Helm release after the **Application**. Without
-`helm.releaseName`, `platform-apisix` rendered a brand-new release called
-`platform-apisix` beside the script's `apisix` — two releases, one namespace.
+**Corrected after checking the docs.** My first explanation said Argo CD
+installed "a second Helm release". That is wrong: Argo CD never runs
+`helm install`. The FAQ is explicit that it uses Helm *"only as a template
+mechanism"* — `helm template`, then apply. It never creates or reads a Helm
+release Secret, so `helm list` could never have shown a second one.
+
+What `helm.releaseName` actually does is set `.Release.Name` as a **template
+variable**, defaulting to the Application name. This chart builds resource
+**names** from it. So without the line, `platform-apisix` rendered a parallel
+set of objects called `platform-apisix-*` alongside the script's `apisix-*` —
+**duplicate objects, not duplicate releases**.
 
 The symptom is not a conflict, which is what makes it hard to read: the
 Application sits `OutOfSync`/**`Missing`**, because from its point of view none
@@ -203,3 +220,78 @@ fix. The fix is still one of the two options above.
 
 **Do not read "Synced/Healthy" as "the platform works."** It meant, here,
 "the wiring is gone and nobody noticed."”
+
+## Researched afterwards: is permanent `OutOfSync` normal?
+
+Short answer: **documented as possible, never as acceptable.** Argo CD has a FAQ
+entry titled *"Why is my application still OutOfSync immediately after a
+successful Sync?"*, and the
+[Diffing Customization](https://argo-cd.readthedocs.io/en/stable/user-guide/diffing/)
+page states verbatim: *"It is possible for an application to be OutOfSync even
+immediately after a successful Sync operation."*
+
+But it lists **enumerated causes, each with a required remedy** — controllers or
+mutating webhooks altering objects, fields the API server drops, `Prune=false`
+with resources pending deletion, non-deterministic Helm functions, HPA metric
+reordering, `status` committed to git. There is no blanket "some drift is fine";
+maintainers triage unmatched instances as bugs
+([#14666](https://github.com/argoproj/argo-cd/issues/14666),
+[#14591](https://github.com/argoproj/argo-cd/issues/14591)).
+
+### The cause that probably applies here
+
+`ServerSideApply=true` — which every Application in this directory sets —
+**auto-enables the Structured-Merge Diff strategy**, and the
+[Diff Strategies](https://argo-cd.readthedocs.io/en/stable/user-guide/diff-strategies/)
+doc marks it:
+
+> **Feature Discontinued** — […] challenges using this strategy to calculate
+> diffs for CRDs **that define default values**.
+
+Measured on the live cluster, `platform-apisix`'s etcd StatefulSet differed in
+**16 fields, 15 of which were server-side defaults** the chart never sets
+(`dnsPolicy`, `restartPolicy`, `schedulerName`,
+`terminationGracePeriodSeconds`, `revisionHistoryLimit`, `volumeMode`,
+`persistentVolumeClaimRetentionPolicy`, …). That is exactly the failure class
+the doc describes.
+
+So most of the noise is likely **self-inflicted by a sync option added for an
+unrelated reason** (CRDs exceeding the client-side apply size limit). The
+documented replacement is `ServerSideDiff=true` (stable since v3.1.0) — which
+has its own open bugs, so it is a hypothesis to test, not a certain fix.
+
+**The one genuine difference** was a Helm-computed `checksum/token-secret` pod
+annotation, differing because the etcd token Secret is not byte-identical
+between the script's install and Argo CD's render. One real diff is enough to
+mark the whole resource `OutOfSync`.
+
+### On the shared IngressClass — confirmed, and a mechanism I missed
+
+- `ignoreDifferences` **does not** resolve ownership. Confirmed by the docs:
+  *"Argo CD uses the ignoreDifferences config just for computing the diff […]
+  during the sync stage, the desired state is applied as-is."* Suppressing the
+  report while both Applications keep writing is exactly what let the
+  IngressClass get blanked.
+- **`FailOnSharedResource=true`** is the documented sync option for this, and
+  this repo was not using it. It is a **circuit-breaker, not a resolution** — it
+  makes the sync *fail* instead of silently clobbering. Given that the silent
+  clobber here cost a working gateway control plane, failing loudly is the
+  better default.
+- There is **no Application-level "exclude one resource" field**. So the plan of
+  "just exclude the IngressClass from the chart Application" is not natively
+  possible. The real options are kustomize `helmCharts` inflation with a
+  `$patch: delete`, a Helm post-renderer, or vendoring the chart — all community
+  patterns, none documented by Argo CD.
+- "One owner per object" is **not** stated as official Argo CD doctrine. It is
+  implied by resource tracking and by maintainer comments (*"the last
+  application to sync the resource wins"*), but it is community best practice
+  rather than documented policy. Worth saying accurately.
+
+### Also worth knowing about Helm hooks here
+
+Argo CD maps `pre-install`/`pre-upgrade` both to `PreSync`, and **cannot tell an
+install from an upgrade — every operation is a sync**, so both fire every time.
+ingress-nginx's `admission-create` hook hanging is a *documented* failure with an
+official workaround (`argocd.argoproj.io/hook: Skip`). This repo dodged it by
+disabling admission webhooks for unrelated capacity reasons; that was luck, not
+design.

@@ -17,22 +17,32 @@ spec:
     chart: apisix
     targetRevision: 2.17.0
     helm:
-      # RELEASE NAME, and it is the difference between adopting an existing
-      # release and installing a second one beside it.
+      # RELEASE NAME. My first explanation of this was wrong in mechanism, and
+      # the correction matters because it changes what this field is for.
       #
-      # Argo CD defaults a Helm release name to the APPLICATION name. This
-      # Application is called platform-apisix, so without this line Helm renders
-      # everything as release "platform-apisix" -- new Secrets, new
-      # ConfigMaps, a new StatefulSet -- while the script-installed release
-      # "apisix" carries on untouched. Two releases, one namespace, both
-      # half-working.
+      # WRONG: "without this, Helm installs a second release beside the first."
+      # Argo CD never runs `helm install` at all. Per the Argo CD FAQ it uses
+      # Helm "only as a template mechanism" -- it runs `helm template` and
+      # applies the output. It never creates, reads, or updates a Helm release
+      # Secret, so there is no second release and `helm list` would never have
+      # shown one.
       #
-      # The symptom is NOT a conflict, which is what makes it confusing: the
-      # Application sits Sync=OutOfSync Health=Missing, because from its point
-      # of view none of its resources exist yet. Here it wedged on the etcd
-      # subchart's pre-upgrade hook, whose pod stayed ContainerCreating forever
-      # waiting on a Secret belonging to a release that had never been
-      # installed.
+      # RIGHT: releaseName sets `.Release.Name` as a TEMPLATE VARIABLE, and this
+      # chart uses it to build resource NAMES. It defaults to the Application
+      # name. So without this line the chart rendered a parallel set of objects
+      # called platform-apisix-* instead of apisix-*, alongside the ones the
+      # install script had created. Duplicate OBJECTS, not duplicate releases.
+      #
+      # That is why the Application read OutOfSync/Missing rather than
+      # conflicting: none of the objects it wanted existed. It then wedged on a
+      # pre-upgrade hook Job named platform-apisix-etcd-pre-upgrade whose pod
+      # stayed ContainerCreating, waiting on a Secret that only exists under the
+      # apisix-* naming.
+      #
+      # It also means the word "adopt" is loose. Argo CD does not adopt the Helm
+      # release -- it starts managing the same OBJECTS while the release Secret
+      # sits there, ignored. That leftover Secret is a latent hazard: anyone
+      # running `helm upgrade apisix` later becomes a second writer.
       releaseName: apisix
       valuesObject:
         apisix:
