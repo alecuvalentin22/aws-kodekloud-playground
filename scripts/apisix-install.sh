@@ -134,6 +134,13 @@ helm upgrade --install apisix-ingress-controller apisix/apisix-ingress-controlle
 # fails SILENTLY -- see kubernetes/apisix/gatewayproxy.yaml. The chart creates
 # the IngressClass but leaves .spec.parameters empty, so this replaces it.
 # ---------------------------------------------------------------------------
+# The chart's ServiceMonitor carries only its own Helm labels, and
+# kube-prometheus-stack's Prometheus selects on release=kube-prometheus-stack by
+# default. Without this label the metrics are served and scraped by nobody, with
+# no error anywhere. Labelling here is more robust than relying on the
+# selectorNilUsesHelmValues flag on the other chart.
+$K -n "$NS" label servicemonitor apisix release=kube-prometheus-stack --overwrite >/dev/null 2>&1 || true
+
 echo "==> wiring the controller to the gateway (GatewayProxy + IngressClass)"
 $K delete ingressclass apisix >/dev/null 2>&1 || true
 $K apply -f "$HERE/kubernetes/apisix/gatewayproxy.yaml" >/dev/null

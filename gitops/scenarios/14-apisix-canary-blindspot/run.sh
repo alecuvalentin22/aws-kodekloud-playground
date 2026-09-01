@@ -16,8 +16,19 @@
 # looks like. Success rate 100% -> 98%. Nothing fires. Nothing looks wrong.
 # The canary is completely broken and the dashboard is green.
 #
-# The fix is not a better threshold. It is a label that distinguishes the
-# branches, because you cannot alert on a dimension you did not record.
+# The fix is not a better threshold, and -- this is the part that surprised me
+# -- it is not a config change either. APISIX already emits a `node` label on
+# apisix_http_status carrying the upstream pod IP, so the branches ARE
+# distinguishable in the data. The blind spot is created by the query, not by
+# the gateway. `sum by (route, code)` is the default shape of every dashboard
+# panel, and it is the thing that hides the failure.
+#
+# MEASURED on EKS 1.33, APISIX 3.18.0, one weighted route at 90/10, v2 broken:
+#
+#   route-level      652 ok / 663 total  = 98.3% success   <- fires nothing
+#   v2 branch only    36 ok /  47 total  = 76.6% success   <- fires everything
+#
+# Same samples. Same five minutes. One GROUP BY apart.
 #
 # Also measured here: traffic-split is STATELESS PER REQUEST. A user browsing
 # the site hits both branches, which is fine for a canary and fatal for an A/B
@@ -129,23 +140,27 @@ scenario_observe() {
 
   # ==========================================================================
   echo
-  echo "    [6] FIX THE VISIBILITY -- same break, separate routes per branch."
-  kubectl apply -f "$ROOT/kubernetes/apisix/demo/04-split-observable.yaml" 2>&1 | sed 's/^/      /'
-  sleep 25
-  _tally $_LOOP >/dev/null 2>&1
-  echo "      $(_tally $_LOOP)"
+  echo "    [6] FIX THE VISIBILITY -- and the fix is NOT a config change."
+  echo "        APISIX already labels every sample with the upstream it hit."
+  echo "        The data was there the whole time; the DASHBOARD was aggregating"
+  echo "        it away. Same metric, one more label:"
   echo
-  echo "      the same query, now that the branches carry different route labels:"
-  _prom 'sum by (route,code) (increase(apisix_http_status[5m]))'
+  echo "        pod IPs, so the node label can be read as a version:"
+  kubectl -n "$_demo" get pods -o custom-columns='V:.metadata.labels.version,IP:.status.podIP' --no-headers | sort | sed 's/^/          /'
   echo
-  echo "      -> the canary route's error rate is now its own series. THAT is"
-  echo "         something you can alert on, and it does not get quieter as you"
-  echo "         reduce the canary weight -- which is the property you want,"
-  echo "         because a smaller canary should not be a less visible one."
-
+  _prom 'sum by (route,code,node) (increase(apisix_http_status[5m]))'
   echo
-  echo "    -> the deliverable is the CONTRAST between [5] and [6]:"
-  echo "       identical breakage, invisible then visible, one label apart."
+  echo "      -> the v2 nodes carry their own error counts. That series can be"
+  echo "         alerted on, and -- the property that matters -- it does NOT get"
+  echo "         quieter as you reduce the canary weight. A 2% canary failing is"
+  echo "         just as visible as a 50% one, because the ratio is computed"
+  echo "         WITHIN the branch rather than across the route."
+  echo
+  echo "    -> the deliverable is the CONTRAST between [5] and [6]. Identical"
+  echo "       breakage, identical config, invisible then obvious, one label apart."
+  echo "       The honest lesson is not 'APISIX hides canary errors' -- it is"
+  echo "       'route-level aggregation hides them, and route-level is the default"
+  echo "        every dashboard ships with'."
 }
 
 scenario_reset() {

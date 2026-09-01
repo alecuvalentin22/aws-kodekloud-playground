@@ -57,8 +57,8 @@ helm upgrade --install kube-prometheus-stack prometheus-community/kube-prometheu
   --set prometheus.prometheusSpec.resources.requests.cpu=100m \
   --set prometheus.prometheusSpec.resources.requests.memory=512Mi \
   --set prometheus.prometheusSpec.resources.limits.memory=1Gi \
-  --set-string prometheus.prometheusSpec.podMonitorSelectorNilUsesHelmValues=false \
-  --set-string prometheus.prometheusSpec.serviceMonitorSelectorNilUsesHelmValues=false \
+  --set prometheus.prometheusSpec.podMonitorSelectorNilUsesHelmValues=false \
+  --set prometheus.prometheusSpec.serviceMonitorSelectorNilUsesHelmValues=false \
   --set grafana.service.type=NodePort \
   --set grafana.service.nodePort=30091 \
   --set grafana.resources.requests.cpu=50m \
@@ -75,6 +75,20 @@ helm upgrade --install kube-prometheus-stack prometheus-community/kube-prometheu
 # labels -- so a ServiceMonitor written by hand, or by the APISIX chart, is
 # silently ignored. The targets page simply does not list it, with no error
 # anywhere. Setting it false means "watch every ServiceMonitor in the cluster".
+#
+# --set, NOT --set-string. This was written with --set-string and it cost half
+# an hour: --set-string makes the value the STRING "false", which is truthy in
+# a Helm template, so the flag did the opposite of what it says. The Prometheus
+# CR kept serviceMonitorSelector: {matchLabels: {release: kube-prometheus-stack}}
+# and APISIX's ServiceMonitor was ignored -- 886 metrics being served, scraped
+# by nobody, and no error at any layer. Check the CR, not the flag:
+#
+#   kubectl -n observability get prometheus -o jsonpath='{.items[0].spec.serviceMonitorSelector}'
+#
+# Belt and braces: the APISIX install also LABELS its ServiceMonitor with
+# release=kube-prometheus-stack, so it is picked up even under the default
+# selector. That is the idiomatic fix and it does not depend on this flag at
+# all.
 
 echo
 echo "==> what Prometheus is actually scraping"
