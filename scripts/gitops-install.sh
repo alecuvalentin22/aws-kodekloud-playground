@@ -14,12 +14,16 @@ set -euo pipefail
 CLUSTER="${CLUSTER:-andrei-lab-eks}"
 REGION="${REGION:-us-east-1}"
 REPO="${REPO:-https://github.com/alecuvalentin22/aws-kodekloud-playground.git}"
-ARGOCD_VERSION="${ARGOCD_VERSION:-v3.5.1}"
 
 # Its own kubeconfig. A lab context sitting next to a production one in
 # ~/.kube/config is how people run a delete against the wrong cluster.
 export KUBECONFIG="${KUBECONFIG:-$HOME/.kube/$CLUSTER}"
 K="kubectl --context $CLUSTER"
+
+# Versions come from ONE place. See versions.env for why they are pinned rather
+# than floating; ./scripts/check-versions.sh reports when a pin has gone stale.
+# shellcheck disable=SC1091
+source "$HERE/versions.env"
 
 echo "==> kubeconfig -> $KUBECONFIG"
 aws eks update-kubeconfig --region "$REGION" --name "$CLUSTER" --alias "$CLUSTER" >/dev/null

@@ -24,7 +24,7 @@ spec:
     spec:
       containers:
         - name: podinfo
-          image: ghcr.io/stefanprodan/podinfo:6.7.1
+          image: ghcr.io/stefanprodan/podinfo:6.15.0
           ports: [{containerPort: 9898, name: http}]
           env:
             - name: PODINFO_UI_MESSAGE
@@ -51,7 +51,7 @@ spec:
     spec:
       containers:
         - name: podinfo
-          image: ghcr.io/stefanprodan/podinfo:6.7.1
+          image: ghcr.io/stefanprodan/podinfo:6.15.0
           ports: [{containerPort: 9898, name: http}]
           env:
             - name: PODINFO_UI_MESSAGE

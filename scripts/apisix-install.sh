@@ -16,9 +16,12 @@ HERE="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
 CLUSTER="${CLUSTER:-andrei-lab-eks}"
 export KUBECONFIG="${KUBECONFIG:-$HOME/.kube/$CLUSTER}"
 K="kubectl --context $CLUSTER"
+
+# Versions come from ONE place. See versions.env for why they are pinned rather
+# than floating; ./scripts/check-versions.sh reports when a pin has gone stale.
+# shellcheck disable=SC1091
+source "$HERE/versions.env"
 NS="${APISIX_NS:-apisix}"
-APISIX_CHART="${APISIX_CHART:-2.17.0}"          # app 3.18.0
-AIC_CHART="${AIC_CHART:-1.3.0}"                 # app 2.2.0
 
 command -v helm >/dev/null || { echo "helm not on PATH" >&2; exit 1; }
 
@@ -127,6 +130,14 @@ helm upgrade --install apisix-ingress-controller apisix/apisix-ingress-controlle
   --set deployment.resources.requests.memory=64Mi \
   --set config.provider.syncPeriod=1m \
   --set config.kubernetes.ingressClass=apisix \
+  --set gatewayProxy.createDefault=true \
+  --set gatewayProxy.provider.type=ControlPlane \
+  --set gatewayProxy.provider.controlPlane.service.name=apisix-admin \
+  --set gatewayProxy.provider.controlPlane.service.port=9180 \
+  --set gatewayProxy.provider.controlPlane.auth.type=AdminKey \
+  --set-string gatewayProxy.provider.controlPlane.auth.adminKey.value="" \
+  --set gatewayProxy.provider.controlPlane.auth.adminKey.valueFrom.secretKeyRef.name=apisix-admin \
+  --set gatewayProxy.provider.controlPlane.auth.adminKey.valueFrom.secretKeyRef.key=key \
   --wait --timeout 10m
 
 # ---------------------------------------------------------------------------

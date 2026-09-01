@@ -14,7 +14,7 @@
 
 scenario_apply() {
   echo "    NOTE: run this properly by pushing a broken image to git, e.g."
-  echo "      sed -i '' 's|podinfo:6.7.1|podinfo:0.0.0-broken|' gitops/app/base/deployment.yaml"
+  echo "      sed -i '' 's|podinfo:6.15.0|podinfo:0.0.0-broken|' gitops/app/base/deployment.yaml"
   echo "      git commit -am 'break' && git push && git revert HEAD && git push"
   echo "    Patching locally instead only tests selfHeal -- see the header."
   kubectl -n "$NS" set image deploy/podinfo podinfo=ghcr.io/stefanprodan/podinfo:0.0.0-broken 2>&1 | sed 's/^/    /'

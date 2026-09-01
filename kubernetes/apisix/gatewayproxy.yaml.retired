@@ -1,3 +1,17 @@
+# RETIRED -- kept for the failure it documents, not to be applied.
+#
+# This file hand-wrote the GatewayProxy and IngressClass because the chart's
+# `gatewayProxy.createDefault` inlines APISIX's published default admin key.
+# That reasoning was incomplete: the chart's values schema also exposes
+# `valueFrom`, so the key can come from a Secret and the chart can own both
+# objects safely. See gitops/platform/apps/21-apisix-controller.yaml.
+#
+# Applying this alongside the chart put two Argo CD Applications in a fight over
+# one IngressClass. The chart won, .spec.parameters went empty, and the
+# controller stopped being able to push config -- while the Application read
+# Synced, the Application read Healthy, and the gateway kept serving from etcd.
+# Nothing anywhere reported a problem.
+#
 # THE OBJECT EVERY v1.x TUTORIAL OMITS, because in v1.x it did not exist.
 #
 # apisix-ingress-controller 2.x learns WHERE TO PUSH from a GatewayProxy,

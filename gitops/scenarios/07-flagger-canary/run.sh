@@ -135,6 +135,6 @@ scenario_reset() {
   kubectl -n "$_flagger_ns" exec deploy/flagger-loadtester -- \
     sh -c 'pkill -f "status/500" || true' >/dev/null 2>&1
   kubectl -n "$_flagger_ns" set image deploy/podinfo \
-    podinfo=ghcr.io/stefanprodan/podinfo:6.7.1 >/dev/null 2>&1
+    podinfo=ghcr.io/stefanprodan/podinfo:6.15.0 >/dev/null 2>&1
   return 0
 }

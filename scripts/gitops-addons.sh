@@ -15,11 +15,11 @@ CLUSTER="${CLUSTER:-andrei-lab-eks}"
 export KUBECONFIG="${KUBECONFIG:-$HOME/.kube/$CLUSTER}"
 K="kubectl --context $CLUSTER"
 
-ROLLOUTS_VERSION="${ROLLOUTS_VERSION:-v1.9.1}"
-FLAGGER_VERSION="${FLAGGER_VERSION:-1.44.0}"
-NGINX_VERSION="${NGINX_VERSION:-4.15.1}"
-SEALED_VERSION="${SEALED_VERSION:-2.19.3}"
-FLUXOP_VERSION="${FLUXOP_VERSION:-v0.58.1}"
+# Versions come from ONE place. See versions.env for why they are pinned rather
+# than floating; ./scripts/check-versions.sh reports when a pin has gone stale.
+# shellcheck disable=SC1091
+source "$HERE/versions.env"
+
 
 WANT="${*:-nginx rollouts flagger sealed-secrets flux-operator}"
 want() { [[ " $WANT " == *" $1 "* ]]; }
@@ -34,13 +34,13 @@ want() { [[ " $WANT " == *" $1 "* ]]; }
 # progressive-delivery measurement approximate.
 # ---------------------------------------------------------------------------
 if want nginx; then
-  echo "==> ingress-nginx $NGINX_VERSION"
+  echo "==> ingress-nginx $NGINX_CHART"
   helm repo add ingress-nginx https://kubernetes.github.io/ingress-nginx >/dev/null 2>&1 || true
   helm repo update ingress-nginx >/dev/null
   helm upgrade --install ingress-nginx ingress-nginx/ingress-nginx \
     --kube-context "$CLUSTER" \
     --namespace ingress-nginx --create-namespace \
-    --version "$NGINX_VERSION" \
+    --version "$NGINX_CHART" \
     --set controller.service.type=NodePort \
     --set controller.service.nodePorts.http=30090 \
     --set controller.service.nodePorts.https=30443 \
@@ -101,14 +101,14 @@ fi
 # something has to generate it.
 # ---------------------------------------------------------------------------
 if want flagger; then
-  echo "==> flagger $FLAGGER_VERSION"
+  echo "==> flagger $FLAGGER_CHART"
   helm repo add flagger https://flagger.app >/dev/null 2>&1 || true
   helm repo update flagger >/dev/null
-  $K apply -f "https://raw.githubusercontent.com/fluxcd/flagger/v${FLAGGER_VERSION}/artifacts/flagger/crd.yaml" >/dev/null
+  $K apply -f "https://raw.githubusercontent.com/fluxcd/flagger/v${FLAGGER_CHART}/artifacts/flagger/crd.yaml" >/dev/null
   helm upgrade --install flagger flagger/flagger \
     --kube-context "$CLUSTER" \
     --namespace ingress-nginx \
-    --version "$FLAGGER_VERSION" \
+    --version "$FLAGGER_CHART" \
     --set meshProvider=nginx \
     --set metricsServer=http://flagger-prometheus.ingress-nginx:9090 \
     --set prometheus.install=true \
@@ -121,6 +121,7 @@ if want flagger; then
   helm upgrade --install flagger-loadtester flagger/loadtester \
     --kube-context "$CLUSTER" \
     --namespace demo-flagger \
+    --version "$LOADTESTER_CHART" \
     --set resources.requests.cpu=25m \
     --set resources.requests.memory=32Mi \
     --wait --timeout 5m
@@ -136,7 +137,7 @@ fi
 # does NOT match, so the override is load-bearing.
 # ---------------------------------------------------------------------------
 if want sealed-secrets; then
-  echo "==> sealed-secrets $SEALED_VERSION"
+  echo "==> sealed-secrets $SEALED_CHART"
   # bitnami.github.io, NOT bitnami-labs.github.io. The chart lives under a
   # different org than the source repository, and the bitnami-labs URL -- which
   # is what most blog posts still show -- returns 404.
@@ -145,7 +146,7 @@ if want sealed-secrets; then
   helm upgrade --install sealed-secrets sealed-secrets/sealed-secrets \
     --kube-context "$CLUSTER" \
     --namespace kube-system \
-    --version "$SEALED_VERSION" \
+    --version "$SEALED_CHART" \
     --set-string fullnameOverride=sealed-secrets-controller \
     --set resources.requests.cpu=20m \
     --set resources.requests.memory=64Mi \

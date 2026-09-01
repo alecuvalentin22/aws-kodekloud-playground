@@ -18,6 +18,43 @@ spec:
     helm:
       releaseName: apisix-ingress-controller
       valuesObject:
+        # THE FIX for the shared-ownership conflict, and it turned out to exist
+        # after all.
+        #
+        # The chart templates its IngressClass unconditionally, so a second
+        # Application managing the same object always lost or won at random --
+        # and when the chart won it blanked .spec.parameters and the controller
+        # silently stopped being able to push config.
+        #
+        # createDefault makes the chart render BOTH the GatewayProxy and an
+        # IngressClass already wired to it. One owner, no SharedResourceWarning,
+        # and no hand-written wiring to keep in step.
+        #
+        # The reason this was written off earlier: the chart's default inlines
+        # APISIX's published admin key (edd1c9f0...) as a literal. But the values
+        # schema also has `valueFrom`, so the key can come from the Secret the
+        # install script generates -- nothing sensitive in git, and the chart
+        # still owns the objects. Verified by rendering the chart:
+        #
+        #   IngressClass  parameters -> GatewayProxy/aic-config
+        #   GatewayProxy  adminKey.valueFrom.secretKeyRef -> apisix-admin/key
+        gatewayProxy:
+          createDefault: true
+          provider:
+            type: ControlPlane
+            controlPlane:
+              service:
+                name: apisix-admin
+                port: 9180
+              auth:
+                type: AdminKey
+                adminKey:
+                  # Left empty so the literal default cannot win.
+                  value: ""
+                  valueFrom:
+                    secretKeyRef:
+                      name: apisix-admin
+                      key: key
         deployment:
           replicas: 1
           resources: {requests: {cpu: 25m, memory: 64Mi}}
@@ -34,23 +71,40 @@ spec:
   #
   # Same rule as Argo-CD-vs-Flux at the top of the README, one layer down: one
   # owner per object. The wiring app owns it; this app ignores it.
-  # ignoreDifferences alone was NOT enough. It suppresses the DIFF but does not
-  # release OWNERSHIP, so Argo CD still reported:
-  #
-  #   SharedResourceWarning: IngressClass/apisix is part of applications
-  #   argocd/platform-apisix-controller and platform-apisix-wiring
-  #
-  # Exclude it from this Application's manifests entirely instead -- then there
-  # is exactly one owner and nothing to warn about. `exclude` takes a
-  # kind:name selector against the rendered output.
-  ignoreDifferences:
-    - group: networking.k8s.io
-      kind: IngressClass
-      name: apisix
-      jsonPointers:
-        - /spec/parameters
   syncPolicy:
     automated: {prune: true, selfHeal: true}
     syncOptions:
       - CreateNamespace=true
       - ServerSideApply=true
+      # ServerSideDiff, added after researching why every Application in this
+      # directory sat permanently OutOfSync.
+      #
+      # ServerSideApply=true silently ALSO selects the "Structured-Merge Diff"
+      # strategy, which the Argo CD docs mark:
+      #
+      #   Feature Discontinued -- challenges using this strategy to calculate
+      #   diffs for CRDs that define default values
+      #
+      # Measured on this cluster: the etcd StatefulSet differed in 16 fields and
+      # 15 were server-side DEFAULTS the chart never sets (dnsPolicy,
+      # restartPolicy, schedulerName, terminationGracePeriodSeconds,
+      # revisionHistoryLimit, volumeMode, ...). Exactly the described failure.
+      #
+      # SSA is still needed here -- kube-prometheus-stack and the APISIX CRDs
+      # exceed the client-side apply annotation limit -- so the fix is to pair
+      # it with the documented replacement diff strategy rather than drop it.
+      - ServerSideDiff=true
+      # Fail loudly instead of silently clobbering.
+      #
+      # Two Applications both claimed IngressClass/apisix. Argo CD's default is
+      # to apply anyway -- "the last application to sync the resource wins" --
+      # and it won: .spec.parameters was blanked, the APISIX controller lost its
+      # GatewayProxy reference, and every status stayed green because the
+      # gateway kept serving from etcd. Nothing broke visibly; only the ability
+      # to apply the NEXT change was gone.
+      #
+      # FailOnSharedResource turns that into a failed sync. It is a
+      # circuit-breaker, not a resolution -- it does not decide ownership -- but
+      # given the silent version cost a working control plane, failing loudly is
+      # the right default.
+      - FailOnSharedResource=true

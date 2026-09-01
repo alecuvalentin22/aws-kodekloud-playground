@@ -13,7 +13,11 @@ HERE="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
 CLUSTER="${CLUSTER:-andrei-lab-eks}"
 export KUBECONFIG="${KUBECONFIG:-$HOME/.kube/$CLUSTER}"
 K="kubectl --context $CLUSTER"
-KPS_VERSION="${KPS_VERSION:-88.6.2}"
+
+# Versions come from ONE place. See versions.env for why they are pinned rather
+# than floating; ./scripts/check-versions.sh reports when a pin has gone stale.
+# shellcheck disable=SC1091
+source "$HERE/versions.env"
 
 command -v helm >/dev/null || { echo "helm not on PATH" >&2; exit 1; }
 

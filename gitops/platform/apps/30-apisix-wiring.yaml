@@ -1,9 +1,13 @@
-# Wave 30. The GatewayProxy + IngressClass that tell the controller WHICH data
-# plane to push to. Without these it accepts every ApisixRoute and pushes them
-# nowhere, silently -- see kubernetes/apisix/gatewayproxy.yaml.
+# Wave 30. HA policy only.
 #
-# Wave 30 rather than 20 because the GatewayProxy is a CRD owned by the
-# controller's chart: apply it too early and the resource kind does not exist.
+# This used to also carry a hand-written GatewayProxy and IngressClass, which
+# put it in a fight with the controller chart over the same IngressClass -- the
+# chart won, blanked .spec.parameters, and the controller silently lost its
+# ability to push config while every status stayed green.
+#
+# The chart can now render both objects itself, with the admin key read from a
+# Secret rather than inlined (see 21-apisix-controller.yaml), so the wiring
+# manifests are gone and this Application owns exactly one object.
 apiVersion: argoproj.io/v1alpha1
 kind: Application
 metadata:
@@ -21,11 +25,43 @@ spec:
     targetRevision: main
     path: kubernetes/apisix
     directory:
-      include: '{gatewayproxy.yaml,ha.yaml}'
+      include: 'ha.yaml'
   syncPolicy:
     automated: {prune: false, selfHeal: true}
     syncOptions:
       - ServerSideApply=true
+      # ServerSideDiff, added after researching why every Application in this
+      # directory sat permanently OutOfSync.
+      #
+      # ServerSideApply=true silently ALSO selects the "Structured-Merge Diff"
+      # strategy, which the Argo CD docs mark:
+      #
+      #   Feature Discontinued -- challenges using this strategy to calculate
+      #   diffs for CRDs that define default values
+      #
+      # Measured on this cluster: the etcd StatefulSet differed in 16 fields and
+      # 15 were server-side DEFAULTS the chart never sets (dnsPolicy,
+      # restartPolicy, schedulerName, terminationGracePeriodSeconds,
+      # revisionHistoryLimit, volumeMode, ...). Exactly the described failure.
+      #
+      # SSA is still needed here -- kube-prometheus-stack and the APISIX CRDs
+      # exceed the client-side apply annotation limit -- so the fix is to pair
+      # it with the documented replacement diff strategy rather than drop it.
+      - ServerSideDiff=true
+      # Fail loudly instead of silently clobbering.
+      #
+      # Two Applications both claimed IngressClass/apisix. Argo CD's default is
+      # to apply anyway -- "the last application to sync the resource wins" --
+      # and it won: .spec.parameters was blanked, the APISIX controller lost its
+      # GatewayProxy reference, and every status stayed green because the
+      # gateway kept serving from etcd. Nothing broke visibly; only the ability
+      # to apply the NEXT change was gone.
+      #
+      # FailOnSharedResource turns that into a failed sync. It is a
+      # circuit-breaker, not a resolution -- it does not decide ownership -- but
+      # given the silent version cost a working control plane, failing loudly is
+      # the right default.
+      - FailOnSharedResource=true
       # The GatewayProxy CRD arrives with the controller in wave 20. A dry run
       # against a kind that does not exist yet fails the whole sync.
       - SkipDryRunOnMissingResource=true

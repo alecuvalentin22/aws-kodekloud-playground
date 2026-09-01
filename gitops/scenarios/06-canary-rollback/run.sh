@@ -143,7 +143,7 @@ scenario_observe() {
   echo
   echo "    restoring, then PART 2 -- a release that is HEALTHY but too slow"
   kubectl -n "$_ns" patch rollout podinfo --type=json -p='[
-    {"op":"replace","path":"/spec/template/spec/containers/0/image","value":"ghcr.io/stefanprodan/podinfo:6.7.1"}
+    {"op":"replace","path":"/spec/template/spec/containers/0/image","value":"ghcr.io/stefanprodan/podinfo:6.15.0"}
   ]' >/dev/null 2>&1
   kubectl argo rollouts promote podinfo -n "$_ns" --full >/dev/null 2>&1
   _wait_healthy || echo "      (did not return to Healthy; part 2 may be noisy)"
@@ -205,7 +205,7 @@ scenario_observe() {
 scenario_reset() {
   [[ "$CTL" == "argocd" ]] || return 0
   kubectl -n "$_ns" patch rollout podinfo --type=json -p='[
-    {"op":"replace","path":"/spec/template/spec/containers/0/image","value":"ghcr.io/stefanprodan/podinfo:6.7.1"}
+    {"op":"replace","path":"/spec/template/spec/containers/0/image","value":"ghcr.io/stefanprodan/podinfo:6.15.0"}
   ]' >/dev/null 2>&1
   kubectl -n "$_ns" patch rollout podinfo --type=json -p='[
     {"op":"remove","path":"/spec/template/spec/containers/0/args"}

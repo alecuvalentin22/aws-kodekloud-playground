@@ -46,3 +46,35 @@ spec:
     syncOptions:
       - CreateNamespace=true
       - ServerSideApply=true
+      # ServerSideDiff, added after researching why every Application in this
+      # directory sat permanently OutOfSync.
+      #
+      # ServerSideApply=true silently ALSO selects the "Structured-Merge Diff"
+      # strategy, which the Argo CD docs mark:
+      #
+      #   Feature Discontinued -- challenges using this strategy to calculate
+      #   diffs for CRDs that define default values
+      #
+      # Measured on this cluster: the etcd StatefulSet differed in 16 fields and
+      # 15 were server-side DEFAULTS the chart never sets (dnsPolicy,
+      # restartPolicy, schedulerName, terminationGracePeriodSeconds,
+      # revisionHistoryLimit, volumeMode, ...). Exactly the described failure.
+      #
+      # SSA is still needed here -- kube-prometheus-stack and the APISIX CRDs
+      # exceed the client-side apply annotation limit -- so the fix is to pair
+      # it with the documented replacement diff strategy rather than drop it.
+      - ServerSideDiff=true
+      # Fail loudly instead of silently clobbering.
+      #
+      # Two Applications both claimed IngressClass/apisix. Argo CD's default is
+      # to apply anyway -- "the last application to sync the resource wins" --
+      # and it won: .spec.parameters was blanked, the APISIX controller lost its
+      # GatewayProxy reference, and every status stayed green because the
+      # gateway kept serving from etcd. Nothing broke visibly; only the ability
+      # to apply the NEXT change was gone.
+      #
+      # FailOnSharedResource turns that into a failed sync. It is a
+      # circuit-breaker, not a resolution -- it does not decide ownership -- but
+      # given the silent version cost a working control plane, failing loudly is
+      # the right default.
+      - FailOnSharedResource=true

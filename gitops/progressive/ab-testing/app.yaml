@@ -19,7 +19,7 @@ spec:
     spec:
       containers:
         - name: podinfo
-          image: ghcr.io/stefanprodan/podinfo:6.7.1
+          image: ghcr.io/stefanprodan/podinfo:6.15.0
           ports: [{containerPort: 9898}]
           env:
             # podinfo echoes this on GET /, which is what makes the experiment
@@ -51,7 +51,7 @@ spec:
     spec:
       containers:
         - name: podinfo
-          image: ghcr.io/stefanprodan/podinfo:6.7.1
+          image: ghcr.io/stefanprodan/podinfo:6.15.0
           ports: [{containerPort: 9898}]
           env:
             - name: PODINFO_UI_MESSAGE

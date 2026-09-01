@@ -33,11 +33,18 @@ metadata:
     fluxcd.controlplane.io/reconcileTimeout: "5m"
 spec:
   distribution:
-    # A semver RANGE, not a pin. The operator resolves it on each reconcile, so
-    # patch releases land without a commit. Pin exactly (2.9.4) if you would
-    # rather an upgrade be a reviewable change -- which is the better default
-    # for production; the range is here to show it exists.
-    version: "2.9.x"
+    # PINNED EXACTLY, changed from the "2.9.x" range this used to carry.
+    #
+    # A range means the operator can upgrade Flux with no commit, which is
+    # convenient and quietly ends "the repository is the source of truth" --
+    # the property the rest of this repo exists to demonstrate. Worse for an
+    # interview answer: you cannot say which version is running without asking
+    # the cluster.
+    #
+    # The cost of pinning is that it goes stale, and stale means unpatched.
+    # ./scripts/check-versions.sh exists to make that cost visible and cheap,
+    # so the pin is a deliberate trade rather than neglect.
+    version: "2.9.5"
     registry: "ghcr.io/fluxcd"
     artifact: "oci://ghcr.io/controlplaneio-fluxcd/flux-operator-manifests"
   cluster:

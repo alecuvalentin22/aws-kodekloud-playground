@@ -31,7 +31,7 @@ spec:
     # An exact version, not a range. Argo CD supports ranges here, but a range
     # makes the Application permanently OutOfSync-able for reasons no commit
     # explains -- and the diff view cannot tell you why. Pinning is the norm.
-    targetRevision: 6.7.1
+    targetRevision: 6.15.0
     helm:
       valuesObject:
         replicaCount: 2
