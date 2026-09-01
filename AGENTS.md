@@ -481,6 +481,7 @@ Verified by running it, not by reading docs:
 | `us-east-1e` | no `t3.medium`, and EKS will not put a control plane there |
 | every instance type except `t3.medium` | **DENIED by an organization SCP.** t3.large, t3.xlarge and m5.large all refused. "Use a bigger node" is not an available answer |
 | `servicequotas:GetServiceQuota` | **DENIED by an SCP** — you cannot read your own quotas either |
+| `eks:UpdateClusterConfig` | **DENIED.** The API endpoint's `public_access_cidrs` is therefore **immutable after CreateCluster** — see below |
 
 **Self-managed nodes are the way through, and they work.** A managed node group
 is not privileged magic — it is AWS running launch template + autoscaling group
@@ -511,6 +512,28 @@ aws ec2 run-instances --dry-run --image-id ami-... --instance-type t3.medium --c
 ---
 
 ## 6. Traps that cost hours — do not rediscover these
+
+**Your public IP rotating costs a full cluster rebuild here.** The EKS API
+endpoint is locked to `public_access_cidrs`. If your address has changed since
+`terraform.tfvars` was written, everything still builds — the cluster reaches
+`ACTIVE` and Terraform reports success — and then every `kubectl` call hangs,
+because the API will not talk to you.
+
+It surfaces in `eks-up.sh` phase 2 as *"waiting for the vpc-cni daemonset to
+appear"* that never returns. It reads like a slow CNI and it is a firewall.
+
+And it cannot be corrected in place:
+
+```
+Error: updating EKS Cluster VPC configuration: AccessDeniedException:
+User is not authorized to perform this action
+```
+
+`eks:UpdateClusterConfig` is denied, so the address you build with is the
+address you are stuck with. On a normal AWS account this is a one-line fix; here
+it is a destroy and recreate, roughly 20 minutes. `eks-up.sh` now preflights the
+tfvars IP against your actual one and refuses in about five seconds instead.
+Cost when it was learned: 11 minutes of hanging, then the rebuild anyway.
 
 **`curl ifconfig.me` returns IPv6.** A security group rule wants IPv4. Use
 `curl -4`, or `python3 -c "import urllib.request;print(urllib.request.urlopen('https://checkip.amazonaws.com').read().decode())"`.

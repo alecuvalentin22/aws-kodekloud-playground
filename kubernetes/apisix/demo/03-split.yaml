@@ -1,0 +1,50 @@
+# Weighted split plus a header predicate, on ONE route.
+#
+# RULE ORDER IS LOAD-BEARING. APISIX evaluates the `match` list top to bottom
+# and the first match wins, so the unconditional weighted rule must come LAST.
+# Put it first and it swallows every request, the header rule never runs, and
+# the symptom is "my header does nothing" with no error to look at.
+apiVersion: apisix.apache.org/v2
+kind: ApisixRoute
+metadata:
+  name: demo
+  namespace: demo-apisix
+spec:
+  ingressClassName: apisix
+  http:
+    # FIRST: the predicate. A named cohort, deterministic, weight-independent.
+    - name: canary-header
+      match:
+        hosts: [demo.apisix.local]
+        paths: ["/*"]
+        exprs:
+          - subject: {scope: Header, name: x-canary}
+            op: Equal
+            value: always
+      backends:
+        - serviceName: demo-v2
+          servicePort: 9898
+      plugins:
+        - name: prometheus
+          enable: true
+
+    # LAST: the weighted split for everyone else.
+    #
+    # Both backends sit under ONE route name, which is the entire finding of
+    # scenario 14: apisix_http_status is labelled by route, so v1's successes
+    # and v2's failures are summed into the same series and a broken canary is
+    # arithmetically hidden.
+    - name: demo
+      match:
+        hosts: [demo.apisix.local]
+        paths: ["/*"]
+      backends:
+        - serviceName: demo-v1
+          servicePort: 9898
+          weight: 90
+        - serviceName: demo-v2
+          servicePort: 9898
+          weight: 10
+      plugins:
+        - name: prometheus
+          enable: true

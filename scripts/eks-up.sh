@@ -48,6 +48,48 @@ CLUSTER_NAME="${CLUSTER:-andrei-lab-eks}"
 export KUBECONFIG="${KUBECONFIG:-$HOME/.kube/$CLUSTER_NAME}"
 
 command -v terraform >/dev/null || { echo "terraform not on PATH" >&2; exit 1; }
+
+# ---------------------------------------------------------------------------
+# PREFLIGHT: does terraform.tfvars still name YOUR public IP?
+#
+# The EKS API endpoint is locked to public_access_cidrs. If your address has
+# rotated since the file was last edited, everything still builds -- the cluster
+# reaches ACTIVE, terraform reports success -- and then every kubectl call hangs
+# forever, because the API will not talk to you.
+#
+# Phase 2 is where that surfaces, as "waiting for the vpc-cni daemonset to
+# appear" that never returns. It reads like a slow CNI and it is a firewall.
+# Cost when it happened: 11 minutes of a 3-hour window, then a full rebuild.
+#
+# A REBUILD, because eks:UpdateClusterConfig is DENIED on this playground:
+#
+#   AccessDeniedException: User is not authorized to perform this action
+#
+# so the allowlist cannot be corrected after CreateCluster. On a normal AWS
+# account you would just update it. Here the address you build with is the
+# address you are stuck with, which makes checking it beforehand the whole
+# difference between a 5-second fix and a 20-minute one.
+# ---------------------------------------------------------------------------
+TFVARS="$HERE/terraform/eks/terraform.tfvars"
+if [[ -f "$TFVARS" ]]; then
+  # -4 matters: curl and friends return IPv6 on some networks, and a security
+  # group rule wants IPv4.
+  MYIP="$(python3 -c "import urllib.request;print(urllib.request.urlopen('https://checkip.amazonaws.com').read().decode().strip())" 2>/dev/null || true)"
+  WANT="$(grep -oE '[0-9]+\.[0-9]+\.[0-9]+\.[0-9]+/32' "$TFVARS" | head -1)"
+  if [[ -n "$MYIP" && -n "$WANT" && "$WANT" != "$MYIP/32" ]]; then
+    echo >&2
+    echo "REFUSING: your public IP has changed since terraform.tfvars was written." >&2
+    echo "  tfvars allows : $WANT" >&2
+    echo "  you are at    : $MYIP/32" >&2
+    echo >&2
+    echo "The cluster would build and then be unreachable, and this playground" >&2
+    echo "denies eks:UpdateClusterConfig so it could not be fixed afterwards." >&2
+    echo >&2
+    echo "  sed -i '' 's|$WANT|$MYIP/32|' $TFVARS" >&2
+    exit 1
+  fi
+  echo "==> Preflight: public IP $MYIP matches terraform.tfvars"
+fi
 command -v kubectl   >/dev/null || { echo "kubectl not on PATH" >&2; exit 1; }
 
 echo "==> Phase 1/3: control plane, autoscaling group at zero"

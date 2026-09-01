@@ -1,0 +1,58 @@
+# The same 90/10 split and the same breakage, made VISIBLE.
+#
+# One change: the canary is its own ApisixRoute, so it gets its own `route`
+# label in apisix_http_status. Its error rate is now a series you can alert on,
+# and -- the property that actually matters -- that series does not get quieter
+# as you reduce the canary weight. A 2% canary is just as visible as a 50% one.
+#
+# The cost is honest: two objects to keep in step instead of one, and the split
+# is now expressed as vars/priority rather than as weights on a single rule.
+# That is the trade. There is no configuration that is both single-object and
+# per-branch observable.
+---
+apiVersion: apisix.apache.org/v2
+kind: ApisixRoute
+metadata:
+  name: demo
+  namespace: demo-apisix
+spec:
+  ingressClassName: apisix
+  http:
+    - name: demo-stable
+      match:
+        hosts: [demo.apisix.local]
+        paths: ["/*"]
+      backends:
+        - serviceName: demo-v1
+          servicePort: 9898
+          weight: 90
+        - serviceName: demo-v2
+          servicePort: 9898
+          weight: 10
+      plugins:
+        - name: prometheus
+          enable: true
+---
+# The canary as a separate route, matched by header, with its own label.
+apiVersion: apisix.apache.org/v2
+kind: ApisixRoute
+metadata:
+  name: demo-canary
+  namespace: demo-apisix
+spec:
+  ingressClassName: apisix
+  http:
+    - name: demo-canary
+      match:
+        hosts: [demo.apisix.local]
+        paths: ["/*"]
+        exprs:
+          - subject: {scope: Header, name: x-canary}
+            op: Equal
+            value: always
+      backends:
+        - serviceName: demo-v2
+          servicePort: 9898
+      plugins:
+        - name: prometheus
+          enable: true
