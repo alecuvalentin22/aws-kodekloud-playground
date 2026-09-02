@@ -22,10 +22,13 @@
 # ---------------------------------------------------------------------------
 set -euo pipefail
 
+HERE="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
+# shellcheck disable=SC1091
+source "$HERE/versions.env"
 CLUSTER="${CLUSTER:-andrei-lab-eks}"
 export KUBECONFIG="${KUBECONFIG:-$HOME/.kube/$CLUSTER}"
 K="kubectl --context $CLUSTER"
-REPO="${REPO:-alecuvalentin22/aws-kodekloud-playground}"
+REPO="${REPO:-$REPO_SLUG}"
 NODEPORT="${NODEPORT:-30083}"
 APPLY=false; TEST=false
 case "${1:-}" in

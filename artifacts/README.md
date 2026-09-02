@@ -1,7 +1,14 @@
-# Artifact sources
+# Artifact sources — SUPERSEDED
 
-The HTML behind the two published write-ups, kept in the repo so they can be
-edited and re-published rather than rebuilt from memory.
+**The canonical write-ups now live in [`../docs/`](../docs/) as markdown.** Edit
+those. These HTML files are the earlier hosted versions, kept for two reasons:
+they carry hand-authored inline SVG diagrams that the markdown replaces with
+mermaid, and they record what was published if a stale link ever surfaces.
+
+They were originally the *only* copy, linked from the README as hosted pages —
+which was a mistake for a public repository. The pages are private by default, so
+every reader got an access screen rather than the content. A write-up nobody can
+open is not a write-up.
 
 | file | published at |
 |---|---|

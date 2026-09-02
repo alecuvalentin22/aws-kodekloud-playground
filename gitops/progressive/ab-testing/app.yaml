@@ -28,7 +28,7 @@ spec:
               value: "variant-A"
           resources:
             requests: {cpu: 25m, memory: 32Mi}
-            limits:   {memory: 128Mi}
+            limits: {memory: 128Mi}
           readinessProbe:
             httpGet: {path: /readyz, port: 9898}
             initialDelaySeconds: 3
@@ -58,7 +58,7 @@ spec:
               value: "variant-B"
           resources:
             requests: {cpu: 25m, memory: 32Mi}
-            limits:   {memory: 128Mi}
+            limits: {memory: 128Mi}
           readinessProbe:
             httpGet: {path: /readyz, port: 9898}
             initialDelaySeconds: 3

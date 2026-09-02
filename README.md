@@ -1,15 +1,65 @@
-# Platform Lab — Elasticsearch, Ansible, Rancher, Kong
+# Platform Lab
 
-A self-contained lab that builds a 3-node Elasticsearch cluster, Kibana, MinIO
-(for snapshots), PostgreSQL, and a k3s cluster running Rancher and Kong —
-entirely with Ansible.
+A working platform, built from scratch and then **broken on purpose**, with every
+failure written down.
 
-The point is not the end state. The point is that **building it with Ansible
-teaches Ansible**, and **breaking the Elasticsearch cluster on purpose teaches
-Elasticsearch**. Both are gaps on the target job description; after this repo,
-neither is.
+**The point is not the end state.** Anyone can follow a tutorial to a green
+dashboard. The point is that building it teaches the tool, and breaking it
+teaches the system — and the broken cases are the only ones you can talk about
+that others cannot.
+
+## What this proves
+
+| Capability | Where it is demonstrated |
+|---|---|
+| **Kubernetes and cluster operation** | EKS with self-managed nodes, k3s, RKE2; pod-density, storage and admission failures diagnosed from first symptoms |
+| **GitOps delivery** | Argo CD **and** Flux reconciling one repo side by side, plus the platform layer itself as an app-of-apps |
+| **Progressive delivery** | Argo Rollouts and Flagger, canary / blue-green / A/B, with measured rollbacks |
+| **API gateway operation** | Kong and Apache APISIX side by side — routes, JWT auth, traffic splitting, control-plane vs data-plane failure |
+| **Observability** | Prometheus and Grafana, and a canary failure that route-level metrics *cannot see* |
+| **Secrets management** | sealed-secrets and SOPS+age, compared on rotation cost |
+| **IaC and configuration management** | Terraform (three root modules) and Ansible (idempotent roles), including what each cannot express |
+| **Debugging under constraint** | a locked-down account where half the API is denied — most findings come from working around that |
+
+**The deliverable is [`drills/`](drills/) and
+[`gitops/scenarios/`](gitops/scenarios/).** Each drill ends with a "say this in
+the interview" section; each scenario applies a break and prints timestamped
+observations. The running system is what makes them true.
+
+## A note on the repository name
+
+The repo is called `aws-kodekloud-playground` because that is where it started.
+It undersells what is here: the Ansible tracks need only SSH and Ubuntu, and the
+EKS work is one hosting choice among several.
+
+Renaming it to `platform-lab` is a single click in GitHub settings, and GitHub
+redirects the old URL indefinitely — so the GitOps manifests that reconcile this
+repository keep working through a rename with no edit. The scripts read the URL
+from `versions.env` (`REPO_URL` / `REPO_SLUG`); the manifests under
+`gitops/argocd/` and `gitops/flux/` carry it literally, because an Argo CD
+`Application` cannot read a shell variable.
+
+## Provider-agnostic
+
+The Ansible tracks need only **SSH and Ubuntu 22.04/24.04**. AWS is one hosting
+option among [Hetzner](terraform/hetzner/) and local Multipass, not a dependency
+— see the cost table further down. The EKS and GitOps tracks are AWS-specific by
+nature, and where a finding is a property of AWS rather than of Kubernetes, it
+says so.
 
 ---
+
+## CI
+
+`.github/workflows/ci.yml` runs on every PR and needs **no cloud credentials**:
+yamllint, a parse check over every Kubernetes manifest, `bash -n` and shellcheck
+over every script, `terraform fmt -check` and `validate` on all five root
+modules, and a non-blocking version-drift check.
+
+It deliberately does **not** spin up a cluster — that needs a credentialled
+playground and could not run on a fork. The cluster-backed claims live in
+[`VERIFIED.md`](VERIFIED.md), which says plainly which were run end to end and
+which were not.
 
 ## Versions
 
@@ -30,18 +80,18 @@ unpinned `:latest` from an archived registry; see `AGENTS.md` section 4f.
   out loud. Its GCP counterpart is `~/gcp/STORY.md`; the two are shaped the same
   way on purpose, and the AWS-vs-GCP table at the end is the comparison.
 
-## Shareable write-ups
+## Write-ups
 
-Two published artifacts, both built from measurements in this repo:
+Both built from measurements in this repo, and both readable right here — no
+account, no external service:
 
-- **Architecture** — what builds what, what calls what, and the ordering rules
-  that cannot be swapped
-  <https://claude.ai/code/artifact/33a25fb7-fda8-46b5-a4ce-b1cb09a33130>
-- **GitOps delivery styles** — Argo CD vs Flux, and what canary / blue-green
-  actually require
-  <https://claude.ai/code/artifact/3bbe06ac-2659-4c85-8f3d-b80bc518dda4>
+- **[docs/architecture.md](docs/architecture.md)** — what builds what, what calls
+  what, and the ordering rules that cannot be swapped
+- **[docs/gitops-delivery-styles.md](docs/gitops-delivery-styles.md)** — Argo CD
+  vs Flux, and what canary / blue-green / A/B actually require
 
-They are private until shared from the page's share menu.
+(These previously linked to hosted pages that were private, so every reader got
+an access screen. Rendered markdown in the repo has no such failure mode.)
 
 ## Start here
 

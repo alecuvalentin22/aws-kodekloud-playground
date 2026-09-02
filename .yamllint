@@ -1,5 +1,25 @@
+# yamllint config. Run in CI on every PR -- see .github/workflows/ci.yml
 extends: default
+
 rules:
-  line-length: {max: 140}
+  # 140 rather than 80: Kubernetes manifests carry long image references and
+  # annotation keys that wrap badly and read worse.
+  line-length:
+    max: 140
+    # Encrypted values cannot be wrapped. A SealedSecret is one base64 blob per
+    # key and a SOPS value is one ENC[...] string; both are single tokens by
+    # construction, so a length limit is not something they can satisfy.
+    allow-non-breakable-words: true
   truthy: {allowed-values: ["true", "false"]}
   comments: {min-spaces-from-content: 1}
+  # Many manifests here are single-document and start with a comment block
+  # explaining the trap they encode. Requiring --- first would push that
+  # explanation below the fold.
+  document-start: disable
+
+ignore: |
+  .terraform/
+  terraform/**/.terraform/
+  # Committed ciphertext -- single unwrappable tokens by construction.
+  gitops/secrets/sealed/
+  gitops/secrets/sops/

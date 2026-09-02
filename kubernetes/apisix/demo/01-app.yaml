@@ -31,7 +31,7 @@ spec:
               value: "v1"
           resources:
             requests: {cpu: 25m, memory: 32Mi}
-            limits:   {memory: 128Mi}
+            limits: {memory: 128Mi}
           readinessProbe:
             httpGet: {path: /readyz, port: 9898}
             initialDelaySeconds: 3
@@ -58,7 +58,7 @@ spec:
               value: "v2"
           resources:
             requests: {cpu: 25m, memory: 32Mi}
-            limits:   {memory: 128Mi}
+            limits: {memory: 128Mi}
           readinessProbe:
             httpGet: {path: /readyz, port: 9898}
             initialDelaySeconds: 3

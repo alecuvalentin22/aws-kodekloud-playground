@@ -14,7 +14,7 @@ set -euo pipefail
 HERE="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
 CLUSTER="${CLUSTER:-andrei-lab-eks}"
 REGION="${REGION:-us-east-1}"
-REPO="${REPO:-https://github.com/alecuvalentin22/aws-kodekloud-playground.git}"
+REPO="${REPO:-$REPO_URL}"
 
 # Its own kubeconfig. A lab context sitting next to a production one in
 # ~/.kube/config is how people run a delete against the wrong cluster.

@@ -153,6 +153,9 @@
   ansible.builtin.debug:
     msg:
       - "Distribution: {{ k8s_distribution }}   kubeconfig: {{ kubeconfig_path }}"
-      - "Rancher UI:   {{ 'https://' ~ ansible_host ~ ':' ~ rancher_node_port ~ '  (user: admin, self-signed cert)' if rancher_enabled else 'disabled (rancher_enabled=false)' }}"
+      - >-
+        Rancher UI:   {{ 'https://' ~ ansible_host ~ ':' ~ rancher_node_port
+        ~ '  (user: admin, self-signed cert)'
+        if rancher_enabled else 'disabled (rancher_enabled=false)' }}
       - "Kong proxy:   {{ 'http://' ~ ansible_host ~ ':30080/demo    (open)' if kong_enabled else 'not installed on this node' }}"
       - "Kong secured: http://{{ ansible_host }}:30080/secure  (JWT required)"

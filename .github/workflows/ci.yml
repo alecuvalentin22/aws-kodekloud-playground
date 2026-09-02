@@ -1,0 +1,114 @@
+# CI for the repository itself. NOTHING here needs cloud credentials -- it is
+# lint and validate only, so it runs on every PR from anyone.
+#
+# What it deliberately does NOT do: spin up a cluster. That needs a 3-hour
+# credentialled playground and could not run on a fork. The cluster-backed
+# claims are recorded in VERIFIED.md instead, which says plainly which of them
+# were run end to end and which were not.
+name: ci
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  yaml:
+    name: yaml
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - name: yamllint
+        run: |
+          pipx install yamllint
+          # The vendored terraform module cache is not ours to lint.
+          yamllint -c .yamllint . 2>&1 | tee /tmp/yamllint.out
+          test ! -s /tmp/yamllint.out || grep -q 'error' /tmp/yamllint.out && exit 1 || true
+
+  manifests:
+    name: kubernetes manifests parse
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      # Every manifest must be loadable as multi-document YAML. This is the
+      # check that would have caught the misindented nodeadm config, and it
+      # costs two seconds.
+      - name: parse every manifest
+        run: |
+          python3 - <<'PY'
+          import pathlib, sys, yaml
+          bad = 0
+          for f in sorted(pathlib.Path('.').rglob('*.yaml')):
+              if '.terraform' in str(f) or '.github' in str(f):
+                  continue
+              try:
+                  list(yaml.safe_load_all(f.read_text()))
+              except Exception as e:
+                  print(f"FAIL {f}: {str(e)[:120]}"); bad += 1
+          print(f"{bad} unparseable")
+          sys.exit(1 if bad else 0)
+          PY
+
+  shell:
+    name: shell
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - name: bash -n on every script
+        run: |
+          fail=0
+          for f in scripts/* gitops/scenarios/*/run.sh; do
+            [ -f "$f" ] || continue
+            head -1 "$f" | grep -q bash || continue
+            bash -n "$f" || { echo "SYNTAX FAIL $f"; fail=1; }
+          done
+          exit $fail
+      - name: shellcheck
+        run: |
+          sudo apt-get update -qq && sudo apt-get install -y -qq shellcheck
+          # SC1091: sourcing versions.env, which shellcheck cannot follow.
+          # Informational level: this is a lab, not a shell library.
+          shellcheck -S warning -e SC1091 scripts/*.sh gitops/scenarios/*/run.sh || true
+
+  terraform:
+    name: terraform
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: hashicorp/setup-terraform@v3
+        with:
+          terraform_version: 1.9.8
+      - name: fmt
+        run: terraform fmt -check -recursive -diff terraform/
+      - name: validate each root module
+        # `init -backend=false` so no S3 bucket and no credentials are needed.
+        run: |
+          fail=0
+          for d in terraform/aws terraform/eks terraform/bootstrap terraform/eks-module terraform/hetzner; do
+            [ -d "$d" ] || continue
+            echo "== $d"
+            terraform -chdir="$d" init -backend=false -input=false -no-color >/dev/null || { fail=1; continue; }
+            terraform -chdir="$d" validate -no-color || fail=1
+          done
+          exit $fail
+
+  versions:
+    name: version drift
+    runs-on: ubuntu-latest
+    # Informational. Upstream releasing a new version is not a reason to fail
+    # someone else's pull request -- but it should be visible.
+    continue-on-error: true
+    steps:
+      - uses: actions/checkout@v4
+      - name: check pins against upstream
+        env:
+          # 5000 requests/hour instead of 60, so the check does not report
+          # "could not check" for half the components.
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        run: |
+          curl -fsSL https://raw.githubusercontent.com/helm/helm/main/scripts/get-helm-3 | bash >/dev/null 2>&1
+          ./scripts/check-versions.sh

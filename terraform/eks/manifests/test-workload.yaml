@@ -39,7 +39,7 @@ spec:
           # The playground enforces its cap against the LIMIT, so both are set.
           resources:
             requests: {cpu: 50m, memory: 64Mi}
-            limits:   {cpu: 100m, memory: 128Mi}
+            limits: {cpu: 100m, memory: 128Mi}
           readinessProbe:
             httpGet: {path: /, port: 80}
             initialDelaySeconds: 3

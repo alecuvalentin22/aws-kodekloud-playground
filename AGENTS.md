@@ -7,16 +7,20 @@ real KodeKloud AWS playground on 2026-08-18, so you do not repeat them.
 
 ---
 
-## 0b. Published artifacts
+## 0b. The write-ups
 
-Two write-ups exist for this work. **Update them rather than minting new ones**
-— republishing the same URL keeps the link stable:
+Two long-form write-ups, both in the repository:
 
-- Architecture: <https://claude.ai/code/artifact/33a25fb7-fda8-46b5-a4ce-b1cb09a33130>
-- GitOps delivery styles: <https://claude.ai/code/artifact/3bbe06ac-2659-4c85-8f3d-b80bc518dda4>
+- `docs/architecture.md` — what builds what, what calls what, ordering rules
+- `docs/gitops-delivery-styles.md` — Argo CD vs Flux, canary / blue-green / A/B
 
-Pass the URL as the `url` parameter when publishing from a new conversation,
-otherwise a fresh URL is created and the shared link goes stale.
+**Edit these, not the HTML.** `artifacts/*.html` are the earlier hosted versions,
+kept only because they carry hand-authored SVG diagrams; they are no longer the
+canonical copy and are not linked from the README.
+
+They were originally hosted pages, which was a mistake for a public repository:
+the links were private, so every reader hit an access screen instead of the
+content. Markdown in-repo cannot fail that way.
 
 ## 1. What this repo is
 

@@ -79,12 +79,12 @@ variable "my_ip_cidr" {
 }
 
 resource "hcloud_server" "es" {
-  count       = 3
-  name        = "${var.prefix}-es-0${count.index + 1}"
-  image       = "ubuntu-24.04"
-  server_type = var.es_server_type
-  location    = var.location
-  ssh_keys    = [hcloud_ssh_key.lab.id]
+  count        = 3
+  name         = "${var.prefix}-es-0${count.index + 1}"
+  image        = "ubuntu-24.04"
+  server_type  = var.es_server_type
+  location     = var.location
+  ssh_keys     = [hcloud_ssh_key.lab.id]
   firewall_ids = [hcloud_firewall.lab.id]
 
   network {
@@ -96,11 +96,11 @@ resource "hcloud_server" "es" {
 }
 
 resource "hcloud_server" "k8s" {
-  name        = "${var.prefix}-k3s-01"
-  image       = "ubuntu-24.04"
-  server_type = var.k8s_server_type
-  location    = var.location
-  ssh_keys    = [hcloud_ssh_key.lab.id]
+  name         = "${var.prefix}-k3s-01"
+  image        = "ubuntu-24.04"
+  server_type  = var.k8s_server_type
+  location     = var.location
+  ssh_keys     = [hcloud_ssh_key.lab.id]
   firewall_ids = [hcloud_firewall.lab.id]
 
   network {
