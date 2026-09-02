@@ -80,7 +80,7 @@ on a different object than the one that failed.
 It works on a **re-run**, because by then the namespace exists. That is the
 dangerous part: it only breaks on a clean cluster, which is exactly where a
 reproducibility claim gets tested. The same trap is documented for
-`KongConsumer` in `AGENTS.md` §6.
+`KongConsumer` in `AGENTS.md` section 6.
 
 Numeric prefixes make alphabetical order *be* dependency order. A
 `kustomization.yaml` with an explicit `resources:` list would do the same job

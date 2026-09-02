@@ -110,7 +110,7 @@ because it is on every machine and needs no install.
 # 2. infrastructure
 cd terraform/aws
 cp terraform.tfvars.example terraform.tfvars
-#    my_ip_cidr = "$(curl -4 -s ifconfig.me)/32"      <- -4 MATTERS, see §6
+#    my_ip_cidr = "$(curl -4 -s ifconfig.me)/32"      <- -4 MATTERS, see section 6
 terraform apply            # writes inventory/hosts.ini itself
 
 # 3. secrets  (NOTE THE all/ DIRECTORY -- see drills/16)

@@ -22,7 +22,7 @@ Every pin lives in `versions.env`; nothing is pinned inline. Check for drift:
 Pinning is deliberate — a floating tag means the cluster can change with no
 commit — so the trade is made visible rather than avoided. The one component
 that had gone stale unnoticed was a chart's *bundled* dependency running an
-unpinned `:latest` from an archived registry; see `AGENTS.md` §4f.
+unpinned `:latest` from an archived registry; see `AGENTS.md` section 4f.
 
 ## The story, for an interview
 
@@ -66,7 +66,7 @@ Two independent tracks live in this repo:
 `make eks` runs a **three-phase** build. Do not replace it with `terraform
 apply`: EKS caps pods per node by ENI rather than CPU (17 on a `t3.medium`), and
 the fix has to be applied to the CNI daemonset *before any node joins* — kubelet
-reads `max-pods` once, at bootstrap. See `AGENTS.md` §4c. Result: **110
+reads `max-pods` once, at bootstrap. See `AGENTS.md` section 4c. Result: **110
 allocatable pods per node, 58 running, 0 Pending.**
 
 ## GitOps: Argo CD vs Flux, measured

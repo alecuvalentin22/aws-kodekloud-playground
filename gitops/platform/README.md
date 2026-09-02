@@ -219,7 +219,7 @@ now off for this object so it cannot win again, which is a stopgap, not the
 fix. The fix is still one of the two options above.
 
 **Do not read "Synced/Healthy" as "the platform works."** It meant, here,
-"the wiring is gone and nobody noticed."”
+"the wiring is gone and nobody noticed."
 
 ## Researched afterwards: is permanent `OutOfSync` normal?
 

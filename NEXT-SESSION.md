@@ -3,7 +3,7 @@
 Everything the previous version of this file listed as outstanding is **done and
 measured**: pod density, Flagger end to end, Argo Rollouts with real traffic
 routing, A/B, Flux Operator + Web UI + ResourceSet, secrets, Helm, and the
-Argo CD webhook. See `AGENTS.md` §4c–4d for the numbers and `STORY-AWS.md` for
+Argo CD webhook. See `AGENTS.md` section 4c–4d for the numbers and `STORY-AWS.md` for
 what they mean.
 
 What follows is what is genuinely left.
@@ -101,6 +101,6 @@ unconditionally is not a measurement. Both existing examples are documented in
 deployment not ready" and then "Canary failed! Scaling down", which is
 indistinguishable from a metric-driven rollback at a glance.
 
-**Update the artifacts in place.** URLs are in `AGENTS.md` §0b and
+**Update the artifacts in place.** URLs are in `AGENTS.md` section 0b and
 `artifacts/README.md`; sources are in `artifacts/`. Pass the URL as `url` when
 publishing from a new conversation or the shared links go stale.
