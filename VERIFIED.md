@@ -109,9 +109,45 @@ rather than a measurement. T-20's acceptance criteria asks for that explicitly.
 Both are the same shape as the drift documented below: the imperative script can
 patch things the Helm chart does not expose, and an Application cannot.
 
-**`platform-etcd` stays OutOfSync** on `StatefulSet/apisix-etcd` while sync
-reports "successfully synced (all tasks run)" — the same defaulted-field pattern
-as before, now on the image override.
+### Why `platform-etcd` stays OutOfSync — diagnosed, partly fixed
+
+Diffed the live StatefulSet against the chart render offline. **16 fields differ,
+15 of them server-side defaults** the chart never sets (`dnsPolicy`,
+`restartPolicy`, `schedulerName`, `terminationGracePeriodSeconds`,
+`revisionHistoryLimit`, `volumeMode`, `persistentVolumeClaimRetentionPolicy`, …).
+Exactly **one** is genuine:
+
+```
+/spec/template/metadata/annotations/checksum/token-secret
+  live 0c6af36eaa556439...
+  git  8ae17cd946cf32c2...
+```
+
+The bitnami etcd chart generates a **random JWT signing key** and stamps a
+checksum of it onto the pod template so pods restart when it rotates. Sensible,
+and **non-deterministic**: every `helm template` produces a new random value, so
+Argo CD's checksum can never equal the cluster's. One genuine diff marks the
+whole resource OutOfSync.
+
+This is a **documented legitimate cause** in Argo CD's diffing guide — *"Helm
+charts that use non-deterministic functions"* — so it is the expected-and-normal
+category, not a misconfiguration.
+
+**What the fix revealed, which is the more useful finding.** `ignoreDifferences`
+alone made it *worse*: Argo CD stopped **reporting** the difference and kept
+**writing** it, pushing a freshly-randomised checksum on every sync. Observed:
+StatefulSet generation climbing to 4 with pods rolling, while the token Secret's
+`resourceVersion` never changed — Argo CD rolling a **quorum system** on a loop,
+for a value it had been told to ignore. Suppressing the report without stopping
+the write is worse than doing nothing, because it hides the churn.
+
+`RespectIgnoreDifferences=true` is the other half. After adding it the
+**generation stabilised (5 → 5 over 90s) and the churn stopped.**
+
+**Still OutOfSync** — the pairing stopped the writes but did not clear the
+status. Not chased further: the window closed. The remaining options are making
+the token deterministic via an existing-secret value, or accepting a documented
+permanent diff. **Status: churn fixed, cosmetic OutOfSync open.**
 
 ## Platform under GitOps, 2026-09-01
 

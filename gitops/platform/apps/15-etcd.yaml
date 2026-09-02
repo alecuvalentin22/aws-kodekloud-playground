@@ -97,6 +97,39 @@ spec:
         pdb:
           create: true
           minAvailable: 2
+  # WHY THIS APP WAS PERMANENTLY OutOfSync, and why this is the correct fix
+  # rather than a suppression.
+  #
+  # The chart generates a RANDOM JWT signing key into secret/apisix-etcd-jwt-token
+  # and stamps a checksum of it onto the pod template, so the Deployment restarts
+  # when the secret rotates. That is a sensible pattern and it is also
+  # non-deterministic: `helm template` produces a NEW random key every render, so
+  # the checksum Argo CD computes never equals the one in the cluster.
+  #
+  # Diffed offline against the live object -- 16 fields differed, 15 of them
+  # server-side defaults the chart never sets, and exactly ONE genuine:
+  #
+  #   /template/metadata/annotations/checksum/token-secret
+  #     live 0c6af36eaa556439...
+  #     git  8ae17cd946cf32c2...
+  #
+  # One genuine diff is enough to mark the whole resource OutOfSync.
+  #
+  # This is a DOCUMENTED legitimate cause in Argo CD's diffing guide -- "Helm
+  # charts that use non-deterministic functions" -- and ignoreDifferences on the
+  # specific field is the documented remedy. Note the scope: one annotation on
+  # one resource, not a blanket ignore. Widening it would hide the image tag and
+  # the replica count, which are exactly what this app exists to control.
+  #
+  # Suppressing the SYMPTOM here is right because the underlying behaviour is
+  # correct: the cluster genuinely does have a key Argo CD cannot know.
+  ignoreDifferences:
+    - group: apps
+      kind: StatefulSet
+      name: apisix-etcd
+      jsonPointers:
+        - /spec/template/metadata/annotations/checksum~1token-secret
+
   syncPolicy:
     automated: {prune: true, selfHeal: true}
     syncOptions:
@@ -104,3 +137,19 @@ spec:
       - ServerSideApply=true
       - ServerSideDiff=true
       - FailOnSharedResource=true
+      # ignoreDifferences ALONE was not enough, and the reason is documented:
+      # by default it affects only the DIFF, and "during the sync stage, the
+      # desired state is applied as-is". So Argo CD stopped REPORTING the
+      # checksum difference and kept WRITING it -- pushing a freshly-randomised
+      # checksum onto the pod template on every sync.
+      #
+      # Observed: StatefulSet generation climbed to 4 with pods rolling
+      # (ages 5s / 83s / 2m43s) while secret/apisix-etcd-jwt-token's
+      # resourceVersion never changed. Argo CD was rolling etcd -- a quorum
+      # system -- on a loop, for a value it had been told to ignore.
+      #
+      # RespectIgnoreDifferences makes ignoreDifferences apply to the sync patch
+      # too. That is the pairing: ignoreDifferences to stop reporting it,
+      # RespectIgnoreDifferences to stop writing it. Using the first without the
+      # second is worse than using neither, because it hides the churn.
+      - RespectIgnoreDifferences=true
