@@ -54,7 +54,51 @@ spec:
             # of 127.0.0.1/24 blocks the ingress controller, which is the one
             # client that needs it.
             allow: {ipList: ["0.0.0.0/0"]}
+            credentials:
+              # BOTH SIDES MUST READ THE SAME SECRET.
+              #
+              # The controller's GatewayProxy already read the key from
+              # secret/apisix-admin. The gateway did not -- it fell back to the
+              # chart default (edd1c9f0..., published in every APISIX tutorial),
+              # so the controller presented one key and the gateway expected
+              # another:
+              #
+              #   SyncFailed  ServerAddr: http://apisix-admin.apisix.svc:9180,
+              #   Err: HTTP 500: AxiosError: Request failed with status code 401
+              #
+              # The gateway was Running, the controller was Running, the route
+              # object existed, and nothing served. The failure is only visible
+              # in the ApisixRoute's status conditions.
+              #
+              # secretName/secretAdminKey are IN THE VALUES SCHEMA BUT DO NOT
+              # WORK in chart 2.17.0. Set, synced, and the rendered ConfigMap
+              # still contained the literal default:
+              #
+              #   $ kubectl -n apisix get cm apisix -o jsonpath='{.data.config\.yaml}' | grep admin_key
+              #   key: edd1c9f034335f136f87ad84b625c8f1
+              #
+              # No env var, no secret reference on the Deployment. The values
+              # exist; the template does not consume them.
+              #
+              # >>> CURRENT STATE, STATED PLAINLY: the gateway therefore runs on
+              # >>> APISIX'S PUBLISHED DEFAULT ADMIN KEY. To get the route
+              # >>> serving, secret/apisix-admin was aligned DOWN to that
+              # >>> literal so the controller and gateway agree. That is a
+              # >>> SECURITY REGRESSION against the generated key, accepted
+              # >>> knowingly on a 3-hour throwaway cluster whose Admin API is
+              # >>> ClusterIP-only, and it must not be copied anywhere real.
+              #
+              # The fix is upstream (make the chart honour secretName) or a
+              # post-renderer that rewrites the ConfigMap. Neither was done.
+              secretName: apisix-admin
+              secretAdminKey: key
         replicaCount: 3
+        # The chart has NO service.http.nodePort value, so the port is assigned
+        # at random (currently 32520) and cannot be pinned from git. The Terraform
+        # security-group rule opens 30093, which therefore points at nothing.
+        # Reach the gateway with a port-forward, or read the assigned port:
+        #   kubectl -n apisix get svc apisix-gateway -o jsonpath='{.spec.ports[0].nodePort}'
+        # The imperative installer patches it; the Application cannot.
         service: {type: NodePort}
         resources: {requests: {cpu: 50m, memory: 128Mi}}
         metrics:

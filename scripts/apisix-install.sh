@@ -87,7 +87,8 @@ helm upgrade --install apisix apisix/apisix \
   --set apisix.prometheus.enabled=true \
   --set metrics.serviceMonitor.enabled=true \
   --set metrics.serviceMonitor.namespace="$NS" \
-  --set-string apisix.admin.credentials.admin="$ADMIN_KEY" \
+  --set apisix.admin.credentials.secretName=apisix-admin \
+  --set apisix.admin.credentials.secretAdminKey=key \
   --set apisix.admin.allow.ipList[0]=0.0.0.0/0 \
   --set etcd.enabled=false \
   --set externalEtcd.host[0]=http://apisix-etcd.apisix.svc.cluster.local:2379 \

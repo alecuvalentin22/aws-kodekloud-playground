@@ -75,6 +75,44 @@ the 3-node spread are applied and visible, but no `kubectl drain` has been run
 against them, so "a drain does not drop traffic" is currently a design intent
 rather than a measurement. T-20's acceptance criteria asks for that explicitly.
 
+## Best practices + version audit, 2026-09-02 (account 587263142585)
+
+**Verified on a live cluster:**
+
+| | Result |
+|---|---|
+| `versions.env` + `check-versions.sh` | 12/12 components current, exit 0 |
+| Argo CD running the pinned version | `quay.io/argoproj/argocd:v3.5.2` |
+| `eks-up.sh` phase 4 | `gp3 (ebs.csi.aws.com)` default automatically, no manual step |
+| `ServerSideDiff=true` | **`platform-apisix` went Synced** — it was permanently OutOfSync before |
+| `FailOnSharedResource=true` + chart-owned IngressClass | **`SharedResourceWarning` count: 0** |
+| Chart-rendered wiring | `IngressClass → GatewayProxy/apisix-ingress-controller-config`, no hand-written pair |
+| External etcd | `bitnamilegacy/etcd:3.6.4-debian-12-r4` — **pinned**, replacing the bundled `:latest` |
+| End to end | ApisixRoute `Accepted`, gateway serves `v1` |
+| Final | 9/10 Applications Synced, **10/10 Healthy**, 54 pods, 0 Pending |
+
+**Two things NOT fixed, stated plainly rather than rounded up:**
+
+1. **The gateway runs APISIX's published default admin key.**
+   `apisix.admin.credentials.secretName` is in the chart's values schema and does
+   **not work** in chart 2.17.0 — the rendered ConfigMap still contains the
+   literal `edd1c9f0…`. To get the route serving, `secret/apisix-admin` was
+   aligned *down* to that default so the controller and gateway agree. That is a
+   **security regression** against the generated key, taken knowingly on a
+   throwaway cluster whose Admin API is ClusterIP-only. Do not copy it.
+
+2. **The gateway NodePort cannot be pinned from git.** The chart has no
+   `service.http.nodePort` value, so it is assigned at random and the Terraform
+   rule for 30093 points at nothing. The imperative installer patches it; the
+   Application cannot.
+
+Both are the same shape as the drift documented below: the imperative script can
+patch things the Helm chart does not expose, and an Application cannot.
+
+**`platform-etcd` stays OutOfSync** on `StatefulSet/apisix-etcd` while sync
+reports "successfully synced (all tasks run)" — the same defaulted-field pattern
+as before, now on the image override.
+
 ## Platform under GitOps, 2026-09-01
 
 The repo previously reconciled its workloads with Argo CD and Flux and installed
