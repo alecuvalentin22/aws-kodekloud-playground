@@ -11,6 +11,19 @@ neither is.
 
 ---
 
+## Versions
+
+Every pin lives in `versions.env`; nothing is pinned inline. Check for drift:
+
+```bash
+./scripts/check-versions.sh     # non-zero if anything is behind upstream
+```
+
+Pinning is deliberate — a floating tag means the cluster can change with no
+commit — so the trade is made visible rather than avoided. The one component
+that had gone stale unnoticed was a chart's *bundled* dependency running an
+unpinned `:latest` from an archived registry; see `AGENTS.md` §4f.
+
 ## The story, for an interview
 
 - **`STORY-AWS.md`** — what this taught me, and the ten findings worth saying
@@ -47,6 +60,8 @@ Two independent tracks live in this repo:
 |---|---|---|
 | **Elasticsearch lab** | 3-node ES, Kibana, MinIO, PostgreSQL, k3s/RKE2, Kong, Keycloak, Rancher on EC2 | `make ec2` then the playbooks |
 | **GitOps lab** | Argo CD and Flux reconciling this repo into one EKS cluster, side by side, plus Argo Rollouts / Flagger / sealed-secrets / Helm | `make eks && make gitops && make addons` |
+| **Platform under GitOps** | ingress-nginx, Prometheus/Grafana, APISIX and etcd as Argo CD Applications rather than shell scripts — an app-of-apps with sync waves | `kubectl apply -f gitops/platform/root.yaml` |
+| **API gateway** | Apache APISIX alongside Kong, with the control-plane vs data-plane and canary-observability scenarios | `make apisix` |
 
 `make eks` runs a **three-phase** build. Do not replace it with `terraform
 apply`: EKS caps pods per node by ENI rather than CPU (17 on a `t3.medium`), and

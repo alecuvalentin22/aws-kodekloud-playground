@@ -467,6 +467,81 @@ simply has no nodes. It is now built with `yamlencode`, which cannot emit
 misindented YAML. Reach for `yamlencode` whenever generated YAML is
 indentation-sensitive.
 
+## 4e. The platform layer under GitOps, and the Argo CD behaviour it exposed
+
+`gitops/platform/` is an app-of-apps: ingress-nginx, Prometheus/Grafana, APISIX,
+etcd and the StorageClass are **Argo CD Applications**, not shell scripts. Before
+it existed the repo reconciled its *workloads* with GitOps and installed its
+*platform* with `helm` from a script somebody ran by hand — which fails the
+obvious question, *"you say GitOps, what reconciles your platform?"*
+
+```bash
+./scripts/eks-up.sh          # four phases now -- prefix delegation AND storage
+./scripts/gitops-install.sh
+./scripts/apisix-bootstrap-secret.sh
+kubectl apply -f gitops/platform/project.yaml -f gitops/platform/root.yaml
+```
+
+**Owned by Argo CD alone.** Two controllers reconciling one Helm release fight,
+each reading the other's writes as drift. The Argo-vs-Flux comparison stays at
+the workload layer where the namespaces are disjoint.
+
+### Argo CD facts this cost time to learn
+
+| | |
+|---|---|
+| **Argo CD never runs `helm install`** | It runs `helm template` and applies. No release Secret is created or read, so "adopting a release" is not a thing — it manages the same *objects* while the old release Secret sits ignored, a latent hazard if someone later runs `helm upgrade` |
+| **`helm.releaseName` is a template variable** | It sets `.Release.Name`, defaulting to the *Application* name. Charts build resource NAMES from it, so omitting it renders a parallel set of objects (`platform-apisix-*` beside `apisix-*`). The symptom is `OutOfSync`/**`Missing`**, not a conflict |
+| **`ServerSideApply=true` silently selects a discontinued diff strategy** | It enables Structured-Merge Diff, which the docs mark *Feature Discontinued* for "challenges calculating diffs for CRDs that define default values". Measured: 15 of 16 differing fields were server-side defaults. Pair it with **`ServerSideDiff=true`** |
+| **`ignoreDifferences` does not stop writes** | It affects the diff only; "during the sync stage, the desired state is applied as-is". Add **`RespectIgnoreDifferences=true`** or Argo CD keeps writing the field it stopped reporting |
+| **`ignoreDifferences` does not resolve ownership either** | Two Applications claiming one object still both write. **`FailOnSharedResource=true`** is the documented circuit-breaker; it fails the sync rather than deciding an owner |
+| **There is no Application-level "exclude one resource"** | If a chart templates something you must own elsewhere, the options are kustomize `helmCharts` inflation with `$patch: delete`, a post-renderer, or a chart value that disables it |
+| **Helm hooks: every operation is a sync** | `pre-install` and `pre-upgrade` both map to `PreSync` and Argo CD cannot tell an install from an upgrade, so **pre-upgrade hooks run on fresh installs** |
+| **`Healthy` ≠ "git got applied"** | An Application read `Healthy` through five consecutive failed syncs. `Healthy` means what exists is working, not that what git asked for exists |
+
+### The deadlock, and the churn — both worth being able to describe
+
+**Deadlock.** APISIX's bundled etcd ships a `pre-upgrade` hook. On a fresh
+install Argo CD runs it anyway (see above), it mounts a Secret the *main sync*
+creates, and the main sync is blocked waiting for the hook. Pod
+`ContainerCreating` for 10+ minutes, Application `OutOfSync/Missing/Running`, no
+error anywhere. Fixed by deploying etcd separately with
+`preUpgradeJob.enabled=false` — which also replaced an **unpinned
+`bitnamilegacy/etcd:latest`** with a pinned tag.
+
+**Churn.** `platform-etcd` sits `OutOfSync` on exactly one genuine field: a
+`checksum/token-secret` annotation over a **randomly generated** JWT key, so
+every render differs. That is a *documented* legitimate cause ("Helm charts that
+use non-deterministic functions"). But `ignoreDifferences` alone made it worse —
+Argo CD stopped reporting the diff and kept writing it, rolling a **quorum
+system** on every sync. StatefulSet generation climbed while the Secret's
+`resourceVersion` never moved. `RespectIgnoreDifferences=true` stopped it.
+
+> **Suppressing a report without stopping the write is worse than doing nothing,
+> because it hides the churn.**
+
+Full detail and the measurements: `gitops/platform/README.md` and `VERIFIED.md`.
+
+## 4f. Versions
+
+`versions.env` is the single source of truth; every install script sources it.
+The same component used to be pinned in three places and had already drifted.
+
+```bash
+./scripts/check-versions.sh      # diffs every pin against upstream, non-zero if behind
+```
+
+Pinning is right — a floating tag means the cluster changes with no commit — but
+a pin nobody re-checks is an unpatched version with extra steps, so staleness is
+made cheap to see. The checker counts "could not check" separately from
+"current": GitHub rate-limits at 60/hour, and a checker that reports success
+when it failed to check is worse than none.
+
+**The worst offender was not in any list**: APISIX's bundled etcd ran
+`bitnamilegacy/etcd:latest` — unpinned, from Bitnami's *archived* catalogue.
+Worth knowing that `docker.io/bitnami/etcd` now has **no tags at all** since
+Bitnami went subscription-only, so the archived repo is the only pullable one.
+
 ## 5. What the playground does NOT allow
 
 Verified by running it, not by reading docs:
