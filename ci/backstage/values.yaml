@@ -1,0 +1,45 @@
+# Backstage, the developer portal, with a catalog read from THIS repository.
+#
+# What Backstage is for, in one line: developers on other teams should be able
+# to answer "who owns this, where is its pipeline, how do I build a new one"
+# without asking the platform team. The catalog answers the first two; the
+# scaffolder (software templates) answers the third.
+#
+# This runs the upstream DEMO image. A real deployment builds its own image,
+# because Backstage plugins are compiled in -- you cannot install a plugin into
+# a running Backstage the way you install one into Jenkins. That difference is
+# the most important thing to know about operating it.
+backstage:
+  image:
+    registry: ghcr.io
+    repository: backstage/backstage
+    # Pinned. The chart's default is :latest.
+    tag: "1.55.2"
+  resources:
+    requests: {cpu: 100m, memory: 512Mi}
+    limits: {memory: 1Gi}
+  appConfig:
+    app:
+      baseUrl: http://localhost:7007
+    backend:
+      baseUrl: http://localhost:7007
+      # In-memory SQLite: the catalog rebuilds from git on every start, which
+      # is fine because git IS the source of truth for the catalog. Production
+      # uses PostgreSQL so search indexes and scaffolder history survive.
+      database:
+        client: better-sqlite3
+        connection: ':memory:'
+    catalog:
+      rules:
+        - allow: [Component, System, API, Resource, Location, Group, User, Template]
+      locations:
+        - type: url
+          target: https://github.com/alecuvalentin22/aws-kodekloud-playground/blob/main/catalog-info.yaml
+
+service:
+  type: NodePort
+  nodePorts:
+    backend: 30096
+
+postgresql:
+  enabled: false

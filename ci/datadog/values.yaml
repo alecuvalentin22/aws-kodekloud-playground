@@ -1,0 +1,39 @@
+# Datadog Agent on EKS. Datadog is SaaS -- the agent ships data to your Datadog
+# org -- so this needs a real API key (a 14-day trial is enough) and cannot be
+# exercised offline. The cluster's own Prometheus/Grafana is the stand-in when
+# there is no key; the concepts (agents, tags, monitors, APM) are the same.
+datadog:
+  # Supplied by scripts/datadog-install.sh from $DD_API_KEY into a Secret.
+  # NEVER put the key in this file -- it is a public repository.
+  apiKeyExistingSecret: datadog-secret
+  site: datadoghq.com          # or datadoghq.eu, us3/us5.datadoghq.com
+  clusterName: platform-lab-eks
+  # Every metric, log and trace gets these tags. Tags are how you slice in
+  # Datadog; an untagged agent is a firehose nobody can query.
+  tags:
+    - env:lab
+    - team:platform
+  logs:
+    enabled: true
+    containerCollectAll: true
+  apm:
+    portEnabled: true
+  processAgent:
+    enabled: true
+  # On EKS the kubelet's serving certificate is not signed for the address the
+  # agent dials, so TLS verification fails and the agent reports NO pod metrics
+  # -- silently. This is the single most common "Datadog shows nothing" cause
+  # on EKS. Disabling verification is the documented workaround.
+  kubelet:
+    tlsVerify: false
+
+clusterAgent:
+  enabled: true
+  resources:
+    requests: {cpu: 50m, memory: 128Mi}
+
+agents:
+  containers:
+    agent:
+      resources:
+        requests: {cpu: 100m, memory: 256Mi}
