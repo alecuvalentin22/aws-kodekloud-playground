@@ -67,13 +67,43 @@ resource "aws_ecs_cluster" "this" {
   name = var.prefix
 }
 
+# Master and join keys, supplied rather than generated on first boot.
+#
+# Left to itself, Artifactory's access service generates the master key while
+# the core service waits for it -- for 60 seconds. On a single throttled vCPU
+# access was still starting when the wait expired, and the core gave up:
+#   Master key is missing. Pending for 5 seconds with 60 seconds timeout
+#   Failed initializing Home. Caught exception:
+# with the container still RUNNING. The Helm chart always supplies these keys,
+# which is why nobody using the chart sees this.
+#
+# Plain env vars, so they sit in the task definition and in Terraform state.
+# Acceptable for a three-hour lab with nothing in it; in production they come
+# from Secrets Manager via `secrets`, which needs a task execution role this
+# playground does not allow.
+resource "random_id" "master_key" {
+  byte_length = 32
+}
+
+resource "random_id" "join_key" {
+  byte_length = 32
+}
+
 resource "aws_ecs_task_definition" "artifactory" {
   family                   = "artifactory-oss"
   requires_compatibilities = ["FARGATE"]
   network_mode             = "awsvpc"
-  # 1 vCPU / 4 GiB. Artifactory is a JVM and will not start in less than ~2 GiB.
-  cpu    = "1024"
-  memory = "4096"
+  # 2 vCPU / 8 GiB. Memory was never the problem; CPU was.
+  #
+  # Artifactory is EIGHT services in one container (router, access, core,
+  # metadata, frontend, event, observability, topology), and they start in
+  # parallel against hard timeouts. On 1 vCPU, access took 364 s to start:
+  #   Started AccessApplication in 364.758 seconds
+  # and the router -- the process that serves :8082 -- had already given up:
+  #   [jfrou] [FATAL] Failed joining Access: ... context deadline exceeded
+  # Container RUNNING, port closed, forever. Doubling the CPU is the fix.
+  cpu    = "2048"
+  memory = "8192"
 
   ephemeral_storage {
     size_in_gib = 30
@@ -90,6 +120,15 @@ resource "aws_ecs_task_definition" "artifactory" {
     environment = [
       # Embedded database: one container, no PostgreSQL to run.
       { name = "JF_SHARED_DATABASE_TYPE", value = "derby" },
+      # REQUIRED with Derby on current versions. Without it the task sits
+      # RUNNING forever while the app inside is dead -- the only trace is in a
+      # log this task cannot ship (no execution role, so no awslogs):
+      #   java.lang.IllegalStateException: Cannot start the application with a
+      #   database other than PostgreSQL.
+      # Found by running the same image as a pod on EKS and reading kubectl logs.
+      { name = "JF_SHARED_DATABASE_ALLOWNONPOSTGRESQL", value = "true" },
+      { name = "JF_SHARED_SECURITY_MASTERKEY", value = random_id.master_key.hex },
+      { name = "JF_SHARED_SECURITY_JOINKEY", value = random_id.join_key.hex },
     ]
     ulimits = [{
       name      = "nofile"
