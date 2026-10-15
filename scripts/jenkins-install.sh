@@ -2,6 +2,10 @@
 # Jenkins on EKS, configured as code.
 #
 #   ./scripts/jenkins-install.sh        # or: make jenkins
+#   JENKINS_ADMIN_PASSWORD=admin ./scripts/jenkins-install.sh
+#
+# The password is passed at install time, never written to values.yaml: this
+# is a public repository. Unset, the chart generates a random one.
 #
 # Everything Jenkins knows comes from ci/jenkins/values.yaml (JCasC + Job DSL)
 # and ci/shared-library/. Delete the controller pod and it comes back identical;
@@ -45,6 +49,7 @@ helm upgrade --install jenkins jenkins/jenkins \
   --kube-context "$CLUSTER" --namespace jenkins \
   --version "$JENKINS_CHART" \
   -f "$HERE/ci/jenkins/values.yaml" \
+  ${JENKINS_ADMIN_PASSWORD:+--set-string controller.admin.password="$JENKINS_ADMIN_PASSWORD"} \
   --wait --timeout 15m
 
 PW="$($K -n jenkins get secret jenkins -o jsonpath='{.data.jenkins-admin-password}' | base64 -d)"

@@ -19,6 +19,9 @@ metadata:
   namespace: artifactory
 spec:
   replicas: 1
+  # Longer than the 12-minute startup budget below, or `rollout status` calls
+  # the rollout failed while the pod is still legitimately starting.
+  progressDeadlineSeconds: 1200
   # Recreate: two Artifactorys on one embedded Derby database is corruption.
   strategy: {type: Recreate}
   selector:
@@ -43,9 +46,18 @@ spec:
               valueFrom: {secretKeyRef: {name: artifactory-keys, key: master-key}}
             - name: JF_SHARED_SECURITY_JOINKEY
               valueFrom: {secretKeyRef: {name: artifactory-keys, key: join-key}}
+            # FIVE JVMs in this one container (core, access, jfconfig,
+            # topology, jfbus). Each sizes its heap as 25% of the container
+            # limit by default, so together they ask for more than the limit
+            # and the container is OOMKilled (exit 137) mid-start -- observed at
+            # 3Gi. Cap every JVM small, then give the core service a real heap
+            # (an explicit -Xmx beats MaxRAMPercentage).
+            - {name: JAVA_TOOL_OPTIONS, value: "-XX:MaxRAMPercentage=12"}
+            - {name: JF_SHARED_EXTRAJAVAOPTS, value: "-Xms512m -Xmx1g"}
           resources:
+            # A t3.medium has ~3.2Gi allocatable. This is nearly all of a node.
             requests: {cpu: 1500m, memory: 2560Mi}
-            limits: {memory: 3Gi}
+            limits: {memory: 3100Mi}
           # Up to 12 minutes to start. A cold start is eight services coming
           # up in parallel; if the router gives up on access first, this probe
           # fails, kubelet restarts the CONTAINER, and the second start is warm
