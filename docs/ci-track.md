@@ -16,7 +16,7 @@ flowchart LR
   A -->|"kubectl apply<br/>rollout status"| APP["demo-api<br/>EKS · ns demo-ci"]
   ECR -->|"node pulls"| APP
   BS["Backstage<br/>EKS · ns backstage"] -.->|"reads catalog-info.yaml"| GH
-  RT["Artifactory OSS<br/>EKS · ns artifactory"]
+  RT["Artifactory OSS<br/>did not fit the playground"]
 ```
 
 | Piece | Where | Why there |
@@ -24,7 +24,7 @@ flowchart LR
 | Jenkins | EKS, `jenkins` ns | agents are pods: a build gets a clean container set and disappears |
 | demo-api | EKS, `demo-ci` ns | the deploy target; agent RBAC is limited to this namespace |
 | Backstage | EKS, `backstage` ns | catalog of what exists and who owns it |
-| Artifactory OSS | EKS, `artifactory` ns (ECS version in `terraform/ecs`) | planned for **ECS Fargate**: it doesn't count against the 5-instance EC2 cap and could build while the cluster built. It needs ~2 vCPU to start, and the playground's compliance job deleted the 2 vCPU service after 5 minutes. See "Why ECS for one thing" below |
+| Artifactory OSS | **not running on the playground** | it needs ~2 vCPU and over 3Gi. On the playground, Fargate is capped at 1 vCPU (a 2 vCPU service was deleted by the compliance job) and EKS nodes are t3.medium (OOMKilled). `terraform/ecs` and `ci/artifactory/` work in a normal account. Drill 18 §8 is the story |
 | Datadog | not installed | SaaS: needs a trial API key. `DD_API_KEY=... make datadog` |
 
 URLs change every rebuild. Get them with `make urls` (EKS NodePorts: Jenkins
@@ -36,7 +36,6 @@ URLs change every rebuild. Get them with `make urls` (EKS NodePorts: Jenkins
 NODE_DESIRED=5 ./scripts/eks-up.sh               # ~20 min
 make jenkins                                     # prints URL + admin password
 make backstage
-make artifactory                                 # cold start takes several minutes
 ```
 
 Then open Jenkins → `demo-api` → **Scan Multibranch Pipeline Now**.

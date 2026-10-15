@@ -218,6 +218,18 @@ Then the 2 vCPU fix was **deleted by someone else**: CloudTrail showed
 `assumed-role/OrganizationAccountAccessRole/ConfigRuleCheckerSession…`, the
 playground's compliance job, five minutes after a successful apply.
 
+Moved to EKS, where a t3.medium can burst to 2 vCPU, it then died a fourth way:
+
+```
+lastState.terminated: {"exitCode":137,"reason":"OOMKilled"}      # limit 3Gi
+```
+
+It runs five JVMs, and each sizes its heap as a share of the container limit,
+so together they claim more memory than the limit allows. With the heaps capped
+it still did not answer inside a 12-minute startup probe, and that is where it
+was left. **It does not fit this playground.** Knowing when to stop and write
+that down is part of the job.
+
 Two lessons. A container being up does not mean the app is: without a health
 check nothing compares the two, so give every service a health check and a log
 driver. And when a resource disappears, ask CloudTrail who removed it before

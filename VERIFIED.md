@@ -190,6 +190,29 @@ and their costs, are in `gitops/platform/README.md`. This is not resolved.
 Argo-CD-owned on purpose. And no `kubectl drain` has been run, so the HA claim
 in `kubernetes/apisix/ha.yaml` remains design intent.
 
+## CI track, 2026-10-15 (account 571600847051)
+
+Jenkins, Backstage and Artifactory, built for interview practice. See
+`docs/ci-track.md`; every failure quoted in `drills/18` came from this run.
+
+| | Evidence |
+|---|---|
+| `NODE_DESIRED=5 ./scripts/eks-up.sh` | exit 0, **5 nodes x 110 max-pods**, default SC `gp3 (ebs.csi.aws.com)` |
+| Jenkins via `make jenkins` | JCasC created the `platform-lib` library and the `demo-api` multibranch job; no clicks |
+| demo-api main build #2 | test (3 passed) → rootless BuildKit → ECR push → `kubectl apply` → `rollout status` OK; `curl :30095` returns the new tag |
+| Build #1 | **failed**: 401 on push (root-owned 600 config unreadable to BuildKit uid 1000) **and leaked the ECR token via `sh -x`**. Both fixed in `buildImage.groovy`; build record deleted |
+| Build #3 | node role without PowerUser → `denied: ... not authorized to perform: ecr:InitiateLayerUpload` |
+| Branch build | failing test → Build/Deploy "skipped due to earlier failure(s)"; fixed → image built, `not pushed`, Deploy "skipped due to when conditional" |
+| Agent RBAC | `auth can-i --as jenkins-agent`: yes in `demo-ci`, no in `default`/`kube-system`, no to secrets in `jenkins` |
+| Readiness stall | FAIL_HEALTH → new pod 0/1 with probe 500, old pods kept serving, `rollout status` timed out, `undo` recovered |
+| Backstage via `make backstage` | guest token → `/api/catalog/entities` returned all 7 entities from `catalog-info.yaml` |
+| Artifactory OSS | **never served a request.** Fargate 1 vCPU: router timed out waiting for access (364 s). Fargate 2 vCPU: deleted by the playground's ConfigRuleChecker after 5 min. EKS t3.medium: OOMKilled at 3Gi (five JVMs), then with heaps capped still not up inside a 12-minute startup probe. Fixes for the first three failures are in `terraform/ecs` and `ci/artifactory`; it needs a node bigger than the playground allows |
+
+**Not verified:** Artifactory (above). Datadog (no API key; values and installer are written, never
+applied). IRSA/Pod Identity for the agent was not attempted, so ECR push still
+rides on the node role. JCasC restoring a controller from an *empty* volume
+was not tested; deleting the pod alone proves little because the PVC survives.
+
 ## Previously NOT run end to end (now all run)
 
 **`scripts/eks-up.sh`.** Its three phases were executed by hand — `terraform
