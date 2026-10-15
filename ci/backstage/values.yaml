@@ -19,16 +19,29 @@ backstage:
     requests: {cpu: 100m, memory: 512Mi}
     limits: {memory: 1Gi}
   appConfig:
+    # Both baseUrls are OVERRIDDEN at install time with the node address by
+    # scripts/backstage-install.sh. The browser is told to call the backend at
+    # backend.baseUrl -- leave it at localhost and the page loads (the backend
+    # serves the frontend) but every API call goes to the viewer's own laptop.
     app:
       baseUrl: http://localhost:7007
     backend:
       baseUrl: http://localhost:7007
+      cors:
+        origin: http://localhost:7007
       # In-memory SQLite: the catalog rebuilds from git on every start, which
       # is fine because git IS the source of truth for the catalog. Production
       # uses PostgreSQL so search indexes and scaffolder history survive.
       database:
         client: better-sqlite3
         connection: ':memory:'
+    # Guest sign-in. Backstage refuses the guest provider outside development
+    # unless told otherwise; a lab with no identity provider has no other way
+    # in. Production wires GitHub/OIDC sign-in here instead.
+    auth:
+      providers:
+        guest:
+          dangerouslyAllowOutsideDevelopment: true
     catalog:
       rules:
         - allow: [Component, System, API, Resource, Location, Group, User, Template]

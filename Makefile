@@ -100,6 +100,12 @@ apisix: ## Apache APISIX gateway + etcd + ingress controller, alongside Kong
 jenkins: ## Jenkins (JCasC) + shared library + demo-api pipeline -> ECR -> EKS
 	./scripts/jenkins-install.sh
 
+backstage: ## Backstage developer portal, catalog from catalog-info.yaml
+	./scripts/backstage-install.sh
+
+datadog: ## Datadog agent (needs DD_API_KEY from a trial)
+	./scripts/datadog-install.sh
+
 addons: ## ingress-nginx, Argo Rollouts, Flagger, sealed-secrets, flux-operator
 	./scripts/gitops-addons.sh
 
