@@ -1,0 +1,59 @@
+# The agent pod every platform-lib build runs in. Owned by the LIBRARY, not by
+# each team's Jenkinsfile -- so "which tools, which versions" is changed in one
+# reviewed place, and a team cannot quietly pin themselves to an old python.
+#
+# Every image is pinned. A `:latest` here means two builds of the same commit
+# can produce different results, which defeats the point of CI.
+apiVersion: v1
+kind: Pod
+spec:
+  serviceAccountName: jenkins-agent
+  containers:
+    # Runs the tests.
+    - name: python
+      image: python:3.13.16-slim
+      command: [sleep]
+      args: [infinity]
+      resources:
+        requests: {cpu: 100m, memory: 128Mi}
+        limits: {memory: 512Mi}
+
+    # Builds and pushes the image. ROOTLESS BuildKit -- the engine underneath
+    # `docker build` -- with no Docker daemon and no privileged container.
+    #
+    # Why not the alternatives:
+    #   docker.sock mount  impossible on EKS >= 1.24: nodes run containerd,
+    #                      there is no Docker daemon to mount.
+    #   Docker-in-Docker   works and is common, but needs `privileged: true`,
+    #                      i.e. root on the node. See ci/README.md.
+    #   kaniko             Google archived it in June 2025. A fork lives on,
+    #                      but starting new work on an archived tool is a bad bet.
+    #
+    # Rootless BuildKit cannot create its own process sandbox inside an
+    # unprivileged pod, hence --oci-worker-no-process-sandbox and the relaxed
+    # seccomp/apparmor profiles. That is the documented trade for running it
+    # rootless in Kubernetes, and it is still far less than `privileged`.
+    - name: buildkit
+      image: moby/buildkit:v0.34.0-rootless
+      command: [sleep]
+      args: [infinity]
+      env:
+        - name: BUILDKITD_FLAGS
+          value: --oci-worker-no-process-sandbox
+      securityContext:
+        runAsUser: 1000
+        runAsGroup: 1000
+        seccompProfile: {type: Unconfined}
+        appArmorProfile: {type: Unconfined}
+      resources:
+        requests: {cpu: 250m, memory: 512Mi}
+        limits: {memory: 1536Mi}
+
+    # kubectl + aws CLI, for the ECR login token and the deploy.
+    - name: deploy
+      image: alpine/k8s:1.33.13
+      command: [sleep]
+      args: [infinity]
+      resources:
+        requests: {cpu: 50m, memory: 64Mi}
+        limits: {memory: 256Mi}

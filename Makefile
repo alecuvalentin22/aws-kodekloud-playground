@@ -97,6 +97,9 @@ apisix: ## Apache APISIX gateway + etcd + ingress controller, alongside Kong
 	./scripts/apisix-install.sh
 	kubectl --context $(CLUSTER) apply -f kubernetes/apisix/demo/
 
+jenkins: ## Jenkins (JCasC) + shared library + demo-api pipeline -> ECR -> EKS
+	./scripts/jenkins-install.sh
+
 addons: ## ingress-nginx, Argo Rollouts, Flagger, sealed-secrets, flux-operator
 	./scripts/gitops-addons.sh
 

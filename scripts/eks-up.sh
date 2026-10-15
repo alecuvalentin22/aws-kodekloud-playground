@@ -72,34 +72,32 @@ command -v terraform >/dev/null || { echo "terraform not on PATH" >&2; exit 1; }
 # ---------------------------------------------------------------------------
 TFVARS="$HERE/terraform/eks/terraform.tfvars"
 if [[ -f "$TFVARS" ]]; then
-  # -4 matters: curl and friends return IPv6 on some networks, and a security
-  # group rule wants IPv4.
+  # Probe with checkip.AMAZONAWS.com specifically, not a generic echo service.
+  #
+  # This laptop has SPLIT ROUTING: traffic to AWS endpoints leaves via an AWS
+  # egress (18.185.11.51, eu-central-1) while everything else leaves via the
+  # home ISP (86.121.140.x). Measured: checkip.amazonaws.com -> 18.185.11.51,
+  # api.ipify.org -> 86.121.140.106, at the same moment. The EKS API is an AWS
+  # endpoint, so it sees the AWS-path address -- and checkip.amazonaws.com is on
+  # that same path. What looked like "the IP rotated mid-session" in an earlier
+  # session was this: the two paths, not a rotation.
   MYIP="$(python3 -c "import urllib.request;print(urllib.request.urlopen('https://checkip.amazonaws.com').read().decode().strip())" 2>/dev/null || true)"
-  # `|| true` is load-bearing. Once public_access_cidrs became /24s there was no
-  # /32 to find, grep exited 1, and under `set -e` a failing command
-  # substitution in an assignment kills the script -- with NO output at all,
-  # because this runs before the first echo. The build simply returned 1.
-  WANT="$(grep -oE '[0-9]+\.[0-9]+\.[0-9]+\.[0-9]+/32' "$TFVARS" | head -1 || true)"
-  # Only meaningful when the allowlist is a single /32. With a wider prefix the
-  # check cannot be a string compare, and the whole point of widening was that a
-  # rotation inside the prefix is now survivable -- so skip it.
-  if [[ -n "$MYIP" && -n "$WANT" && "$WANT" != "$MYIP/32" ]]; then
+  # Real CIDR membership, not a string compare against a single /32.
+  if [[ -n "$MYIP" ]] && ! python3 - "$MYIP" "$TFVARS" <<'PY'
+import ipaddress, re, sys
+ip = ipaddress.ip_address(sys.argv[1])
+cidrs = re.findall(r'"([0-9.]+/[0-9]+)"', open(sys.argv[2]).read())
+sys.exit(0 if any(ip in ipaddress.ip_network(c, strict=False) for c in cidrs) else 1)
+PY
+  then
     echo >&2
-    echo "REFUSING: your public IP has changed since terraform.tfvars was written." >&2
-    echo "  tfvars allows : $WANT" >&2
-    echo "  you are at    : $MYIP/32" >&2
-    echo >&2
+    echo "REFUSING: $MYIP (as seen by AWS) is not inside public_access_cidrs in" >&2
+    echo "  $TFVARS" >&2
     echo "The cluster would build and then be unreachable, and this playground" >&2
-    echo "denies eks:UpdateClusterConfig so it could not be fixed afterwards." >&2
-    echo >&2
-    echo "  sed -i '' 's|$WANT|$MYIP/32|' $TFVARS" >&2
+    echo "denies eks:UpdateClusterConfig so the allowlist cannot be fixed later." >&2
     exit 1
   fi
-  if [[ -n "$WANT" ]]; then
-    echo "==> Preflight: public IP $MYIP matches the /32 in terraform.tfvars"
-  else
-    echo "==> Preflight: allowlist is wider than a /32 ($(grep -oE '"[0-9./, "]+"' "$TFVARS" | head -1)); IP is $MYIP"
-  fi
+  echo "==> Preflight: AWS sees you as $MYIP, which is inside public_access_cidrs"
 fi
 command -v kubectl   >/dev/null || { echo "kubectl not on PATH" >&2; exit 1; }
 

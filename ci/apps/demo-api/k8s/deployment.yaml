@@ -1,0 +1,54 @@
+# IMAGE_PLACEHOLDER is substituted by the deployToEks library step.
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: demo-api
+  labels: {app: demo-api}
+spec:
+  replicas: 2
+  revisionHistoryLimit: 5
+  selector:
+    matchLabels: {app: demo-api}
+  strategy:
+    type: RollingUpdate
+    # Never drop below the current replica count while rolling. A bad image
+    # therefore stalls the rollout instead of taking the service down -- which
+    # is what gives `rollout status` something to time out on and the
+    # pipeline something to roll back.
+    rollingUpdate: {maxUnavailable: 0, maxSurge: 1}
+  template:
+    metadata:
+      labels: {app: demo-api}
+    spec:
+      containers:
+        - name: demo-api
+          image: IMAGE_PLACEHOLDER
+          ports: [{containerPort: 8080, name: http}]
+          env:
+            - name: FAIL_HEALTH
+              value: "false"
+          readinessProbe:
+            httpGet: {path: /healthz, port: http}
+            periodSeconds: 5
+            failureThreshold: 3
+          livenessProbe:
+            httpGet: {path: /healthz, port: http}
+            initialDelaySeconds: 10
+            periodSeconds: 10
+          resources:
+            requests: {cpu: 50m, memory: 64Mi}
+            limits: {memory: 256Mi}
+          securityContext:
+            runAsNonRoot: true
+            allowPrivilegeEscalation: false
+            readOnlyRootFilesystem: false
+---
+apiVersion: v1
+kind: Service
+metadata:
+  name: demo-api
+spec:
+  type: NodePort
+  selector: {app: demo-api}
+  ports:
+    - {name: http, port: 80, targetPort: http, nodePort: 30095}

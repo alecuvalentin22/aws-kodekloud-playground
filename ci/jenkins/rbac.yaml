@@ -1,0 +1,50 @@
+# What a Jenkins AGENT may do, which is deliberately far less than the
+# controller.
+#
+#   jenkins (controller SA)  creates/deletes agent pods in the jenkins namespace
+#                             -- granted by the chart
+#   jenkins-agent            deploys into demo-ci, and NOTHING else
+#
+# A pipeline is arbitrary code from a git repository. Whatever the agent's
+# service account can do, any branch of any repo Jenkins builds can do. So the
+# agent gets one namespace, and no cluster-scoped rights at all.
+apiVersion: v1
+kind: Namespace
+metadata:
+  name: demo-ci
+---
+apiVersion: v1
+kind: ServiceAccount
+metadata:
+  name: jenkins-agent
+  namespace: jenkins
+---
+apiVersion: rbac.authorization.k8s.io/v1
+kind: Role
+metadata:
+  name: deployer
+  namespace: demo-ci
+rules:
+  - apiGroups: ["apps"]
+    resources: [deployments, replicasets]
+    verbs: [get, list, watch, create, update, patch]
+  - apiGroups: [""]
+    resources: [services, pods, configmaps]
+    verbs: [get, list, watch, create, update, patch]
+  - apiGroups: [""]
+    resources: [events]
+    verbs: [get, list, watch]
+---
+apiVersion: rbac.authorization.k8s.io/v1
+kind: RoleBinding
+metadata:
+  name: jenkins-agent-deployer
+  namespace: demo-ci
+subjects:
+  - kind: ServiceAccount
+    name: jenkins-agent
+    namespace: jenkins
+roleRef:
+  apiGroup: rbac.authorization.k8s.io
+  kind: Role
+  name: deployer

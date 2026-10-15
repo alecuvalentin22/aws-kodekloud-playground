@@ -273,6 +273,10 @@ variable "node_service_ports" {
     grafana           = 30091
     prometheus        = 30092 # UNAUTHENTICATED -- see node_service_cidrs
     apisix-gateway    = 30093
+    jenkins           = 30094
+    demo-api          = 30095
+    backstage         = 30096
+    artifactory       = 30097
 
     # DELIBERATELY ABSENT: the APISIX Admin API.
     #

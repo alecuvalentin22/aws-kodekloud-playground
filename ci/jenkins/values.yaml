@@ -1,0 +1,124 @@
+# Jenkins on EKS, configured entirely as code.
+#
+# Nothing in this Jenkins is clicked together in the UI. Plugins, the
+# Kubernetes cloud, the shared library and the jobs themselves all come from
+# this file via Configuration as Code (JCasC) and Job DSL -- so the controller
+# is disposable: delete the pod, and it comes back identical. That is the
+# answer to "how do you keep Jenkins changes reviewable and repeatable?", and it
+# is the single biggest difference between a Jenkins people trust and a Jenkins
+# people are afraid to restart.
+controller:
+  # Pinned. The chart's appVersion is 2.580.1 LTS on JDK 25.
+  image:
+    tag: "2.580.1-jdk25"
+  resources:
+    requests: {cpu: 250m, memory: 1Gi}
+    limits: {memory: 2Gi}
+  serviceType: NodePort
+  nodePort: 30094
+  # The controller runs NO builds. Executors 0 means every build lands on an
+  # ephemeral agent pod, so a broken build cannot damage the controller and a
+  # build's tools never accumulate on it.
+  numExecutors: 0
+
+  # EVERY plugin pinned to an exact version, resolved from the update center
+  # for this core (2.580.1). Unpinned plugins are the most common way a Jenkins
+  # that worked yesterday fails to start today: a restart pulls a new plugin
+  # that wants a newer core, and the controller crashloops.
+  installPlugins:
+    - kubernetes:4560.vc25b_83890c34
+    - workflow-aggregator:608.v67378e9d3db_1
+    - git:5.11.0
+    - configuration-as-code:2136.veb_3a_554550b_f
+  additionalPlugins:
+    - job-dsl:3732.v9a_c49a_61a_313
+    - pipeline-groovy-lib:822.vc95f70dea_db_7
+    - timestamper:1.30
+    - pipeline-utility-steps:3.810.va_7672d206740
+    - ws-cleanup:0.49
+    - pipeline-stage-view:2.41
+    - pipeline-graph-view:1053.v9df19e6ceed2
+    - credentials-binding:728.v902a_273b_8947
+    - junit:1442.vb_b_a_467df2767
+  # Refuse to start rather than silently pull a newer plugin than pinned.
+  installLatestPlugins: false
+  installLatestSpecifiedPlugins: false
+
+  JCasC:
+    defaultConfig: true
+    configScripts:
+      # --- the shared library: "reusable pipeline patterns" -----------------
+      # Loaded implicitly into every pipeline, from THIS repository, at a
+      # specific path. Pinning defaultVersion to a branch is the lab choice; in
+      # production pin a TAG, so a library change cannot alter every team's
+      # pipeline at once -- see drills/18.
+      shared-library: |
+        unclassified:
+          globalLibraries:
+            libraries:
+              - name: platform-lib
+                defaultVersion: main
+                implicit: false
+                allowVersionOverride: true
+                includeInChangesets: false
+                retriever:
+                  modernSCM:
+                    libraryPath: ci/shared-library/
+                    scm:
+                      git:
+                        remote: https://github.com/alecuvalentin22/aws-kodekloud-playground.git
+
+      # --- jobs, seeded by Job DSL ------------------------------------------
+      # A MULTIBRANCH pipeline: one job, and Jenkins discovers every branch
+      # carrying ci/apps/demo-api/Jenkinsfile and builds it. That is the
+      # "branching workflows" half of the role -- feature branches get CI
+      # automatically; only main deploys (see the Jenkinsfile).
+      #
+      # Plain git branch source rather than github-branch-source: the GitHub
+      # API is rate-limited to 60 requests/hour unauthenticated, and a
+      # multibranch scan spends several per branch.
+      jobs: |
+        jobs:
+          - script: >
+              multibranchPipelineJob('demo-api') {
+                displayName('demo-api')
+                description('Built by the platform-lib shared library. Seeded by Job DSL.')
+                branchSources {
+                  git {
+                    id('demo-api-src')
+                    remote('https://github.com/alecuvalentin22/aws-kodekloud-playground.git')
+                  }
+                }
+                factory {
+                  workflowBranchProjectFactory {
+                    scriptPath('ci/apps/demo-api/Jenkinsfile')
+                  }
+                }
+                triggers {
+                  periodicFolderTrigger { interval('5m') }
+                }
+                orphanedItemStrategy {
+                  discardOldItems { numToKeep(5) }
+                }
+              }
+
+agent:
+  # Agents are pods. The kubernetes plugin creates one per build and deletes it
+  # afterwards -- nothing persists between builds unless the pipeline says so.
+  enabled: true
+  namespace: jenkins
+  serviceAccount: jenkins-agent
+  resources:
+    requests: {cpu: 100m, memory: 256Mi}
+    limits: {memory: 512Mi}
+  # The pod templates themselves live in the shared library
+  # (resources/podtemplates/), so the library owns "what tools a build has".
+
+persistence:
+  enabled: true
+  storageClass: gp3
+  size: 8Gi
+
+serviceAccount:
+  create: true
+  name: jenkins

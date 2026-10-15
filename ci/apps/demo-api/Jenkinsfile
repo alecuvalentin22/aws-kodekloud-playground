@@ -1,0 +1,11 @@
+// This is the WHOLE Jenkinsfile. Everything else -- the agent pod, the tools,
+// test reporting, the image build, the ECR push, the deploy, the rollback --
+// lives in the platform-lib shared library (ci/shared-library/).
+//
+// A team adopting the golden path writes these few lines and nothing more.
+@Library('platform-lib') _
+
+standardPipeline(
+    app:     'demo-api',
+    context: 'ci/apps/demo-api',
+)
