@@ -225,6 +225,15 @@ resource "google_compute_instance" "artifactory" {
         # than PostgreSQL."
         -e JF_SHARED_DATABASE_ALLOWNONPOSTGRESQL=true
 
+        # Without this the UI hangs forever while every service reports
+        # HEALTHY and the REST API works. The OSS image ships
+        # jfconnect.enabled=true but runs no jfconnect service, so the
+        # frontend's entitlement fetch loops once a second:
+        #   [jffe] First-time entitlement fetch failed: 12 UNIMPLEMENTED:
+        #          Received HTTP status code 404
+        # and every /ui/api/v1/ui/... call waits on it.
+        -e JF_JFCONNECT_ENABLED=false
+
         # Without these two: "Master key is missing ..." and the services give
         # up after a 60 seconds timeout.
         -e JF_SHARED_SECURITY_MASTERKEY=${random_id.master_key.hex}

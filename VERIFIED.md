@@ -223,6 +223,14 @@ Template, 0 entity errors. **Kubernetes tab verified in headless Chrome**:
 healthy "2 pods · No pods with errors"; broken deploy "1 pod with errors"
 (restart count shown); Rollouts CRD 404 until Argo Rollouts was installed.
 
+**Artifactory UI hang, 2026-10-16.** `/ui/` loaded but every `/ui/api/v1/ui/...`
+call hung while all nine services reported HEALTHY and the REST API answered.
+Container log: `[jffe] First-time entitlement fetch failed: 12 UNIMPLEMENTED:
+Received HTTP status code 404`, 712 times. The OSS image has
+`jfconnect.enabled=true` but runs no jfconnect service. `JF_JFCONNECT_ENABLED=false`
+→ 0 failures, the UI login page renders, and admin/admin logs in to the welcome
+page (headless Chrome). Data survived the container recreation.
+
 **Not verified:** Artifactory on AWS (above), but it runs on GCP. Datadog (no API key; values and installer are written, never
 applied). IRSA/Pod Identity for the agent was not attempted, so ECR push still
 rides on the node role. JCasC restoring a controller from an *empty* volume
