@@ -10,6 +10,21 @@
 # a running Backstage the way you install one into Jenkins. That difference is
 # the most important thing to know about operating it.
 backstage:
+  # Load the IMAGE'S app-config.yaml first, then ours on top.
+  #
+  # The chart's default is `--config /app/app-config-from-configmap.yaml` and
+  # nothing else, which silently drops the config the image was built with --
+  # including the new frontend system's extension setup. The page loads, then
+  # dies one missing value at a time:
+  #   Missing required config value at 'app.title' in 'app'
+  #   Error in extension 'nav-content:app'; caused by NotImplementedError:
+  #     No implementation available for apiRef{plugin.notifications.service}
+  # NOT app-config.production.yaml: it points at PostgreSQL via ${POSTGRES_*},
+  # which this lab does not run.
+  # (The chart appends --config for the configmap itself.)
+  args:
+    - --config
+    - app-config.yaml
   image:
     registry: ghcr.io
     repository: backstage/backstage
@@ -28,6 +43,29 @@ backstage:
       #   Missing required config value at 'app.title' in 'app'
       title: Platform Lab
       baseUrl: http://localhost:7007
+      # Notifications OFF, because this lab serves plain http on an IP.
+      #
+      # The notifications nav item subscribes to live updates (signals), which
+      # calls crypto.randomUUID() -- and browsers only provide that on a SECURE
+      # origin (https or localhost). On http://<node-ip> the whole sidebar dies:
+      #   Error in extension 'nav-content:app'; caused by TypeError:
+      #     globalThis.crypto.randomUUID is not a function
+      # Behind TLS, delete the three `false` lines below.
+      #
+      # This list REPLACES the image's app.extensions (Backstage replaces arrays
+      # rather than merging them), so the one entry from it that matters --
+      # catalog mounted at / -- is repeated here.
+      extensions:
+        - page:catalog:
+            config:
+              path: /
+        - page:notifications: false
+        - home-page-widget:notifications/unread-notifications: false
+        # The image's custom sidebar hardcodes a notifications link, so with
+        # the page off it fails instead:
+        #   No path for routeRef{id=notifications.root,legacyId=notifications}
+        # Off too; Backstage's default sidebar lists only the pages that exist.
+        - nav-content:app: false
     organization:
       name: Platform Lab
     backend:
