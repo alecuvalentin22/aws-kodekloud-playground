@@ -29,6 +29,14 @@ backstage:
       baseUrl: http://localhost:7007
       cors:
         origin: http://localhost:7007
+      # REQUIRED when serving over plain http. Backstage's default CSP ends in
+      # `upgrade-insecure-requests`, so the browser rewrites every script URL to
+      # https://, which this NodePort does not serve. Result: HTTP 200, a blank
+      # white page, and no server-side error anywhere. curl sees nothing wrong
+      # because curl ignores CSP -- only the browser console shows it.
+      # Behind TLS (any real deployment), leave the default on.
+      csp:
+        upgrade-insecure-requests: false
       # In-memory SQLite: the catalog rebuilds from git on every start, which
       # is fine because git IS the source of truth for the catalog. Production
       # uses PostgreSQL so search indexes and scaffolder history survive.
