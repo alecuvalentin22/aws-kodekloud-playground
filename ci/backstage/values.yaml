@@ -52,6 +52,13 @@ backstage:
       #     globalThis.crypto.randomUUID is not a function
       # Behind TLS, delete the three `false` lines below.
       #
+      # This only papers over the sidebar. SEARCH breaks the same way
+      #   Error in search ... globalThis.crypto.randomUUID is not a function
+      # and so may other plugins. Over plain http Backstage is only partly
+      # usable. The real fix is TLS (an ingress with a certificate, or Cloud
+      # Run, which serves https by default). For a quick look in Chrome only:
+      # chrome://flags/#unsafely-treat-insecure-origin-as-secure.
+      #
       # This list REPLACES the image's app.extensions (Backstage replaces arrays
       # rather than merging them), so the one entry from it that matters --
       # catalog mounted at / -- is repeated here.
