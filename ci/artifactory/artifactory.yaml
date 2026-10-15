@@ -1,10 +1,11 @@
-# Artifactory OSS on EKS -- the fallback when ECS Fargate is capped at 1 vCPU.
+# Artifactory OSS on EKS -- tried after ECS. DID NOT START HERE (OOMKilled, then timed out).
 #
 # terraform/ecs runs the same image on Fargate and is the cleaner design in a
 # normal account. On the KodeKloud playground it cannot work: Artifactory needs
 # ~2 vCPU to start (on 1 vCPU its router times out waiting for the access
-# service), and the playground's compliance reaper deleted the 2 vCPU service
-# five minutes after it launched. A t3.medium node here can burst to 2 vCPU.
+# service), and 2 vCPU / 8 GB broke the playground's ECS cap of 2048 CPU /
+# 4096 MB (violation recorded; docs/kodekloud-limits.md). NOTE the playground
+# also publishes EKS caps of 512 MiB per pod -- this manifest exceeds them.
 #
 # Applied by scripts/artifactory-install.sh, which creates the key Secret first.
 apiVersion: v1

@@ -75,6 +75,15 @@ resource "aws_launch_template" "node" {
   image_id      = data.aws_ssm_parameter.eks_ami[0].value
   instance_type = var.node_instance_type
 
+  # STANDARD credits, explicitly. The account default for t3 is `unlimited`,
+  # and KodeKloud's fair-use policy says of T-series in unlimited mode: "the
+  # instance will be reset to Standard and the session will be suspended/
+  # blocked." terraform/aws already pins this; the node template did not.
+  # See docs/kodekloud-limits.md.
+  credit_specification {
+    cpu_credits = "standard"
+  }
+
   iam_instance_profile {
     arn = aws_iam_instance_profile.node[0].arn
   }

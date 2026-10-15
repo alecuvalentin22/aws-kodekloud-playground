@@ -8,8 +8,10 @@
 # got to a running state there.
 #   - Fargate, 1 vCPU: the router timed out waiting for the access service,
 #     which took 364 s to start.
-#   - Fargate, 2 vCPU: the playground's compliance job (ConfigRuleChecker)
-#     deleted the service 5 minutes after apply.
+#   - Fargate, 2 vCPU / 8 GB: over the playground's published ECS cap of
+#     2048 CPU / 4096 MB. The compliance job (ConfigRuleChecker) deleted it 5
+#     minutes after apply and a fair-use violation was recorded
+#     (docs/kodekloud-limits.md).
 #   - EKS, t3.medium: OOMKilled at a 3Gi limit. The image runs five JVMs in one
 #     container.
 # An e2-standard-2 (2 vCPU / 8 GiB) has none of those limits.

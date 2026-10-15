@@ -93,27 +93,25 @@ resource "aws_ecs_task_definition" "artifactory" {
   family                   = "artifactory-oss"
   requires_compatibilities = ["FARGATE"]
   network_mode             = "awsvpc"
-  # 2 vCPU / 8 GiB. Memory was never the problem; CPU was.
+  # 2048 CPU / 4096 MB: the KodeKloud playground's ECS ceiling, ACCOUNT-WIDE
+  # (docs/kodekloud-limits.md). Do not raise it on the playground.
   #
-  # Artifactory is EIGHT services in one container (router, access, core,
-  # metadata, frontend, event, observability, topology), and they start in
-  # parallel against hard timeouts. On 1 vCPU, access took 364 s to start:
-  #   Started AccessApplication in 364.758 seconds
-  # and the router -- the process that serves :8082 -- had already given up:
-  #   [jfrou] [FATAL] Failed joining Access: ... context deadline exceeded
-  # Container RUNNING, port closed, forever. Doubling the CPU is the fix --
-  # IN A NORMAL ACCOUNT.
-  #
-  # ON THE KODEKLOUD PLAYGROUND THIS SIZE IS REAPED. Five minutes after the
-  # 2 vCPU task started, CloudTrail shows UpdateService(desiredCount=0),
-  # StopTask and DeleteService from
+  # It was raised once, to 2048 / 8192, without reading the policy. Five
+  # minutes later CloudTrail showed UpdateService(desiredCount=0), StopTask and
+  # DeleteService from
   #   assumed-role/OrganizationAccountAccessRole/ConfigRuleCheckerSession*
-  # -- a compliance job, not an SCP: the apply succeeds and the service
-  # vanishes later. The 1 vCPU task ran 30 minutes untouched. So on the
-  # playground Artifactory runs on EKS instead (ci/artifactory/), and this
-  # stack is the ECS example rather than the live one.
+  # and a fair-use VIOLATION was recorded against the account. The violating
+  # number was the memory; the CPU was within the limit.
+  #
+  # Why it was raised: at 1024 / 4096, access took 364 s to start
+  #   Started AccessApplication in 364.758 seconds
+  # and the router, which serves :8082, had already given up:
+  #   [jfrou] [FATAL] Failed joining Access: ... context deadline exceeded
+  # 2048 / 4096 (this) was NOT tried before the stack was destroyed. It is the
+  # next experiment, and the largest the playground permits. On EKS the same
+  # image was OOMKilled at 3 GiB, so 4096 MB may not be enough either.
   cpu    = "2048"
-  memory = "8192"
+  memory = "4096"
 
   ephemeral_storage {
     size_in_gib = 30

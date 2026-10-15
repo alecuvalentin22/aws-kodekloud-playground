@@ -206,7 +206,7 @@ Jenkins, Backstage and Artifactory, built for interview practice. See
 | Agent RBAC | `auth can-i --as jenkins-agent`: yes in `demo-ci`, no in `default`/`kube-system`, no to secrets in `jenkins` |
 | Readiness stall | FAIL_HEALTH → new pod 0/1 with probe 500, old pods kept serving, `rollout status` timed out, `undo` recovered |
 | Backstage via `make backstage` | guest token → `/api/catalog/entities` returned all 7 entities from `catalog-info.yaml` |
-| Artifactory OSS | **never served a request.** Fargate 1 vCPU: router timed out waiting for access (364 s). Fargate 2 vCPU: deleted by the playground's ConfigRuleChecker after 5 min. EKS t3.medium: OOMKilled at 3Gi (five JVMs), then with heaps capped still not up inside a 12-minute startup probe. Fixes for the first three failures are in `terraform/ecs` and `ci/artifactory`; it needs a node bigger than the playground allows |
+| Artifactory OSS | **never served a request.** Fargate 1 vCPU: router timed out waiting for access (364 s). Fargate 2 vCPU / 8 GB: over the published ECS cap (2048 / 4096 MB), deleted by ConfigRuleChecker after 5 min, **violation recorded**. EKS t3.medium: OOMKilled at 3Gi (five JVMs), then with heaps capped still not up inside a 12-minute startup probe. Fixes for the first three failures are in `terraform/ecs` and `ci/artifactory`; it needs a node bigger than the playground allows |
 
 **Not verified:** Artifactory (above). Datadog (no API key; values and installer are written, never
 applied). IRSA/Pod Identity for the agent was not attempted, so ECR push still

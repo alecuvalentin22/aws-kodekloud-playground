@@ -89,6 +89,9 @@ account, no external service:
   what, and the ordering rules that cannot be swapped
 - **[docs/gitops-delivery-styles.md](docs/gitops-delivery-styles.md)** — Argo CD
   vs Flux, and what canary / blue-green / A/B actually require
+- **[docs/kodekloud-limits.md](docs/kodekloud-limits.md)** — the playground's
+  fair-use limits. **Read before sizing anything**: some are enforced after the
+  fact and record a violation against the account
 - **[docs/ci-track.md](docs/ci-track.md)** — Jenkins on EKS with a shared
   library, rootless BuildKit to ECR, Backstage, Artifactory: what runs where, the
   order to read the code, and the interview questions it prepares you for

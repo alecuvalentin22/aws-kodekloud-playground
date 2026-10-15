@@ -213,10 +213,15 @@ each hidden behind the one before:
      -> CPU, not config: the router (which owns :8082) gave up before access was up
 ```
 
-Then the 2 vCPU fix was **deleted by someone else**: CloudTrail showed
-`UpdateService desiredCount=0`, `StopTask`, `DeleteService` from
+Then the fix, 2 vCPU / **8 GB**, was **deleted by someone else**. CloudTrail
+showed `UpdateService desiredCount=0`, `StopTask` and `DeleteService` from
 `assumed-role/OrganizationAccountAccessRole/ConfigRuleCheckerSession…`, the
-playground's compliance job, five minutes after a successful apply.
+playground's compliance job, five minutes after a successful apply. A
+**fair-use violation** notice followed: the playground caps ECS at 2048 CPU /
+4096 MB, and that limit was published all along
+([docs/kodekloud-limits.md](../docs/kodekloud-limits.md)). The lesson is not
+"CloudTrail is clever". It is: read the platform's limits before sizing,
+because some limits are enforced after the fact and leave a record.
 
 Moved to EKS, where a t3.medium can burst to 2 vCPU, it then died a fourth way:
 
@@ -259,12 +264,76 @@ plugin set.
 
 ---
 
-## Not run here (yet) — know them anyway
+## 10. A library version that does not exist
 
-- **Bad `@Library('platform-lib@nope')`** — fails before any stage, at library
-  checkout. Pin library versions to tags for anything important; `main` means a
-  library change can break every team's pipeline at once.
-- **Script approval** — code in a *trusted* global library (configured by an
-  admin, like `platform-lib` here) runs outside the Groovy sandbox. Code in a
-  Jenkinsfile runs inside it and hits `RejectedAccessException`. That is the
-  security boundary, and the reason logic belongs in the library.
+`@Library('platform-lib@does-not-exist') _` on a branch:
+
+```
+Loading library platform-lib@does-not-exist:ci/shared-library/
+Could not find does-not-exist in remote references. Pulling heads to local for deep search...
+ERROR: Could not resolve does-not-exist
+ERROR: No version does-not-exist found for library platform-lib
+org.codehaus.groovy.control.MultipleCompilationErrorsException: startup failed:
+WorkflowScript: Loading libraries failed
+```
+
+It fails at **compile time**: no stage ran and no agent pod was created, so the
+stage view shows nothing to click. Read the console from the top. This is also
+why teams should be pinned to a library **tag**. With `main` as everyone's
+default, one bad library commit breaks every pipeline at once. With tags, a
+team moves when it chooses to.
+
+## 11. The Groovy sandbox
+
+A Jenkinsfile reaching into Jenkins internals:
+
+```groovy
+echo "jobs on this controller: ${jenkins.model.Jenkins.instance.getAllItems().size()}"
+```
+
+```
+org.jenkinsci.plugins.scriptsecurity.sandbox.RejectedAccessException:
+  Scripts not permitted to use staticMethod jenkins.model.Jenkins getInstance
+```
+
+The call then waits in **Manage Jenkins → In-process Script Approval** with
+Approve / Deny buttons. It was left unapproved, because approving
+`Jenkins.getInstance` hands *every* Jenkinsfile the whole controller,
+credentials included.
+
+The boundary: Jenkinsfiles live in application repos that many people can push
+to, so they run **sandboxed**. A global library configured by an admin is
+**trusted** and runs outside the sandbox. Anything that needs real power goes
+in the library, behind a reviewed merge. "Just click Approve" is the wrong
+interview answer.
+
+## 12. Deploying into a namespace that is out of quota
+
+`kubectl -n demo-ci create quota drill-quota --hard=pods=2` with demo-api at 2
+replicas, then a main build:
+
+```
++ kubectl -n demo-ci rollout status deployment/demo-api --timeout=180s
+Waiting for deployment "demo-api" rollout to finish: 0 out of 2 new replicas have been updated...
+error: timed out waiting for the condition
+--- rollout did not complete; pod state at failure ---
+  ReplicaFailure   True    FailedCreate
+Error creating: pods "demo-api-67b6bf48ff-gxhxt" is forbidden: exceeded quota: drill-quota,
+  requested: pods=1, used: pods=2, limited: pods=2
+```
+
+The rolling update needs room for **one extra pod** (`maxSurge`). The quota left
+none, so the new ReplicaSet could not create anything and the old pods kept
+serving. Note **where** the error lives: not on a pod (none exists) but on the
+**ReplicaSet**, as a `FailedCreate` event. `kubectl get pods` looks perfectly
+healthy. It says `forbidden` like RBAC does, but the text names a quota.
+Read the whole sentence.
+
+---
+
+## Not run here (yet)
+
+- **Node drain against a PodDisruptionBudget.** `kubectl drain` on a node
+  hosting demo-api with `minAvailable: 2` should refuse to evict and keep
+  retrying. Planned, not run: the playground ran out first, so no output is
+  quoted here.

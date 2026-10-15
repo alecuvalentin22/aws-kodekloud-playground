@@ -24,7 +24,7 @@ flowchart LR
 | Jenkins | EKS, `jenkins` ns | agents are pods: a build gets a clean container set and disappears |
 | demo-api | EKS, `demo-ci` ns | the deploy target; agent RBAC is limited to this namespace |
 | Backstage | EKS, `backstage` ns | catalog of what exists and who owns it |
-| Artifactory OSS | **not running on the playground** | it needs ~2 vCPU and more than 3Gi. On the playground, Fargate is capped at 1 vCPU (a 2 vCPU service was deleted by the compliance job) and EKS nodes are t3.medium (OOMKilled). **Decision:** run it on a GCP e2-standard-2 VM (`terraform/gcp-artifactory`, written and validated, **not yet applied**). Jenkins reaches it over the internet like any SaaS registry. `terraform/ecs` and `ci/artifactory/` remain the AWS versions for a normal account. Drill 18 §8 is the story |
+| Artifactory OSS | **not running on the playground** | it needs ~2 vCPU and more than 3Gi. On the playground, ECS is capped at 2048 CPU / 4096 MB (a 2 vCPU / 8 GB service broke that, was deleted, and earned a violation; see [kodekloud-limits](kodekloud-limits.md)) and EKS nodes are t3.medium (OOMKilled). **Decision:** run it on a GCP e2-standard-2 VM (`terraform/gcp-artifactory`, written and validated, **not yet applied**). Jenkins reaches it over the internet like any SaaS registry. `terraform/ecs` and `ci/artifactory/` remain the AWS versions for a normal account. Drill 18 §8 is the story |
 | Datadog | not installed | SaaS: needs a trial API key. `DD_API_KEY=... make datadog` |
 
 URLs change every rebuild. Get them with `make urls` (EKS NodePorts: Jenkins
@@ -109,7 +109,7 @@ need Kubernetes: on ECS Fargate it is a task definition and a service
 execution role**, so the app died inside a container that stayed RUNNING and
 nothing said so. Running the same image as a pod on EKS and reading `kubectl
 logs` found three separate start-up failures in turn. Second, **platform
-limits you cannot see**: the playground's compliance job deleted the 2 vCPU
+limits enforced after the fact**: the playground's compliance job deleted the 2 vCPU / 8 GB
 service minutes after a successful apply. CloudTrail (`lookup-events`) showed
 who did it. Both are good answers to "tell me about a time something failed
 silently".
