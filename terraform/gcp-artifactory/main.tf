@@ -1,6 +1,6 @@
 # ---------------------------------------------------------------------------
-# STATUS: WRITTEN, NOT RUN. terraform validate passes; no GCP account was
-# available.
+# STATUS: APPLIED 2026-10-15 on a KodeKloud GCP playground (kkgcplabs01-034).
+# Results and outputs: docs/kodekloud-gcp-limits.md.
 #
 # JFrog Artifactory OSS on one GCE VM, running as a single Docker container.
 #
@@ -14,14 +14,27 @@
 #     (docs/kodekloud-limits.md).
 #   - EKS, t3.medium: OOMKilled at a 3Gi limit. The image runs five JVMs in one
 #     container.
-# An e2-standard-2 (2 vCPU / 8 GiB) has none of those limits.
+#
+# KodeKloud GCP playground limits this is sized against
+# (docs/kodekloud-gcp-limits.md, read BEFORE changing any number here):
+#   - regions: US only            -> us-central1 (the old default, a European
+#                                    region, was outside the policy)
+#   - CPU series E2/N2, max 7 vCPU total, max 5 VMs
+#                                 -> one e2-standard-2 (2 vCPU / 8 GiB)
+#   - disk <= 50G, total <= 250G, standard/balanced/SSD
+#                                 -> 30G pd-balanced
+#   - "Default VPC modification is not allowed"
+#                                 -> the 8082 firewall rule lives in its own
+#                                    VPC instead of on "default"
 #
 # Why a plain VM: it is one vendor container with no scaling story. GKE would
 # be a whole cluster for one pod. Cross-cloud is fine for a lab -- Jenkins on
 # EKS reaches it over the internet on port 8082.
 #
-# Usage (the Compute Engine API must be enabled on the project):
-#   terraform -chdir=terraform/gcp-artifactory init && \
+# Usage (the Compute Engine API must be enabled on the project). There is no
+# application-default credential on the playground laptop, so hand Terraform
+# the gcloud user token (valid for one hour):
+#   GOOGLE_OAUTH_ACCESS_TOKEN=$(gcloud auth print-access-token) \
 #     terraform -chdir=terraform/gcp-artifactory apply -var project=<id>
 #
 # State is local on purpose. This is a throwaway, so no remote backend.
@@ -54,15 +67,20 @@ variable "project" {
 }
 
 variable "region" {
-  description = "GCP region."
+  description = "GCP region. The KodeKloud playground allows US regions only."
   type        = string
-  default     = "europe-west3"
+  default     = "us-central1"
+
+  validation {
+    condition     = startswith(var.region, "us-")
+    error_message = "KodeKloud GCP playground: only regions within the US location are allowed."
+  }
 }
 
 variable "zone" {
   description = "GCP zone for the VM."
   type        = string
-  default     = "europe-west3-a"
+  default     = "us-central1-a"
 }
 
 variable "machine_type" {
@@ -71,6 +89,12 @@ variable "machine_type" {
   description = "GCE machine type."
   type        = string
   default     = "e2-standard-2"
+
+  # Playground: E2 and N2 only, and 7 vCPU across the whole project.
+  validation {
+    condition     = can(regex("^(e2|n2)-", var.machine_type))
+    error_message = "KodeKloud GCP playground: only E2 and N2 machine series are allowed."
+  }
 }
 
 variable "artifactory_version" {
@@ -88,6 +112,16 @@ variable "allowed_cidrs" {
   default     = ["0.0.0.0/0"]
 }
 
+variable "admin_password" {
+  # Set at first boot through Access's bootstrap.creds (see the startup script).
+  # Every REST route for changing it afterwards failed on OSS 7.161.26 -- see
+  # docs/kodekloud-gcp-limits.md. No default: pass it with
+  # TF_VAR_admin_password or -var, so it lands in the (gitignored) state only.
+  description = "Initial password for the Artifactory admin user."
+  type        = string
+  sensitive   = true
+}
+
 # Artifactory refuses to start without these two keys (see the startup script).
 # Generating them here keeps them stable across VM recreation as long as the
 # state survives. They end up in plain text in instance metadata and in state,
@@ -100,9 +134,24 @@ resource "random_id" "join_key" {
   byte_length = 32
 }
 
+# Own network rather than a rule on "default": the playground policy says
+# "Default VPC modification is not allowed", and a firewall rule is the kind of
+# change that could be read that way. A new VPC is explicitly allowed.
+resource "google_compute_network" "artifactory" {
+  name                    = "artifactory-net"
+  auto_create_subnetworks = false
+}
+
+resource "google_compute_subnetwork" "artifactory" {
+  name          = "artifactory-${var.region}"
+  network       = google_compute_network.artifactory.id
+  region        = var.region
+  ip_cidr_range = "10.80.0.0/24"
+}
+
 resource "google_compute_firewall" "artifactory" {
   name    = "allow-artifactory-8082"
-  network = "default"
+  network = google_compute_network.artifactory.name
 
   allow {
     protocol = "tcp"
@@ -130,7 +179,7 @@ resource "google_compute_instance" "artifactory" {
   }
 
   network_interface {
-    network = "default"
+    subnetwork = google_compute_subnetwork.artifactory.id
 
     # Empty block = ephemeral public IP. It changes if the VM is stopped and
     # started, so re-read the url output after that.
@@ -182,8 +231,25 @@ resource "google_compute_instance" "artifactory" {
         -e JF_SHARED_SECURITY_JOINKEY=${random_id.join_key.hex}
       )
 
-      docker run -d "$${args[@]}" \
-        releases-docker.jfrog.io/jfrog/artifactory-oss:${var.artifactory_version}
+      image=releases-docker.jfrog.io/jfrog/artifactory-oss:${var.artifactory_version}
+
+      # create, not run: creating the container is what copies the image's
+      # content into the empty named volume. Writing a file into the volume
+      # first would leave it non-empty and skip that copy.
+      docker create "$${args[@]}" "$image"
+
+      # Initial admin password. Access reads bootstrap.creds at startup; this is
+      # JFrog's documented way to set it. On OSS every REST route for changing it
+      # later failed (Pro-only, or the token audience was wrong), so it is done
+      # here. The file must belong to the uid the image runs as.
+      vol=$(docker volume inspect -f '{{.Mountpoint}}' artifactory_data)
+      uid=$(docker run --rm --entrypoint id "$image" -u)
+      gid=$(docker run --rm --entrypoint id "$image" -g)
+      install -d -o "$uid" -g "$gid" "$vol/etc" "$vol/etc/access"
+      install -m 600 -o "$uid" -g "$gid" /dev/null "$vol/etc/access/bootstrap.creds"
+      echo 'admin@*=${var.admin_password}' > "$vol/etc/access/bootstrap.creds"
+
+      docker start artifactory
     EOT
   }
 }
@@ -198,6 +264,6 @@ output "note" {
   value       = <<-EOT
     A cold start takes several minutes: the image pull, then five JVMs starting
     one after another. It is ready when /artifactory/api/system/ping returns OK.
-    First login is admin / password, and Artifactory forces a password change.
+    Log in as admin with the admin_password you applied (bootstrap.creds).
   EOT
 }

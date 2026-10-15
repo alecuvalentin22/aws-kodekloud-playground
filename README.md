@@ -92,6 +92,9 @@ account, no external service:
 - **[docs/kodekloud-limits.md](docs/kodekloud-limits.md)** — the playground's
   fair-use limits. **Read before sizing anything**: some are enforced after the
   fact and record a violation against the account
+- **[docs/kodekloud-gcp-limits.md](docs/kodekloud-gcp-limits.md)** — the same
+  for the GCP playground (no Cloud Run; US regions; 7 vCPU), and how
+  Artifactory was fitted into it
 - **[docs/ci-track.md](docs/ci-track.md)** — Jenkins on EKS with a shared
   library, rootless BuildKit to ECR, Backstage, Artifactory: what runs where, the
   order to read the code, and the interview questions it prepares you for
