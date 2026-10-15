@@ -25,13 +25,30 @@ def call(Map cfg) {
     try {
         if (push) {
             container('deploy') {
+                // `set +x` FIRST. Jenkins runs every `sh` with -x, which echoes
+                // each command with its variables expanded -- the first version
+                // of this step printed the full ECR token into the console log,
+                // readable by anyone who can view the job. withCredentials()
+                // masks secrets it binds; a token minted inside the script is
+                // not bound, so nothing masks it.
+                //
+                // chown to 1000: this container runs as root, BuildKit runs
+                // rootless as uid 1000. A root-owned mode-600 file is unreadable
+                // to it, and BuildKit does not fail on that -- it logs
+                //   WARNING: Error loading config file: ... permission denied
+                // carries on anonymously, and the push dies minutes later as
+                //   unexpected status from HEAD request ...: 401 Unauthorized
+                // which reads as an IAM problem. It is a file permission.
                 sh """
+                    set +x
                     set -eu
                     mkdir -p '${dockerCfg}'
                     TOKEN=\$(aws ecr get-login-password --region ${region})
                     AUTH=\$(printf 'AWS:%s' "\$TOKEN" | base64 | tr -d '\\n')
                     printf '{"auths":{"%s":{"auth":"%s"}}}' '${registry}' "\$AUTH" > '${dockerCfg}/config.json'
                     chmod 600 '${dockerCfg}/config.json'
+                    chown -R 1000:1000 '${dockerCfg}'
+                    echo "ECR login written for ${registry} (token not shown)"
                 """
             }
         }
