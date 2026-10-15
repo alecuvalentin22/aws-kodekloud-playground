@@ -25,7 +25,7 @@ flowchart LR
 | demo-api | EKS, `demo-ci` ns | the deploy target; agent RBAC is limited to this namespace |
 | Backstage | EKS, `backstage` ns | catalog of what exists and who owns it |
 | Artifactory OSS | **not running on the playground** | it needs ~2 vCPU and more than 3Gi. On the playground, ECS is capped at 2048 CPU / 4096 MB (a 2 vCPU / 8 GB service broke that, was deleted, and earned a violation; see [kodekloud-limits](kodekloud-limits.md)) and EKS nodes are t3.medium (OOMKilled). **Decision:** run it on a GCP e2-standard-2 VM (`terraform/gcp-artifactory`, written and validated, **not yet applied**). Jenkins reaches it over the internet like any SaaS registry. `terraform/ecs` and `ci/artifactory/` remain the AWS versions for a normal account. Drill 18 §8 is the story |
-| Datadog | not installed | SaaS: needs a trial API key. `DD_API_KEY=... make datadog` |
+| Datadog | not installed | SaaS: the trial needs a business email, which we did not have. Installer is ready (`DD_API_KEY=... make datadog`, sized for the playground caps). Study it through the mapping in "Datadog without an account" below |
 
 URLs change every rebuild. Get them with `make urls` (EKS NodePorts: Jenkins
 30094, demo-api 30095, Backstage 30096, Artifactory 30097).
@@ -126,6 +126,39 @@ queried), and monitors on deployment replicas-unavailable, pod restarts, and
 build failure rate. The trap on EKS is that the kubelet cert is not valid for
 the address the agent dials, so with TLS verification on you get **no pod
 metrics and no error in the UI**. See `ci/datadog/values.yaml`.
+
+### Datadog without an account
+
+Interviewers asking about a "nice to have" tool ask about concepts, not
+clicks. Each Datadog concept has a counterpart already run in this lab:
+
+| Datadog | What it is | The equivalent you have touched |
+|---|---|---|
+| **Node Agent** (DaemonSet) | one collector per node: host, container and kubelet metrics, logs, traces | Prometheus scraping each node; one DaemonSet pod per node, like `aws-node` |
+| **Cluster Agent** (Deployment) | one per cluster: talks to the API server so every node agent doesn't, and feeds cluster-level checks | kube-state-metrics: object state (replicas, restarts) rather than node stats |
+| **Tags** `env`, `service`, `version`, `team` | how every metric, log and trace is sliced. Unified Service Tagging ties all three to one service | Kubernetes labels and Prometheus labels. Untagged data is as useless as an unlabelled metric |
+| **Monitors** | alert definitions: threshold, anomaly, composite | Prometheus alert rules; Flagger's analysis queries in the GitOps track |
+| **APM / traces** | request flow across services; the `ddtrace` library or OpenTelemetry | OpenTelemetry. Datadog ingests OTLP, so OTel instrumentation carries over |
+| **Logs + pipelines** | container stdout shipped by the agent, parsed by pipelines, retention by index | `kubectl logs`, the same stdout. Logging to stdout is what makes either work |
+| **Dashboards / SLOs** | graphs, plus error-budget tracking | Grafana dashboards; `rollout status` as a deploy-time health gate |
+| **API key vs Application key** | the API key *sends* data (agents); the App key *reads/configures* via the API | Like ECR push rights vs read-only: separate the writer from the reader |
+
+**Monitors worth naming for this pipeline:** deployment replicas unavailable >
+0 for 5 min (drill 18 §4 is exactly this), pod restarts climbing, image pull
+errors (§5), Jenkins build failure rate on `main`, and node CPU steal on
+burstable instances (drill 17).
+
+**Pitfalls worth knowing**, both already written into `ci/datadog/values.yaml`:
+- on EKS the kubelet's certificate isn't valid for the address the agent dials.
+  With TLS verification on you get **no pod metrics and no error in the UI**.
+  `kubelet.tlsVerify: false` is the documented workaround.
+- `DD_SITE` must match the account's region (`datadoghq.eu` vs `datadoghq.com`).
+  If it's wrong, every submission is rejected and the agent calls a good key
+  invalid.
+
+**Say this:** "I prepared the Helm install and sized it for our cluster's
+quota, but didn't get trial access. Here's how I'd tag it, which monitors I'd
+start with, and the EKS kubelet gotcha I'd check first."
 
 **"How do you make Terraform reviewable and safe?"** Plan in CI on the PR and
 post the plan, with apply only from main. Use remote state with locking (S3
