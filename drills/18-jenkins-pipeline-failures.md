@@ -237,6 +237,28 @@ debugging your own code.
 
 ---
 
+## 9. Jenkins down because someone else's server was
+
+A routine controller restart (to change the admin password) sat in `Init:1/2`
+for 30 minutes. The init container's log:
+
+```
+Unable to resolve plugin URL https://updates.jenkins.io/download/plugins/...:
+  status code: 503, reason phrase: Service Unavailable          (x275)
+```
+
+By default the Helm chart **re-downloads every plugin on every restart**, so the
+controller's availability depended on updates.jenkins.io. The plugins were
+already on the persistent volume. `controller.initializeOnce: true` makes later
+restarts reuse them, and the next restart was Ready in **48 seconds**.
+
+**Say this in an interview:** the production answer is a custom controller
+image with plugins baked in (`jenkins-plugin-cli` in a Dockerfile, built by a
+pipeline), so a restart needs no network and every environment runs the same
+plugin set.
+
+---
+
 ## Not run here (yet) — know them anyway
 
 - **Bad `@Library('platform-lib@nope')`** — fails before any stage, at library

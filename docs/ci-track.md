@@ -24,7 +24,7 @@ flowchart LR
 | Jenkins | EKS, `jenkins` ns | agents are pods: a build gets a clean container set and disappears |
 | demo-api | EKS, `demo-ci` ns | the deploy target; agent RBAC is limited to this namespace |
 | Backstage | EKS, `backstage` ns | catalog of what exists and who owns it |
-| Artifactory OSS | **not running on the playground** | it needs ~2 vCPU and over 3Gi. On the playground, Fargate is capped at 1 vCPU (a 2 vCPU service was deleted by the compliance job) and EKS nodes are t3.medium (OOMKilled). `terraform/ecs` and `ci/artifactory/` work in a normal account. Drill 18 §8 is the story |
+| Artifactory OSS | **not running on the playground** | it needs ~2 vCPU and more than 3Gi. On the playground, Fargate is capped at 1 vCPU (a 2 vCPU service was deleted by the compliance job) and EKS nodes are t3.medium (OOMKilled). **Decision:** run it on a GCP e2-standard-2 VM (`terraform/gcp-artifactory`, written and validated, **not yet applied**). Jenkins reaches it over the internet like any SaaS registry. `terraform/ecs` and `ci/artifactory/` remain the AWS versions for a normal account. Drill 18 §8 is the story |
 | Datadog | not installed | SaaS: needs a trial API key. `DD_API_KEY=... make datadog` |
 
 URLs change every rebuild. Get them with `make urls` (EKS NodePorts: Jenkins

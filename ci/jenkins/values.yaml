@@ -21,6 +21,17 @@ controller:
   # build's tools never accumulate on it.
   numExecutors: 0
 
+  # Download plugins on FIRST install only; later restarts reuse the copies on
+  # the persistent volume.
+  #
+  # Without this, every controller restart re-downloads every plugin from
+  # updates.jenkins.io. Observed 2026-10-15: a routine restart hit 275
+  #   status code: 503, reason phrase: Service Unavailable
+  # and the controller sat in Init for 30+ minutes -- Jenkins down because
+  # someone else's mirror was. Production answer: bake plugins into a custom
+  # image, so a restart needs no network at all.
+  initializeOnce: true
+
   # EVERY plugin pinned to an exact version, resolved from the update center
   # for this core (2.580.1). Unpinned plugins are the most common way a Jenkins
   # that worked yesterday fails to start today: a restart pulls a new plugin
