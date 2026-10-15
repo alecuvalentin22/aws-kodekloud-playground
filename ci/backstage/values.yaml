@@ -50,7 +50,7 @@ backstage:
       # origin (https or localhost). On http://<node-ip> the whole sidebar dies:
       #   Error in extension 'nav-content:app'; caused by TypeError:
       #     globalThis.crypto.randomUUID is not a function
-      # Behind TLS, delete the three `false` lines below.
+      # Behind TLS, delete every `false` line below.
       #
       # This only papers over the sidebar. SEARCH breaks the same way
       #   Error in search ... globalThis.crypto.randomUUID is not a function
@@ -73,6 +73,14 @@ backstage:
         #   No path for routeRef{id=notifications.root,legacyId=notifications}
         # Off too; Backstage's default sidebar lists only the pages that exist.
         - nav-content:app: false
+        # Search needs a secure origin too:
+        #   Error in search ... globalThis.crypto.randomUUID is not a function
+        # NOT api:signals -- tried; core.storage depends on it, and turning it
+        # off broke catalog, api-docs, scaffolder and techdocs with
+        #   No API factory available for dependency apiRef{plugin.signal.service}
+        # Left on, signals only logs a console error over http.
+        - page:search: false
+        - home-page-widget:search/search-bar: false
     organization:
       name: Platform Lab
     backend:
