@@ -16,7 +16,7 @@ flowchart LR
   A -->|"kubectl apply<br/>rollout status"| APP["demo-api<br/>EKS · ns demo-ci"]
   ECR -->|"node pulls"| APP
   BS["Backstage<br/>EKS · ns backstage"] -.->|"reads catalog-info.yaml"| GH
-  RT["Artifactory OSS<br/>did not fit the playground"]
+  RT["Artifactory OSS<br/>GCP VM"]
 ```
 
 | Piece | Where | Why there |
@@ -24,7 +24,7 @@ flowchart LR
 | Jenkins | EKS, `jenkins` ns | agents are pods: a build gets a clean container set and disappears |
 | demo-api | EKS, `demo-ci` ns | the deploy target; agent RBAC is limited to this namespace |
 | Backstage | EKS, `backstage` ns | catalog of what exists and who owns it |
-| Artifactory OSS | **not running on the playground** | it needs ~2 vCPU and more than 3Gi. On the playground, ECS is capped at 2048 CPU / 4096 MB (a 2 vCPU / 8 GB service broke that, was deleted, and earned a violation; see [kodekloud-limits](kodekloud-limits.md)) and EKS nodes are t3.medium (OOMKilled). **Decision:** run it on a GCP e2-standard-2 VM (`terraform/gcp-artifactory`, written and validated, **not yet applied**). Jenkins reaches it over the internet like any SaaS registry. `terraform/ecs` and `ci/artifactory/` remain the AWS versions for a normal account. Drill 18 §8 is the story |
+| Artifactory OSS | **GCP playground**, e2-standard-2 VM (`terraform/gcp-artifactory`) | doesn't fit AWS: the ECS cap is 2048 CPU / 4096 MB (a 2 vCPU / 8 GB attempt earned a fair-use violation), and t3.medium nodes OOMKilled it. GCP allows 7 vCPU, so it runs there, verified: admin/admin, `generic-local` repo, upload and download. Jenkins reaches it over the internet like any SaaS registry. URL: `./scripts/gcp-urls.sh` |
 | Datadog | not installed | SaaS: the trial needs a business email, which we did not have. Installer is ready (`DD_API_KEY=... make datadog`, sized for the playground caps). Study it through the mapping in "Datadog without an account" below |
 
 URLs change every rebuild. Get them with `make urls` (EKS NodePorts: Jenkins

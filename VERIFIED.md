@@ -208,7 +208,13 @@ Jenkins, Backstage and Artifactory, built for interview practice. See
 | Backstage via `make backstage` | guest token → `/api/catalog/entities` returned all 7 entities from `catalog-info.yaml` |
 | Artifactory OSS | **never served a request.** Fargate 1 vCPU: router timed out waiting for access (364 s). Fargate 2 vCPU / 8 GB: over the published ECS cap (2048 / 4096 MB), deleted by ConfigRuleChecker after 5 min, **violation recorded**. EKS t3.medium: OOMKilled at 3Gi (five JVMs), then with heaps capped still not up inside a 12-minute startup probe. Fixes for the first three failures are in `terraform/ecs` and `ci/artifactory`; it needs a node bigger than the playground allows |
 
-**Not verified:** Artifactory (above). Datadog (no API key; values and installer are written, never
+**Artifactory on the GCP playground, 2026-10-15** (`terraform/gcp-artifactory`):
+ping `OK` 263 s after apply; admin/admin via `bootstrap.creds` → `200` on
+`/api/system/version`; `generic-local` created through the UI API (REST route is
+Pro-only); uploaded `hello.txt` → `201`, downloaded → sha256 matches. Re-checked
+independently by the main session: ping, admin/admin and the download all 200.
+
+**Not verified:** Artifactory on AWS (above), but it runs on GCP. Datadog (no API key; values and installer are written, never
 applied). IRSA/Pod Identity for the agent was not attempted, so ECR push still
 rides on the node role. JCasC restoring a controller from an *empty* volume
 was not tested; deleting the pod alone proves little because the PVC survives.
