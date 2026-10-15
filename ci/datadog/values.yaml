@@ -6,7 +6,7 @@ datadog:
   # Supplied by scripts/datadog-install.sh from $DD_API_KEY into a Secret.
   # NEVER put the key in this file -- it is a public repository.
   apiKeyExistingSecret: datadog-secret
-  site: datadoghq.com          # or datadoghq.eu, us3/us5.datadoghq.com
+  site: datadoghq.com          # overridden by DD_SITE in scripts/datadog-install.sh
   clusterName: platform-lab-eks
   # Every metric, log and trace gets these tags. Tags are how you slice in
   # Datadog; an untagged agent is a firehose nobody can query.
@@ -27,13 +27,24 @@ datadog:
   kubelet:
     tlsVerify: false
 
+# Requests sized for the KodeKloud playground's published EKS caps
+# (docs/kodekloud-limits.md): 2000m CPU / 4096 MiB per cluster, cumulative.
+# The lab already requests ~1670m / ~2790 MiB, and this is a DaemonSet, so
+# every number below is multiplied by the node count (5). Chart defaults would
+# take the cluster over the cap. Outside the playground, use the defaults.
+#   5 x (20m + 10m) + 20m  = 170m        (agent + trace-agent, cluster agent)
+#   5 x (96 + 48 Mi) + 64Mi = 784 MiB     -> cluster ~1840m / ~3570 MiB
+# Checked with `helm template`; system-probe and the operator set no requests.
 clusterAgent:
   enabled: true
   resources:
-    requests: {cpu: 50m, memory: 128Mi}
+    requests: {cpu: 20m, memory: 64Mi}
 
 agents:
   containers:
     agent:
       resources:
-        requests: {cpu: 100m, memory: 256Mi}
+        requests: {cpu: 20m, memory: 96Mi}
+    traceAgent:
+      resources:
+        requests: {cpu: 10m, memory: 48Mi}

@@ -2,6 +2,11 @@
 # Datadog Agent on EKS. Needs a Datadog API key:
 #
 #   DD_API_KEY=xxxxxxxx ./scripts/datadog-install.sh        # or: make datadog
+#   DD_SITE=datadoghq.eu DD_API_KEY=... ./scripts/datadog-install.sh
+#
+# DD_SITE must match the region the account was created in (shown in the
+# Datadog URL: app.datadoghq.eu -> datadoghq.eu). Wrong site = 403 on every
+# submission, and the agent reports "API Key invalid" for a perfectly good key.
 #
 # A 14-day trial at datadoghq.com gives one. Without it this script refuses
 # rather than installing an agent that crash-loops on authentication.
@@ -26,7 +31,9 @@ kubectl -n datadog create secret generic datadog-secret \
 helm repo add datadog https://helm.datadoghq.com >/dev/null 2>&1 || true
 helm repo update datadog >/dev/null
 helm upgrade --install datadog datadog/datadog --namespace datadog \
-  --version "$DATADOG_CHART" -f "$HERE/ci/datadog/values.yaml" --wait --timeout 10m
+  --version "$DATADOG_CHART" -f "$HERE/ci/datadog/values.yaml" \
+  --set-string datadog.site="${DD_SITE:-datadoghq.com}" \
+  --wait --timeout 10m
 
 echo
 echo "Verify from the agent's own view, not the UI -- the UI lags by minutes:"
