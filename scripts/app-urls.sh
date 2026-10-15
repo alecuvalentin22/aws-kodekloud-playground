@@ -23,5 +23,7 @@ has backstage && printf "  Backstage    http://%s:30096   (sign in as guest)\n" 
 if has artifactory; then
   printf "  Artifactory  http://%s:30097   admin / password (forced change)\n" "$IP"
 else
-  printf "  Artifactory  %s\n" "$("$HERE/scripts/artifactory-url.sh" 2>/dev/null || echo 'not running (make artifactory)')"
+  # On the playground Artifactory lives on GCP (docs/kodekloud-limits.md).
+  GCP="$("$HERE/scripts/gcp-urls.sh" 2>/dev/null | sed -n 's/^Artifactory: *//p')"
+  printf "  Artifactory  %s\n" "${GCP:-not running (terraform/gcp-artifactory)}"
 fi
