@@ -24,7 +24,12 @@ backstage:
     # backend.baseUrl -- leave it at localhost and the page loads (the backend
     # serves the frontend) but every API call goes to the viewer's own laptop.
     app:
+      # REQUIRED by the frontend. Missing, the page loads and then dies with
+      #   Missing required config value at 'app.title' in 'app'
+      title: Platform Lab
       baseUrl: http://localhost:7007
+    organization:
+      name: Platform Lab
     backend:
       baseUrl: http://localhost:7007
       cors:
