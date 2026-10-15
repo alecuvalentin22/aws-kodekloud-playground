@@ -1,0 +1,39 @@
+# Infrastructure. Resources are what components run on or store into; making
+# them explicit is what lets the catalog answer "who is affected if the cluster
+# or the registry goes away?"
+apiVersion: backstage.io/v1alpha1
+kind: Resource
+metadata:
+  name: eks-cluster
+  description: EKS 1.33, self-managed t3.medium nodes, prefix delegation (110 pods/node)
+  links:
+    - url: https://github.com/alecuvalentin22/aws-kodekloud-playground/tree/main/terraform/eks
+      title: Terraform
+spec:
+  type: kubernetes-cluster
+  owner: group:platform-team
+  system: ci-platform
+  dependsOn: [resource:tfstate-bucket]
+---
+apiVersion: backstage.io/v1alpha1
+kind: Resource
+metadata:
+  name: ecr-demo-api
+  description: ECR repository platform-lab/demo-api -- scan on push, keep last 10
+spec:
+  type: container-registry
+  owner: group:platform-team
+  system: ci-platform
+---
+apiVersion: backstage.io/v1alpha1
+kind: Resource
+metadata:
+  name: tfstate-bucket
+  description: S3 bucket holding Terraform state, with native S3 locking
+  links:
+    - url: https://github.com/alecuvalentin22/aws-kodekloud-playground/tree/main/terraform/bootstrap
+      title: Bootstrap stack
+spec:
+  type: s3-bucket
+  owner: group:platform-team
+  system: ci-platform

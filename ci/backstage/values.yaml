@@ -108,12 +108,45 @@ backstage:
       providers:
         guest:
           dangerouslyAllowOutsideDevelopment: true
+    # Kubernetes tab on each catalog entity. NOT YET VERIFIED LIVE: written
+    # after the playground it was meant for had expired.
+    #
+    # Backstage runs INSIDE the cluster it reads, so it talks to the API server
+    # at its in-cluster address with its own service account token (no stored
+    # credential), and that service account is read-only (ci/backstage/rbac.yaml).
+    # A pod belongs to an entity when it carries the label
+    # backstage.io/kubernetes-id=<entity>, or matches the entity's
+    # backstage.io/kubernetes-label-selector annotation.
+    kubernetes:
+      serviceLocatorMethod:
+        type: multiTenant
+      clusterLocatorMethods:
+        - type: config
+          clusters:
+            - name: eks
+              url: https://kubernetes.default.svc
+              authProvider: serviceAccount
+              # The in-cluster CA is mounted in the pod; skipping verification
+              # keeps the lab config short. Production: caFile.
+              skipTLSVerify: true
+              # No metrics-server in this lab.
+              skipMetricsLookup: true
+      customResources:
+        - group: argoproj.io
+          apiVersion: v1alpha1
+          plural: rollouts
     catalog:
       rules:
-        - allow: [Component, System, API, Resource, Location, Group, User, Template]
+        - allow: [Component, System, Domain, API, Resource, Location, Group, User, Template]
       locations:
         - type: url
           target: https://github.com/alecuvalentin22/aws-kodekloud-playground/blob/main/catalog-info.yaml
+
+# The read-only account the Kubernetes tab uses (ci/backstage/rbac.yaml,
+# applied by scripts/backstage-install.sh before the chart).
+serviceAccount:
+  create: false
+  name: backstage
 
 service:
   type: NodePort

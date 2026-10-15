@@ -1,92 +1,27 @@
-# The Backstage catalog for this repository.
+# The Backstage catalog for this repository -- the ROOT location.
 #
-# Read by the Backstage instance in ci/backstage/. Every entity here is
-# declared in git, next to the code it describes, so ownership and links are
-# reviewed in the same pull request as the code -- which is the only way a
-# catalog stays true.
+# Backstage is pointed at this one file (ci/backstage/values.yaml). It does not
+# describe anything itself; it lists the files that do. That is the pattern
+# real platforms use: one small entry point, entities split by kind, and every
+# file reviewed in a pull request next to the code it describes.
+#
+# How to read the catalog, in order:
+#   catalog/org.yaml        who owns things (Groups)
+#   catalog/systems.yaml    the big picture (Domains, Systems)
+#   catalog/components.yaml what runs (services, libraries, tools)
+#   catalog/apis.yaml       contracts between them (OpenAPI)
+#   catalog/resources.yaml  infrastructure they depend on
+#   templates/              the golden path: "create a new service"
 apiVersion: backstage.io/v1alpha1
-kind: System
+kind: Location
 metadata:
   name: platform-lab
-  description: CI/CD platform and developer tooling, built and broken on purpose
+  description: Entry point for every catalog file in this repository
 spec:
-  owner: group:platform-team
----
-apiVersion: backstage.io/v1alpha1
-kind: Component
-metadata:
-  name: demo-api
-  description: Example service built by the platform-lib golden-path pipeline
-  annotations:
-    # Read by the Backstage Jenkins plugin when it is compiled in. The demo
-    # image does not include it -- see ci/backstage/values.yaml.
-    jenkins.io/job-full-name: demo-api/main
-    backstage.io/source-location: url:https://github.com/alecuvalentin22/aws-kodekloud-playground/tree/main/ci/apps/demo-api
-  links:
-    - url: https://github.com/alecuvalentin22/aws-kodekloud-playground/blob/main/ci/apps/demo-api/Jenkinsfile
-      title: Jenkinsfile
-  tags: [python, flask]
-spec:
-  type: service
-  lifecycle: experimental
-  owner: group:platform-team
-  system: platform-lab
-  providesApis: [demo-api]
----
-apiVersion: backstage.io/v1alpha1
-kind: API
-metadata:
-  name: demo-api
-  description: demo-api HTTP endpoints
-spec:
-  type: openapi
-  lifecycle: experimental
-  owner: group:platform-team
-  system: platform-lab
-  definition: |
-    openapi: 3.0.0
-    info: {title: demo-api, version: "1.0"}
-    paths:
-      /: {get: {summary: app and version, responses: {"200": {description: ok}}}}
-      /healthz: {get: {summary: health, responses: {"200": {description: healthy}, "500": {description: unhealthy}}}}
----
-apiVersion: backstage.io/v1alpha1
-kind: Component
-metadata:
-  name: platform-lib
-  description: Jenkins shared library -- the golden-path pipeline every service uses
-  annotations:
-    backstage.io/source-location: url:https://github.com/alecuvalentin22/aws-kodekloud-playground/tree/main/ci/shared-library
-spec:
-  type: library
-  lifecycle: production
-  owner: group:platform-team
-  system: platform-lab
----
-apiVersion: backstage.io/v1alpha1
-kind: Resource
-metadata:
-  name: eks-cluster
-  description: EKS 1.33, self-managed nodes, prefix delegation (110 pods/node)
-spec:
-  type: kubernetes-cluster
-  owner: group:platform-team
-  system: platform-lab
----
-apiVersion: backstage.io/v1alpha1
-kind: Resource
-metadata:
-  name: ecr-demo-api
-  description: ECR repository platform-lab/demo-api, scan-on-push, keep last 10
-spec:
-  type: container-registry
-  owner: group:platform-team
-  system: platform-lab
----
-apiVersion: backstage.io/v1alpha1
-kind: Group
-metadata:
-  name: platform-team
-spec:
-  type: team
-  children: []
+  targets:
+    - ./catalog/org.yaml
+    - ./catalog/systems.yaml
+    - ./catalog/components.yaml
+    - ./catalog/apis.yaml
+    - ./catalog/resources.yaml
+    - ./templates/new-service/template.yaml

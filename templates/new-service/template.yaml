@@ -1,0 +1,93 @@
+# The golden path: "I need a new service" -> a repo that already builds, tests,
+# ships to ECR and deploys to EKS, and is already in the catalog.
+#
+# This is the main thing platform teams build Backstage for. A developer fills
+# in four fields; they get the platform's pipeline (platform-lib), a non-root
+# Dockerfile, probes and a safe rollout strategy -- the decisions the platform
+# team made once, instead of every team re-deciding them.
+#
+# PUBLISHING: the last real step would be `publish:github` (create the repo and
+# push the files) followed by `catalog:register`. Both need a GitHub token in
+# Backstage's integrations config, which this lab does not have. Without it the
+# template still runs: open Create -> "Template Editor" (or run the template)
+# to see every generated file. Uncomment the publish steps once a token exists.
+apiVersion: scaffolder.backstage.io/v1beta3
+kind: Template
+metadata:
+  name: new-service
+  title: New Python service on the golden path
+  description: Flask service with tests, Dockerfile, Jenkins pipeline (platform-lib), Kubernetes manifests and a catalog entry
+  tags: [python, recommended]
+spec:
+  owner: group:platform-team
+  type: service
+
+  parameters:
+    - title: About the service
+      required: [name, owner, description]
+      properties:
+        name:
+          title: Name
+          type: string
+          description: Lowercase, used for the image, the Deployment and the catalog
+          pattern: '^[a-z][a-z0-9-]{1,30}$'
+          ui:autofocus: true
+        description:
+          title: Description
+          type: string
+        owner:
+          title: Owning team
+          type: string
+          ui:field: OwnerPicker
+          ui:options:
+            catalogFilter: {kind: Group}
+        system:
+          title: System
+          type: string
+          default: demo-product
+          ui:field: EntityPicker
+          ui:options:
+            catalogFilter: {kind: System}
+
+  steps:
+    - id: fetch
+      name: Generate files from the skeleton
+      action: fetch:template
+      input:
+        url: ./skeleton
+        values:
+          name: ${{ parameters.name }}
+          description: ${{ parameters.description }}
+          owner: ${{ parameters.owner }}
+          system: ${{ parameters.system }}
+
+    - id: show
+      name: List what was generated
+      action: debug:log
+      input:
+        listWorkspace: true
+        message: Generated ${{ parameters.name }} for ${{ parameters.owner }}
+
+    # - id: publish
+    #   name: Create the GitHub repository
+    #   action: publish:github
+    #   input:
+    #     repoUrl: github.com?owner=<org>&repo=${{ parameters.name }}
+    #     description: ${{ parameters.description }}
+    #     defaultBranch: main
+    #
+    # - id: register
+    #   name: Add it to the catalog
+    #   action: catalog:register
+    #   input:
+    #     repoContentsUrl: ${{ steps.publish.output.repoContentsUrl }}
+    #     catalogInfoPath: /catalog-info.yaml
+
+  output:
+    text:
+      - title: Next step
+        content: |
+          Files generated for **${{ parameters.name }}**. With a GitHub token
+          configured, this template would now create the repository, the Jenkins
+          multibranch job would find it on its next scan, and the first push to
+          main would deploy it to EKS.

@@ -1,0 +1,45 @@
+# IMAGE_PLACEHOLDER is substituted by the deployToEks library step.
+# The backstage.io/kubernetes-id label is what links these pods to the
+# service's page in Backstage (Kubernetes tab).
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: ${{ values.name }}
+  labels: {app: ${{ values.name }}, backstage.io/kubernetes-id: ${{ values.name }}}
+spec:
+  replicas: 2
+  selector:
+    matchLabels: {app: ${{ values.name }}}
+  strategy:
+    type: RollingUpdate
+    rollingUpdate: {maxUnavailable: 0, maxSurge: 1}
+  template:
+    metadata:
+      labels: {app: ${{ values.name }}, backstage.io/kubernetes-id: ${{ values.name }}}
+    spec:
+      containers:
+        - name: ${{ values.name }}
+          image: IMAGE_PLACEHOLDER
+          ports: [{containerPort: 8080, name: http}]
+          readinessProbe:
+            httpGet: {path: /healthz, port: http}
+            periodSeconds: 5
+          livenessProbe:
+            httpGet: {path: /healthz, port: http}
+            initialDelaySeconds: 10
+          resources:
+            requests: {cpu: 50m, memory: 64Mi}
+            limits: {memory: 256Mi}
+          securityContext:
+            runAsNonRoot: true
+            allowPrivilegeEscalation: false
+---
+apiVersion: v1
+kind: Service
+metadata:
+  name: ${{ values.name }}
+  labels: {backstage.io/kubernetes-id: ${{ values.name }}}
+spec:
+  selector: {app: ${{ values.name }}}
+  ports:
+    - {name: http, port: 80, targetPort: http}

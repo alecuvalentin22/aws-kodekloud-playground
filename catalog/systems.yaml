@@ -1,0 +1,44 @@
+# Domains group systems by business area; systems group the components that
+# ship together. Answer "what breaks if this goes down?" at a glance.
+apiVersion: backstage.io/v1alpha1
+kind: Domain
+metadata:
+  name: delivery
+  description: Everything between a git push and a running pod
+spec:
+  owner: group:platform-team
+---
+apiVersion: backstage.io/v1alpha1
+kind: System
+metadata:
+  name: ci-platform
+  description: Build, test, package and deploy -- Jenkins, the shared library, registries
+spec:
+  owner: group:platform-team
+  domain: delivery
+---
+apiVersion: backstage.io/v1alpha1
+kind: System
+metadata:
+  name: gitops-platform
+  description: Pull-based delivery -- Argo CD and Flux reconciling from git, progressive rollouts
+spec:
+  owner: group:platform-team
+  domain: delivery
+---
+apiVersion: backstage.io/v1alpha1
+kind: System
+metadata:
+  name: developer-portal
+  description: Backstage itself -- the catalog you are reading
+spec:
+  owner: group:platform-team
+  domain: delivery
+---
+apiVersion: backstage.io/v1alpha1
+kind: System
+metadata:
+  name: demo-product
+  description: Product services built on the platform's golden path
+spec:
+  owner: group:app-team

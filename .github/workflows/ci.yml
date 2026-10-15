@@ -43,7 +43,8 @@ jobs:
           import pathlib, sys, yaml
           bad = 0
           for f in sorted(pathlib.Path('.').rglob('*.yaml')):
-              if '.terraform' in str(f) or '.github' in str(f):
+              # skeleton/: Backstage template placeholders, YAML only after rendering
+              if '.terraform' in str(f) or '.github' in str(f) or '/skeleton/' in str(f):
                   continue
               try:
                   list(yaml.safe_load_all(f.read_text()))

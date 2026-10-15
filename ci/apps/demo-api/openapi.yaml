@@ -1,0 +1,36 @@
+openapi: 3.0.3
+info:
+  title: demo-api
+  version: "1.0"
+  description: |
+    The smallest service that still exercises a real pipeline. Its health
+    endpoint can be made to fail on purpose (FAIL_HEALTH=true) for the
+    broken-deploy drill.
+paths:
+  /:
+    get:
+      summary: Which build is running
+      responses:
+        "200":
+          description: App name and the version baked in at build time
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  app: {type: string, example: demo-api}
+                  version: {type: string, example: main-b3909666-2}
+  /healthz:
+    get:
+      summary: Readiness and liveness probe target
+      responses:
+        "200":
+          description: Healthy
+          content:
+            application/json:
+              schema: {type: object, properties: {status: {type: string, example: ok}}}
+        "500":
+          description: Unhealthy (FAIL_HEALTH=true) -- the pod is taken out of the Service
+          content:
+            application/json:
+              schema: {type: object, properties: {status: {type: string, example: unhealthy}}}

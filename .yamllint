@@ -23,3 +23,6 @@ ignore: |
   # Committed ciphertext -- single unwrappable tokens by construction.
   gitops/secrets/sealed/
   gitops/secrets/sops/
+  # Backstage template skeletons: ${{ values.x }} placeholders are not YAML
+  # until the scaffolder renders them.
+  templates/*/skeleton/

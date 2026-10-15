@@ -1,0 +1,15 @@
+# Contracts. `definition` is rendered on the API page, so consumers can read the
+# endpoints without opening the code. Here the spec is read from a file next to
+# the service, so it is versioned with the code it describes.
+apiVersion: backstage.io/v1alpha1
+kind: API
+metadata:
+  name: demo-api
+  description: demo-api HTTP endpoints
+spec:
+  type: openapi
+  lifecycle: experimental
+  owner: group:app-team
+  system: demo-product
+  definition:
+    $text: ../ci/apps/demo-api/openapi.yaml

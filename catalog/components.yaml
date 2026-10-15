@@ -1,0 +1,135 @@
+# What runs. Each component says who owns it, which system it belongs to, and
+# what it depends on -- the catalog graph draws this.
+#
+# Annotations are how plugins find a component's data elsewhere:
+#   backstage.io/kubernetes-id      -> Kubernetes tab (pods carrying this label)
+#   backstage.io/source-location    -> "View source"
+#   jenkins.io/job-full-name        -> Jenkins tab (plugin NOT in the demo image)
+apiVersion: backstage.io/v1alpha1
+kind: Component
+metadata:
+  name: demo-api
+  description: Example product service, built and deployed by the platform-lib golden path
+  annotations:
+    backstage.io/kubernetes-id: demo-api
+    backstage.io/kubernetes-namespace: demo-ci
+    backstage.io/source-location: url:https://github.com/alecuvalentin22/aws-kodekloud-playground/tree/main/ci/apps/demo-api
+    jenkins.io/job-full-name: demo-api/main
+  links:
+    - url: https://github.com/alecuvalentin22/aws-kodekloud-playground/blob/main/ci/apps/demo-api/Jenkinsfile
+      title: Jenkinsfile (4 lines -- everything else is platform-lib)
+    - url: https://github.com/alecuvalentin22/aws-kodekloud-playground/blob/main/drills/18-jenkins-pipeline-failures.md
+      title: Runbook -- what to do when the deploy fails
+  tags: [python, flask]
+spec:
+  type: service
+  lifecycle: experimental
+  owner: group:app-team
+  system: demo-product
+  providesApis: [demo-api]
+  dependsOn:
+    - component:platform-lib
+    - resource:ecr-demo-api
+    - resource:eks-cluster
+---
+apiVersion: backstage.io/v1alpha1
+kind: Component
+metadata:
+  name: platform-lib
+  description: Jenkins shared library -- the golden-path pipeline every service calls in 4 lines
+  annotations:
+    backstage.io/source-location: url:https://github.com/alecuvalentin22/aws-kodekloud-playground/tree/main/ci/shared-library
+  tags: [groovy, jenkins]
+spec:
+  type: library
+  lifecycle: production
+  owner: group:platform-team
+  system: ci-platform
+  dependsOn: [component:jenkins]
+---
+apiVersion: backstage.io/v1alpha1
+kind: Component
+metadata:
+  name: jenkins
+  description: Jenkins controller on EKS, configured entirely as code (JCasC); agents are pods
+  annotations:
+    # Chart-managed pods we do not label ourselves: select by the chart's label.
+    backstage.io/kubernetes-label-selector: app.kubernetes.io/instance=jenkins
+    backstage.io/kubernetes-namespace: jenkins
+    backstage.io/source-location: url:https://github.com/alecuvalentin22/aws-kodekloud-playground/tree/main/ci/jenkins
+  links:
+    - url: https://github.com/alecuvalentin22/aws-kodekloud-playground/blob/main/ci/jenkins/values.yaml
+      title: Configuration as code
+  tags: [jenkins, ci]
+spec:
+  type: service
+  lifecycle: production
+  owner: group:platform-team
+  system: ci-platform
+  dependsOn:
+    - resource:eks-cluster
+    - resource:ecr-demo-api
+---
+apiVersion: backstage.io/v1alpha1
+kind: Component
+metadata:
+  name: artifactory
+  description: Artifactory OSS -- generic artifact store. Runs on GCP; did not fit the AWS playground
+  annotations:
+    backstage.io/source-location: url:https://github.com/alecuvalentin22/aws-kodekloud-playground/tree/main/terraform/gcp-artifactory
+  links:
+    - url: https://github.com/alecuvalentin22/aws-kodekloud-playground/blob/main/docs/kodekloud-limits.md
+      title: Why it is not on AWS
+  tags: [artifacts, gcp]
+spec:
+  type: service
+  lifecycle: experimental
+  owner: group:platform-team
+  system: ci-platform
+---
+apiVersion: backstage.io/v1alpha1
+kind: Component
+metadata:
+  name: backstage
+  description: This developer portal
+  annotations:
+    backstage.io/kubernetes-label-selector: app.kubernetes.io/instance=backstage
+    backstage.io/kubernetes-namespace: backstage
+    backstage.io/source-location: url:https://github.com/alecuvalentin22/aws-kodekloud-playground/tree/main/ci/backstage
+  tags: [portal]
+spec:
+  type: website
+  lifecycle: experimental
+  owner: group:platform-team
+  system: developer-portal
+  dependsOn: [resource:eks-cluster]
+---
+apiVersion: backstage.io/v1alpha1
+kind: Component
+metadata:
+  name: argocd
+  description: Argo CD -- pull-based GitOps controller (the GitOps track of this repo)
+  annotations:
+    backstage.io/source-location: url:https://github.com/alecuvalentin22/aws-kodekloud-playground/tree/main/gitops/argocd
+  tags: [gitops]
+spec:
+  type: service
+  lifecycle: production
+  owner: group:platform-team
+  system: gitops-platform
+  dependsOn: [resource:eks-cluster]
+---
+apiVersion: backstage.io/v1alpha1
+kind: Component
+metadata:
+  name: flux
+  description: Flux -- the other GitOps controller, measured side by side with Argo CD
+  annotations:
+    backstage.io/source-location: url:https://github.com/alecuvalentin22/aws-kodekloud-playground/tree/main/gitops/flux
+  tags: [gitops]
+spec:
+  type: service
+  lifecycle: production
+  owner: group:platform-team
+  system: gitops-platform
+  dependsOn: [resource:eks-cluster]

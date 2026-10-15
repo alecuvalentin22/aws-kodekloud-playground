@@ -15,6 +15,9 @@ K="kubectl --context $CLUSTER"
 IP="$($K get nodes -o jsonpath='{.items[0].status.addresses[?(@.type=="ExternalIP")].address}')"
 URL="http://$IP:30096"
 
+$K create namespace backstage --dry-run=client -o yaml | $K apply -f - >/dev/null
+$K apply -f "$HERE/ci/backstage/rbac.yaml" >/dev/null
+
 helm repo add backstage https://backstage.github.io/charts >/dev/null 2>&1 || true
 helm repo update backstage >/dev/null
 helm upgrade --install backstage backstage/backstage \

@@ -1,0 +1,36 @@
+# Ownership. Every entity in the catalog has exactly one owner, and the owner
+# is a TEAM, not a person -- people leave, teams get paged.
+#
+# In production these come from the identity provider (GitHub teams, Okta,
+# Entra ID) through an org provider, not from hand-written YAML.
+apiVersion: backstage.io/v1alpha1
+kind: Group
+metadata:
+  name: engineering
+  description: All of engineering
+spec:
+  type: department
+  children: [platform-team, app-team]
+---
+apiVersion: backstage.io/v1alpha1
+kind: Group
+metadata:
+  name: platform-team
+  description: Owns the CI/CD platform, clusters and developer tooling. On call for Jenkins and EKS.
+  links:
+    - url: https://github.com/alecuvalentin22/aws-kodekloud-playground/blob/main/drills/18-jenkins-pipeline-failures.md
+      title: Runbook -- pipeline to cluster failures
+spec:
+  type: team
+  parent: engineering
+  children: []
+---
+apiVersion: backstage.io/v1alpha1
+kind: Group
+metadata:
+  name: app-team
+  description: Builds product services on the platform's golden path. Owns demo-api.
+spec:
+  type: team
+  parent: engineering
+  children: []

@@ -1,0 +1,8 @@
+// The whole pipeline. Test, build, push to ECR and deploy to EKS all live in
+// the platform-lib shared library, owned by the platform team.
+@Library('platform-lib') _
+
+standardPipeline(
+    app:     '${{ values.name }}',
+    context: '.',
+)

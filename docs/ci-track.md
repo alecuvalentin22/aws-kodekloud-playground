@@ -127,6 +127,36 @@ build failure rate. The trap on EKS is that the kubelet cert is not valid for
 the address the agent dials, so with TLS verification on you get **no pod
 metrics and no error in the UI**. See `ci/datadog/values.yaml`.
 
+### Backstage: who adds what
+
+Backstage doesn't deploy anything or install CRDs. It's a portal that
+**reads**: from git (the catalog) and from Kubernetes (the Kubernetes tab).
+The work divides like this:
+
+| Who | Adds | In this repo |
+|---|---|---|
+| **Developer** | their service's `catalog-info.yaml`: description, owner, the API it provides | `templates/new-service/skeleton/catalog-info.yaml` |
+| **Platform / DevOps** | org and ownership (Groups) | `catalog/org.yaml` |
+| **Platform / DevOps** | systems, domains, infrastructure Resources, `dependsOn` edges | `catalog/systems.yaml`, `catalog/resources.yaml`, `catalog/components.yaml` |
+| **Platform / DevOps** | **the golden-path template**: "new service" generates the pipeline, Dockerfile, manifests and catalog entry | `templates/new-service/` |
+| **Platform / DevOps** | **the Kubernetes tab**: a read-only ClusterRole, cluster config, pod labels, and which **CRDs** to show (Argo Rollouts) | `ci/backstage/rbac.yaml`, `kubernetes:` in `ci/backstage/values.yaml`, `backstage.io/kubernetes-id` label in demo-api's Deployment |
+| **Platform / DevOps** | running Backstage: custom image (plugins are compiled in), PostgreSQL, TLS, auth | `ci/backstage/values.yaml` comments |
+
+**Exercises:**
+1. **Catalog graph:** open demo-api → *Dependencies*. Follow it to
+   platform-lib, Jenkins, the EKS cluster and the Terraform state bucket. That's
+   "what breaks if X goes down", answered from git.
+2. **APIs:** open the demo-api API. The OpenAPI spec is read from
+   `ci/apps/demo-api/openapi.yaml`, next to the code, so it can't drift silently.
+3. **Create → New Python service:** fill the form and look at the generated
+   files. The publish step is commented out because it needs a GitHub token;
+   say that in the interview, it shows you know how the last step works.
+4. **Add a component:** add one to `catalog/components.yaml`, push, wait
+   for the refresh, and find it. No clicking "register".
+5. **Kubernetes tab** (*not yet verified live*): open demo-api → *Kubernetes*.
+   Its pods appear because they carry `backstage.io/kubernetes-id: demo-api`.
+   Break a deploy (drill 18 §4) and watch the unready pod show up here.
+
 ### Datadog without an account
 
 Interviewers asking about a "nice to have" tool ask about concepts, not
