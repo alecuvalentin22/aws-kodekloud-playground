@@ -214,6 +214,15 @@ ping `OK` 263 s after apply; admin/admin via `bootstrap.creds` → `200` on
 Pro-only); uploaded `hello.txt` → `201`, downloaded → sha256 matches. Re-checked
 independently by the main session: ping, admin/admin and the download all 200.
 
+**Second playground, 2026-10-16 (account 637423626013):** `eks-up.sh` exit 0
+(5 × t3.medium, 110 pods, gp3); all nodes `standard` CPU credits from the fixed
+launch template; Jenkins (admin/admin) and Backstage installed in parallel; first
+demo-api build **SUCCESS**. Backstage catalog live: 3 Groups, 1 Domain, 4
+Systems, 7 Components, 1 API (OpenAPI resolved from `$text`), 3 Resources, 1
+Template, 0 entity errors. **Kubernetes tab verified in headless Chrome**:
+healthy "2 pods · No pods with errors"; broken deploy "1 pod with errors"
+(restart count shown); Rollouts CRD 404 until Argo Rollouts was installed.
+
 **Not verified:** Artifactory on AWS (above), but it runs on GCP. Datadog (no API key; values and installer are written, never
 applied). IRSA/Pod Identity for the agent was not attempted, so ECR push still
 rides on the node role. JCasC restoring a controller from an *empty* volume

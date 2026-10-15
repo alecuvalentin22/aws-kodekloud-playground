@@ -108,8 +108,10 @@ backstage:
       providers:
         guest:
           dangerouslyAllowOutsideDevelopment: true
-    # Kubernetes tab on each catalog entity. NOT YET VERIFIED LIVE: written
-    # after the playground it was meant for had expired.
+    # Kubernetes tab on each catalog entity. Verified 2026-10-16: the backend
+    # returns demo-api's pods/Service/Deployment/ReplicaSet and Jenkins'
+    # StatefulSet; without the Argo Rollouts CRD installed it also reports a
+    # 404 on /apis/argoproj.io/v1alpha1/.../rollouts -- expected.
     #
     # Backstage runs INSIDE the cluster it reads, so it talks to the API server
     # at its in-cluster address with its own service account token (no stored
@@ -117,6 +119,19 @@ backstage:
     # A pod belongs to an entity when it carries the label
     # backstage.io/kubernetes-id=<entity>, or matches the entity's
     # backstage.io/kubernetes-label-selector annotation.
+    # Permission framework OFF -- for plain http only.
+    #
+    # The Kubernetes tab checks kubernetes.clusters.read / resources.read in
+    # the BROWSER before rendering. Over http that check throws before any
+    # request is sent (the same missing crypto.randomUUID), the plugin reads
+    # the failure as a denial, and shows
+    #   Warning: Permission required
+    # while /api/kubernetes/services/<name> returns 200 with the pods in it and
+    # /api/permission/authorize answers ALLOW for both. With the framework off,
+    # the frontend skips the check. The image's policy allowed everything
+    # anyway; behind TLS, turn it back on and write a real policy.
+    permission:
+      enabled: false
     kubernetes:
       serviceLocatorMethod:
         type: multiTenant

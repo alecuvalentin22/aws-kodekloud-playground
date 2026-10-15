@@ -153,9 +153,18 @@ The work divides like this:
    say that in the interview, it shows you know how the last step works.
 4. **Add a component:** add one to `catalog/components.yaml`, push, wait
    for the refresh, and find it. No clicking "register".
-5. **Kubernetes tab** (*not yet verified live*): open demo-api → *Kubernetes*.
-   Its pods appear because they carry `backstage.io/kubernetes-id: demo-api`.
-   Break a deploy (drill 18 §4) and watch the unready pod show up here.
+5. **Kubernetes tab:** open demo-api → *Kubernetes*. Its pods appear because
+   they carry `backstage.io/kubernetes-id: demo-api`. Break a deploy (drill 18
+   §4) and watch it change. Verified: healthy it reads *"eks · 2 pods · No pods
+   with errors"*; with `FAIL_HEALTH=true` it showed an Error Reporting table,
+   `Pod demo-api-764f557454-lvjfq · container=demo-api restarted 2 times`, and
+   *"3 pods · 1 pod with errors"*. That's the point of the plugin: a developer
+   sees their broken pod without having kubectl access.
+6. **CRDs in Backstage:** the config asks for Argo Rollouts objects. Before
+   the Rollouts CRD was installed, the tab showed *"There was a problem
+   retrieving Kubernetes objects"* (backend: `404` on
+   `/apis/argoproj.io/v1alpha1/namespaces/demo-ci/rollouts`). Backstage shows
+   custom resources only if they exist and its ClusterRole may read them.
 
 ### Datadog without an account
 

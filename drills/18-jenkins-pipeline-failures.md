@@ -331,6 +331,34 @@ Read the whole sentence.
 
 ---
 
+## 13. "Permission required" — when nothing is denied
+
+Backstage's Kubernetes tab showed:
+
+```
+Kubernetes  Warning: Permission required
+```
+
+Everything said it should work:
+
+```
+/api/kubernetes/services/demo-api      200, pods/Service/Deployment in the body
+/api/permission/authorize              ALLOW for kubernetes.clusters.read and kubernetes.resources.read
+```
+
+The browser's network log showed **no** permission request at all. The
+frontend's permission client threw before sending (plain http has no
+`crypto.randomUUID`), and the plugin treats a failed check as "denied". Fix for
+the lab: `permission.enabled: false`, so the frontend skips the check. The real
+fix is TLS.
+
+The habit it teaches: when a UI says "permission denied", ask the authority
+directly (here `/api/permission/authorize`). If the authority says ALLOW, the
+problem is in the client, and the network tab tells you whether a request
+even left the browser.
+
+---
+
 ## Not run here (yet)
 
 - **Node drain against a PodDisruptionBudget.** `kubectl drain` on a node
