@@ -101,7 +101,17 @@ resource "aws_ecs_task_definition" "artifactory" {
   #   Started AccessApplication in 364.758 seconds
   # and the router -- the process that serves :8082 -- had already given up:
   #   [jfrou] [FATAL] Failed joining Access: ... context deadline exceeded
-  # Container RUNNING, port closed, forever. Doubling the CPU is the fix.
+  # Container RUNNING, port closed, forever. Doubling the CPU is the fix --
+  # IN A NORMAL ACCOUNT.
+  #
+  # ON THE KODEKLOUD PLAYGROUND THIS SIZE IS REAPED. Five minutes after the
+  # 2 vCPU task started, CloudTrail shows UpdateService(desiredCount=0),
+  # StopTask and DeleteService from
+  #   assumed-role/OrganizationAccountAccessRole/ConfigRuleCheckerSession*
+  # -- a compliance job, not an SCP: the apply succeeds and the service
+  # vanishes later. The 1 vCPU task ran 30 minutes untouched. So on the
+  # playground Artifactory runs on EKS instead (ci/artifactory/), and this
+  # stack is the ECS example rather than the live one.
   cpu    = "2048"
   memory = "8192"
 

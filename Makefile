@@ -103,6 +103,9 @@ jenkins: ## Jenkins (JCasC) + shared library + demo-api pipeline -> ECR -> EKS
 backstage: ## Backstage developer portal, catalog from catalog-info.yaml
 	./scripts/backstage-install.sh
 
+artifactory: ## Artifactory OSS on EKS (NodePort 30097)
+	./scripts/artifactory-install.sh
+
 datadog: ## Datadog agent (needs DD_API_KEY from a trial)
 	./scripts/datadog-install.sh
 

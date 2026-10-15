@@ -20,4 +20,8 @@ if has jenkins; then
   printf "  demo-api     http://%s:30095   (deployed by the Jenkins main build)\n" "$IP"
 fi
 has backstage && printf "  Backstage    http://%s:30096   (sign in as guest)\n" "$IP"
-printf "  Artifactory  %s\n" "$("$HERE/scripts/artifactory-url.sh" 2>/dev/null || echo 'not running (terraform/ecs)')"
+if has artifactory; then
+  printf "  Artifactory  http://%s:30097   admin / password (forced change)\n" "$IP"
+else
+  printf "  Artifactory  %s\n" "$("$HERE/scripts/artifactory-url.sh" 2>/dev/null || echo 'not running (make artifactory)')"
+fi

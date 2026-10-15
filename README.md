@@ -89,6 +89,9 @@ account, no external service:
   what, and the ordering rules that cannot be swapped
 - **[docs/gitops-delivery-styles.md](docs/gitops-delivery-styles.md)** — Argo CD
   vs Flux, and what canary / blue-green / A/B actually require
+- **[docs/ci-track.md](docs/ci-track.md)** — Jenkins on EKS with a shared
+  library, rootless BuildKit to ECR, Backstage, Artifactory: what runs where, the
+  order to read the code, and the interview questions it prepares you for
 
 (These previously linked to hosted pages that were private, so every reader got
 an access screen. Rendered markdown in the repo has no such failure mode.)
@@ -338,7 +341,7 @@ Do not just run the playbooks — you need to be able to talk about them.
 
 ## Work through the drills in order
 
-`drills/01` … `drills/12`. Each one has a "say this in the interview" section at
+`drills/01` … `drills/18`. Each one has a "say this in the interview" section at
 the end. Those are the actual deliverable — the cluster is just the thing that
 makes them true.
 
@@ -356,6 +359,7 @@ makes them true.
 | **15** | **Four Kubernetes failures: probes, rollouts, webhooks, ingress** |
 | **16** | **The vault file that was never loaded** |
 | **17** | **1.9 GB free and still dying: burst credits and steal time** |
+| **18** | **Pipeline to cluster: 401 vs denied, a leaked token, RBAC, a readiness stall** |
 
 Do drill 01, 03 and 05 with the cluster *running* and *break it for real*. A
 candidate who has recovered a red cluster sounds completely different from one

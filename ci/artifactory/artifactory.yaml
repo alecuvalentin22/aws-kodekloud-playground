@@ -1,0 +1,77 @@
+# Artifactory OSS on EKS -- the fallback when ECS Fargate is capped at 1 vCPU.
+#
+# terraform/ecs runs the same image on Fargate and is the cleaner design in a
+# normal account. On the KodeKloud playground it cannot work: Artifactory needs
+# ~2 vCPU to start (on 1 vCPU its router times out waiting for the access
+# service), and the playground's compliance reaper deleted the 2 vCPU service
+# five minutes after it launched. A t3.medium node here can burst to 2 vCPU.
+#
+# Applied by scripts/artifactory-install.sh, which creates the key Secret first.
+apiVersion: v1
+kind: Namespace
+metadata:
+  name: artifactory
+---
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: artifactory
+  namespace: artifactory
+spec:
+  replicas: 1
+  # Recreate: two Artifactorys on one embedded Derby database is corruption.
+  strategy: {type: Recreate}
+  selector:
+    matchLabels: {app: artifactory}
+  template:
+    metadata:
+      labels: {app: artifactory}
+    spec:
+      containers:
+        - name: artifactory
+          image: releases-docker.jfrog.io/jfrog/artifactory-oss:7.161.26
+          ports:
+            - {name: http, containerPort: 8082}
+          env:
+            - {name: JF_SHARED_DATABASE_TYPE, value: derby}
+            # Without this, current versions refuse to start on Derby:
+            #   Cannot start the application with a database other than PostgreSQL.
+            - {name: JF_SHARED_DATABASE_ALLOWNONPOSTGRESQL, value: "true"}
+            # Supplied, not generated on first boot -- the generation races the
+            # core service's 60 s wait and loses on a slow CPU.
+            - name: JF_SHARED_SECURITY_MASTERKEY
+              valueFrom: {secretKeyRef: {name: artifactory-keys, key: master-key}}
+            - name: JF_SHARED_SECURITY_JOINKEY
+              valueFrom: {secretKeyRef: {name: artifactory-keys, key: join-key}}
+          resources:
+            requests: {cpu: 1500m, memory: 2560Mi}
+            limits: {memory: 3Gi}
+          # Up to 12 minutes to start. A cold start is eight services coming
+          # up in parallel; if the router gives up on access first, this probe
+          # fails, kubelet restarts the CONTAINER, and the second start is warm
+          # because the data volume below survives container restarts.
+          startupProbe:
+            httpGet: {path: /artifactory/api/system/ping, port: http}
+            periodSeconds: 20
+            failureThreshold: 36
+          readinessProbe:
+            httpGet: {path: /artifactory/api/system/ping, port: http}
+            periodSeconds: 15
+          volumeMounts:
+            - {name: data, mountPath: /var/opt/jfrog/artifactory}
+      volumes:
+        # emptyDir: survives a container restart, not a pod reschedule. The
+        # lab's artifacts are disposable; production uses a PVC and PostgreSQL.
+        - name: data
+          emptyDir: {sizeLimit: 10Gi}
+---
+apiVersion: v1
+kind: Service
+metadata:
+  name: artifactory
+  namespace: artifactory
+spec:
+  type: NodePort
+  selector: {app: artifactory}
+  ports:
+    - {name: http, port: 8082, targetPort: http, nodePort: 30097}

@@ -162,6 +162,69 @@ node: a pod must fit **on one node**, and a t3.medium's *allocatable* memory is
 
 ---
 
+## 7. A branch: test fails, then passes — and never touches the registry
+
+Pushed `drill/failing-test` with a deliberately wrong assertion. Multibranch
+found it on the next scan and built it:
+
+```
+E       AssertionError: assert 'demo-api' == 'demo-apii'
+FAILED test_app.py::test_index_reports_app_and_version - AssertionError: ...
+1 failed, 2 passed in 0.20s
+Recording test results
+Stage "Build image" skipped due to earlier failure(s)
+Stage "Deploy" skipped due to earlier failure(s)
+```
+
+Fixed the test on the branch, pushed again:
+
+```
+3 passed in 0.19s
+built <acct>.dkr.ecr.../platform-lab/demo-api:drill-failing-test-f0dd9b44-2 (not pushed: branch drill/failing-test)
+Stage "Deploy" skipped due to when conditional
+Finished: SUCCESS
+```
+
+Read the two skip messages side by side: **"earlier failure(s)"** means
+something broke; **"when conditional"** means the pipeline chose not to run the
+stage. A branch build proves the Dockerfile still builds without putting a
+branch image in ECR or on the cluster. Only `main` pushes and deploys.
+
+---
+
+## 8. RUNNING, and dead: Artifactory on ECS Fargate
+
+The task said `RUNNING` for 30 minutes; port 8082 refused connections. The task
+had no log driver (`awslogs` needs an execution role the playground will not
+create), so ECS showed a healthy container and nothing else.
+
+**Move the problem somewhere you can see it.** The same image and env, run as a
+throwaway pod on EKS, gave `kubectl logs`, which showed three failures in turn,
+each hidden behind the one before:
+
+```
+1. java.lang.IllegalStateException: Cannot start the application with a database other than PostgreSQL.
+     -> JF_SHARED_DATABASE_ALLOWNONPOSTGRESQL=true
+2. Master key is missing. Pending for 5 seconds with 60 seconds timeout
+   Failed initializing Home.
+     -> supply JF_SHARED_SECURITY_MASTERKEY / JOINKEY instead of racing their generation
+3. Started AccessApplication in 364.758 seconds
+   [jfrou] [FATAL] Failed joining Access: ... context deadline exceeded
+     -> CPU, not config: the router (which owns :8082) gave up before access was up
+```
+
+Then the 2 vCPU fix was **deleted by someone else**: CloudTrail showed
+`UpdateService desiredCount=0`, `StopTask`, `DeleteService` from
+`assumed-role/OrganizationAccountAccessRole/ConfigRuleCheckerSession…`, the
+playground's compliance job, five minutes after a successful apply.
+
+Two lessons. A container being up does not mean the app is: without a health
+check nothing compares the two, so give every service a health check and a log
+driver. And when a resource disappears, ask CloudTrail who removed it before
+debugging your own code.
+
+---
+
 ## Not run here (yet) — know them anyway
 
 - **Bad `@Library('platform-lib@nope')`** — fails before any stage, at library

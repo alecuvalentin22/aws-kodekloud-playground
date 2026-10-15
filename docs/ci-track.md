@@ -16,7 +16,7 @@ flowchart LR
   A -->|"kubectl apply<br/>rollout status"| APP["demo-api<br/>EKS · ns demo-ci"]
   ECR -->|"node pulls"| APP
   BS["Backstage<br/>EKS · ns backstage"] -.->|"reads catalog-info.yaml"| GH
-  RT["Artifactory OSS<br/>ECS Fargate"]
+  RT["Artifactory OSS<br/>EKS · ns artifactory"]
 ```
 
 | Piece | Where | Why there |
@@ -24,19 +24,19 @@ flowchart LR
 | Jenkins | EKS, `jenkins` ns | agents are pods: a build gets a clean container set and disappears |
 | demo-api | EKS, `demo-ci` ns | the deploy target; agent RBAC is limited to this namespace |
 | Backstage | EKS, `backstage` ns | catalog of what exists and who owns it |
-| Artifactory OSS | **ECS Fargate** | not on EKS on purpose: Fargate does not count against the playground's 5-instance EC2 cap, and it built while the cluster was still building |
+| Artifactory OSS | EKS, `artifactory` ns (ECS version in `terraform/ecs`) | planned for **ECS Fargate**: it doesn't count against the 5-instance EC2 cap and could build while the cluster built. It needs ~2 vCPU to start, and the playground's compliance job deleted the 2 vCPU service after 5 minutes. See "Why ECS for one thing" below |
 | Datadog | not installed | SaaS: needs a trial API key. `DD_API_KEY=... make datadog` |
 
 URLs change every rebuild. Get them with `make urls` (EKS NodePorts: Jenkins
-30094, demo-api 30095, Backstage 30096) and `./scripts/artifactory-url.sh`.
+30094, demo-api 30095, Backstage 30096, Artifactory 30097).
 
 ## Build it
 
 ```bash
 NODE_DESIRED=5 ./scripts/eks-up.sh               # ~20 min
-terraform -chdir=terraform/ecs apply             # Artifactory, in parallel
 make jenkins                                     # prints URL + admin password
 make backstage
+make artifactory                                 # cold start takes several minutes
 ```
 
 Then open Jenkins → `demo-api` → **Scan Multibranch Pipeline Now**.
@@ -105,10 +105,15 @@ Kubernetes API, kubelet or the app), then check it from that layer's own tool:
 
 **"Why ECS for one thing and EKS for another?"** Pick the smallest platform
 that fits. A single stateful vendor container with no scaling story does not
-need Kubernetes. ECS Fargate is a task definition and a service. The cost of
-that choice showed up here: no log driver without an execution role, so a dead
-app inside a RUNNING container was invisible until the same image ran on EKS,
-where `kubectl logs` showed the error.
+need Kubernetes: on ECS Fargate it is a task definition and a service
+(`terraform/ecs`). Two costs showed up here. First, **no log driver without an
+execution role**, so the app died inside a container that stayed RUNNING and
+nothing said so. Running the same image as a pod on EKS and reading `kubectl
+logs` found three separate start-up failures in turn. Second, **platform
+limits you cannot see**: the playground's compliance job deleted the 2 vCPU
+service minutes after a successful apply. CloudTrail (`lookup-events`) showed
+who did it. Both are good answers to "tell me about a time something failed
+silently".
 
 **"What is Backstage for?"** So that other teams can answer *who owns this,
 where is its pipeline, how do I start a new one* without asking the platform
