@@ -192,8 +192,13 @@ cmd_close() {
 ## How I would tell this in an interview (STAR, 60 seconds)
 
 EOF
-  "${EDITOR:-vi}" "$f"
-  c_ok "saved $f"
+  if [[ -t 0 && -t 1 ]]; then
+    "${EDITOR:-vi}" "$f"
+    c_ok "saved $f"
+  else
+    # No terminal (a Semaphore task, CI): leave the template to fill in.
+    c_ok "journal template written: $f -- fill it in from your editor"
+  fi
   echo "  Compare with the model answer: play reveal"
 }
 

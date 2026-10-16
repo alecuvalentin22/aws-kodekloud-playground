@@ -1,0 +1,37 @@
+# Layered on top of gcp-setup's compose file, so there is still ONE Semaphore:
+#
+#   docker compose --project-name valensys-t2-semaphore --env-file "$SEMAPHORE_ENV_FILE" \
+#     -f ~/gcp/gcp-setup/local/semaphore/compose.yaml \
+#     -f ~/gcp/platform-lab/playground/semaphore/compose.override.yaml up -d --build
+#
+# Adds: the playground tools image, the playground's state and workspace (read-write, shared with the candidate's
+# terminal), and the `kind` Docker network so tasks reach Jenkins, Gitea and
+# the registry by their in-network names.
+#
+# Variables are NOT passed to tasks from here: Semaphore forwards only PATH
+# to a task (db_lib/LocalApp.go getEnvironmentVars). They live in the
+# project's Semaphore environment (project.tf).
+#
+# Permissions: Semaphore runs as uid 1001. On Docker Desktop for Mac the bind
+# mounts below are accessible to it regardless of host ownership -- verified:
+# uid 1001 reads the mode-600 creds.env. On a Linux host it would NOT be;
+# there, run the container with --user "$(id -u)" or chown the state dir.
+services:
+  semaphore:
+    build:
+      # PLATFORM_LAB_PATH is gcp-setup's own variable: its compose.yaml already
+      # mounts the checkout at /platform-lab:ro, so this file does not repeat it.
+      context: ${PLATFORM_LAB_PATH:?Set PLATFORM_LAB_PATH to the platform-lab checkout}/playground/semaphore
+      dockerfile: Dockerfile
+    image: valensys-semaphore:2.19.12-playground
+    volumes:
+      - ${PLAYGROUND_STATE_HOST:?Set PLAYGROUND_STATE_HOST, e.g. ~/.local/state/platform-lab-playground}:/state
+      - ${PLAYGROUND_WORK_HOST:?Set PLAYGROUND_WORK_HOST, e.g. ~/platform-playground}:/work
+    networks:
+      - default
+      - kind
+
+networks:
+  kind:
+    external: true
+    name: kind
