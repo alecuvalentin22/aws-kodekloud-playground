@@ -95,9 +95,11 @@ extra pods.
 7.161.x the chart refuses `splitServicesToContainers: false`, so it is a
 7-container StatefulSet + 2 small Deployments (frontend, jfbus) + PostgreSQL,
 not one container on Derby. See the long comments in `values/artifactory.yaml`
-for the memory reasoning. OSS limits: no Docker repos; generic and the Maven
-family are what it is for. **PyPI I could not confirm for OSS (I believe it is
-Pro-only)** -- check in the UI before relying on it.
+for the memory reasoning. OSS limits, tried on 2026-10-16 (see Verified): generic and
+Maven (a Maven remote cached `junit-4.13.2.pom` from Maven Central) work. The UI endpoint
+will *create* PyPI, npm and Docker repository entries, but the PyPI index route
+(`/artifactory/api/pypi/<repo>/simple/`) answers 404 and `pip download` finds no versions,
+so do not rely on PyPI (or npm/Docker, untested beyond creation) on OSS.
 
 **Argo CD is installed once, by hand, from the official manifest, and is not
 managed by this tree.** An earlier draft of this directory also carried a Helm
@@ -154,8 +156,16 @@ What the measurement changed:
   guessed earlier**: the manifest install also runs dex, notifications and the
   ApplicationSet controller (the Helm values that switched them off were never in use),
   and none of the seven pods has requests or limits, so the scheduler sees them as free.
-- Only the transient build-agent pod (python + buildkit + deploy + jnlp, ~1 GiB requested,
-  ~2.8 GiB of limits) is still an estimate: no pipeline has run on this cluster.
+- **Build-agent pod, measured 2026-10-16** (python + buildkit + deploy + jnlp; 960 Mi
+  requested, 2816 Mi of limits; transient, so not in the totals above). `demo-api` `main`
+  build #2, `kubectl top pod -n jenkins --containers` every ~10 s (metrics-server refreshes
+  about every 15 s, so a short spike can be missed): peak **jnlp 323 Mi, buildkit 68 Mi,
+  deploy 43 Mi, python 7 Mi** (about 440 Mi together). Build #3, `memory.peak` read from
+  each container's cgroup every 2 s (counts page cache, so it is the safer upper bound):
+  **jnlp 344 Mi [limit 512], buildkit 304 Mi [1536], python 93 Mi [512], deploy 36 Mi [256]**,
+  about 780 Mi together. The limits have room; the requests (buildkit 512 Mi) are generous
+  rather than tight. A build takes about 2 minutes on these VMs (the first pull of the four
+  images is slower).
 
 Fit: 9.0 GiB used / 11.0 GiB requested / 16.4 GiB of limits against 35.0 GiB. Nothing had
 to be cut. Two honest caveats remain:
@@ -317,6 +327,14 @@ hostPorts) with the tool's `Host` header, no credentials:
   Component, 4 System, 3 Group, 3 Resource, 2 Location, 1 each API, Domain, Template), so the
   catalog URL in `values/backstage.yaml` was fetched from GitHub and parsed.
 - **Memory:** the table under Sizing.
+
+CI path, run 2026-10-16 from the Mac (Jenkins REST with crumb, `kubectl` on the LAN kubeconfig):
+
+| Test | Evidence |
+|---|---|
+| **Jenkins `demo-api` `main` build** (Kubernetes agent, shared library, BuildKit push, deploy) | Build #2 (triggered with `POST /job/demo-api/job/main/build`): SUCCESS in about 2 min; stages Declarative: Checkout SCM, Test, Build image, Deploy, Declarative: Post Actions. Console: `pushed 10.77.0.31:30500/platform-lab/demo-api:main-488bac7e-2`, `kubectl -n demo-ci rollout status deployment/demo-api` ended `successfully rolled out`. Both `demo-api` pods Running with that image (rke2-a2 and rke2-s1, so containerd pulled it over plain http from the NodePort registry through the `registries.yaml` mirror). `port-forward` + GET `/` -> `{"app":"demo-api","version":"main-488bac7e-2"}`. Build #3 (re-run for the cgroup peaks) also SUCCESS. Agent memory: Sizing. |
+| **Jenkins -> Artifactory** | Credential `artifactory-admin` (username/password, created with `POST /credentials/store/system/domain/_/createCredentials`) and job `artifactory-publish-test` (REST `createItem`; script in [`fixtures/artifactory-publish-test.Jenkinsfile`](fixtures/artifactory-publish-test.Jenkinsfile); runs on the library's `podtemplates/build.yaml`, container `deploy`). Build #1 SUCCESS: `upload HTTP 201`, `download HTTP 200`, `sha256 MATCH` (27d86279...1a46) against `http://artifactory.artifactory.svc.cluster.local:8082/artifactory/generic-local/jenkins/1.txt` (Service `artifactory`, ports 8082/8081); the password shows as `****` in the console; Artifactory's own `api/storage` reports the same sha256. The job and credential are **test fixtures and stay on the instance** (Jenkins keeps them on its PVC; they are not in JCasC). |
+| **Artifactory OSS repo types** (UI endpoint `POST /ui/api/v1/ui/auth/login`, which needs `X-Requested-With: XMLHttpRequest` and an `Origin` header or it answers 403, then `POST /ui/api/v1/ui/admin/repositories` with `remoteRepoConfig`) | **Maven remote works**: `maven-remote` -> `https://repo1.maven.org/maven2`; GET `/artifactory/maven-remote/junit/junit/4.13.2/junit-4.13.2.pom` -> 200, 27018 bytes, cached in `maven-remote-cache` (sha256 569b6977...d94). **PyPI remote is created (200) but unusable**: `/artifactory/api/pypi/pypi-remote/simple/requests/` -> 404 (also without the trailing slash and `/simple/`), and `pip download requests==2.32.3 --no-deps -i http://admin:***@artifactory.192.168.1.153.nip.io/artifactory/api/pypi/pypi-remote/simple` -> "Could not find a version ... (from versions: none)"; the pod reaches pypi.org (200), so it is the OSS build not serving the PyPI API. npm, Docker (local and remote) entries were also accepted at creation (200); Docker `/v2` and npm `/api/npm` routes answered 404 / 401 and nothing was pushed. Repo delete is Pro-only. |
 - **Artifactory's root cause** (two parts; both fixed in git):
   1. `artifactory.admin.dataKey: password` made the chart mount the bare password as Access'
      `bootstrap.creds`, which must be `admin@*=<password>`. Access died at bootstrap
@@ -347,20 +365,15 @@ Done earlier (static only): the YAML parses and passes `yamllint`; `helm templat
 succeeds for every chart at its pin; every `$values/...` path and `path:` in `apps/` resolves.
 
 Not done:
-- **An authenticated Artifactory round trip** (create a generic repo, upload a file, download
-  it, compare sha256) was NOT run: the admin password was being changed by `secrets.sh --apply`
-  at the time and I was told not to read it. Only unauthenticated checks above were done.
-  The admin password now in `artifactory-admin` may also need an `artifactory-0` restart
-  to be consumed by Access. What OSS refuses (Docker/OCI repositories, and probably PyPI) is
-  documented from JFrog's product matrix, not tried against this instance.
-- **The registry path end to end** (BuildKit push to `10.77.0.31:30500`, containerd pull via
-  the `registries.yaml` mirror) is untested.
+- Artifactory OSS **Docker and npm** repositories were only *created* through the UI endpoint
+  (accepted); nothing was pushed or pulled. PyPI was tried and does not work (see Verified).
+  OSS cannot delete repositories (`DELETE /artifactory/api/repositories/<key>` and the UI delete
+  route both answer "available only in Artifactory Pro"), so the probe repos `pypi-remote`,
+  `npm-remote`, `docker-remote` and `docker-probe` are still there as inert config entries.
 - **Backstage over https**: the http-only workarounds are kept on the strength of their own
   comments; the Kubernetes tab, the shared-library link and TechDocs were not opened in a browser.
-- Jenkins' `kubernetes` cloud, the shared library from `feat/playground`, and the multibranch
-  scan have not been exercised; no build has run, so the build-agent memory is an estimate.
-  The pipeline only deploys on branch `main`.
-- Logins were not exercised (Argo CD, Grafana, Jenkins, Artifactory): only unauthenticated codes.
+- The pipeline only deploys on branch `main`; a failing build's auto-rollback was not
+  exercised in this pass.
 - RKE2's `kube-controller-manager`, scheduler, etcd and kube-proxy scrapes are switched off
   in kube-prometheus-stack (they bind to localhost on RKE2).
 - The 8443 SSH-tunnel path was not re-tested in this pass (the LAN path was).
