@@ -1,0 +1,14 @@
+- Repository:
+    - GitHub (feat/playground):
+        - abbr: GH
+          href: https://github.com/alecuvalentin22/aws-kodekloud-playground/tree/feat/playground
+    - This platform's README:
+        - abbr: RM
+          href: https://github.com/alecuvalentin22/aws-kodekloud-playground/blob/feat/playground/homelab/platform/README.md
+- Docs:
+    - Homepage:
+        - abbr: HP
+          href: https://gethomepage.dev/
+    - Argo CD:
+        - abbr: AC
+          href: https://argo-cd.readthedocs.io/

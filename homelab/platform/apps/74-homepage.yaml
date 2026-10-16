@@ -1,0 +1,29 @@
+# Wave 7, after the Wi-Fi Ingresses (wave 6). Homepage, the start page at
+# http://192.168.1.153/ and http://home.192.168.1.153.nip.io. Plain manifests
+# (kustomize for the hashed ConfigMap only), no chart: manifests/homepage/.
+#
+# Prerequisite, optional: Secret homepage/homepage-widgets (README, "Start page
+# and dashboards"); without it Homepage starts and only the Grafana widget errors.
+apiVersion: argoproj.io/v1alpha1
+kind: Application
+metadata:
+  name: homepage
+  namespace: argocd
+  annotations:
+    argocd.argoproj.io/sync-wave: "7"
+spec:
+  project: homelab
+  destination:
+    server: https://kubernetes.default.svc
+    namespace: homepage
+  source:
+    repoURL: https://github.com/alecuvalentin22/aws-kodekloud-playground.git
+    targetRevision: feat/playground
+    path: homelab/platform/manifests/homepage
+  syncPolicy:
+    automated: {prune: true, selfHeal: true}
+    syncOptions:
+      - CreateNamespace=true
+      - ServerSideApply=true
+      - ServerSideDiff=true
+      - FailOnSharedResource=true

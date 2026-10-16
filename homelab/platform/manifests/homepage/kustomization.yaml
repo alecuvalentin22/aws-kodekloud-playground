@@ -1,0 +1,30 @@
+# Homepage (gethomepage.dev), plain manifests after its official Kubernetes
+# docs (docs/installation/k8s.md at v2.4.0), no unofficial chart.
+#
+# Kustomize only to turn config/*.yaml into ONE ConfigMap with a content-hash
+# name: Homepage mounts each file with `subPath`, and a subPath mount never sees
+# a ConfigMap update, so a changed tile must roll the Deployment. The hash in the
+# name does that, and kustomize rewrites the reference in deployment.yaml.
+apiVersion: kustomize.config.k8s.io/v1beta1
+kind: Kustomization
+namespace: homepage
+resources:
+  - namespace.yaml
+  - rbac.yaml
+  - deployment.yaml
+  - service.yaml
+  - ingress.yaml
+configMapGenerator:
+  - name: homepage
+    options:
+      labels:
+        app.kubernetes.io/name: homepage
+    files:
+      - config/kubernetes.yaml
+      - config/settings.yaml
+      - config/services.yaml
+      - config/widgets.yaml
+      - config/bookmarks.yaml
+      - config/docker.yaml
+      - config/custom.css
+      - config/custom.js

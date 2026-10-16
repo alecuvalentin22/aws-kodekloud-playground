@@ -39,6 +39,7 @@ spec:
     - {server: https://kubernetes.default.svc, namespace: demo-ci}
     - {server: https://kubernetes.default.svc, namespace: artifactory}
     - {server: https://kubernetes.default.svc, namespace: backstage}
+    - {server: https://kubernetes.default.svc, namespace: homepage}
 
   clusterResourceWhitelist:
     - {group: "*", kind: "*"}

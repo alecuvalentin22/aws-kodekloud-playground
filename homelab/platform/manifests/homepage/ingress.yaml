@@ -1,0 +1,36 @@
+# Two ways in, both plain http on the home Wi-Fi (same decision as
+# ../lan-ingress/ingresses.yaml):
+#   http://home.192.168.1.153.nip.io   the named host
+#   http://192.168.1.153/              the host-less rule: any Host that no other
+#                                      Ingress claims (the bare IP, a typo)
+#
+# The host-less rule does NOT swallow the tools: ingress-nginx builds one nginx
+# server block per named host and puts the host-less rule in the default server
+# (`_`), which only gets requests whose Host matches no server block. So
+# argocd./grafana./jenkins./artifactory./backstage.192.168.1.153.nip.io keep
+# going to their apps (checked with curl, README "Start page and dashboards").
+# Homepage's own HOMEPAGE_ALLOWED_HOSTS decides which of those Host values it
+# answers; any other gets a 400 from Homepage, not a tool's page.
+apiVersion: networking.k8s.io/v1
+kind: Ingress
+metadata:
+  name: homepage
+  namespace: homepage
+  labels:
+    app.kubernetes.io/name: homepage
+spec:
+  ingressClassName: nginx
+  rules:
+    - host: home.192.168.1.153.nip.io
+      http:
+        paths:
+          - path: /
+            pathType: Prefix
+            backend:
+              service: {name: homepage, port: {name: http}}
+    - http:
+        paths:
+          - path: /
+            pathType: Prefix
+            backend:
+              service: {name: homepage, port: {name: http}}

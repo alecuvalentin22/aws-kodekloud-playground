@@ -1,0 +1,82 @@
+# One tile per app. `href` is the Wi-Fi name people click; `siteMonitor` is what
+# the Homepage POD checks, by the in-cluster Service where there is one (so the
+# dot means "the app answers", independent of HAProxy/ingress; the front-door
+# check is the blackbox Probe "lan" targets, see the Uptime dashboard).
+# Status codes <= 403 are green (a login wall is "up").
+# `namespace` + `podSelector` add the pod's status and CPU/memory to the tile.
+# Widget credentials are {{HOMEPAGE_VAR_*}} from the Secret homepage-widgets.
+
+- Platform:
+    - Argo CD:
+        icon: argocd.png
+        href: http://argocd.192.168.1.153.nip.io
+        description: GitOps controller (app-of-apps)
+        siteMonitor: http://argocd-server.argocd.svc.cluster.local/healthz
+        namespace: argocd
+        podSelector: app.kubernetes.io/name=argocd-server
+    - Grafana:
+        icon: grafana.png
+        href: http://grafana.192.168.1.153.nip.io
+        description: Dashboards, folder "Home lab"
+        siteMonitor: http://kube-prometheus-stack-grafana.observability.svc.cluster.local/api/health
+        namespace: observability
+        podSelector: app.kubernetes.io/name=grafana
+        widget:
+          type: grafana
+          version: 2
+          url: http://kube-prometheus-stack-grafana.observability.svc.cluster.local
+          username: "{{HOMEPAGE_VAR_GRAFANA_USER}}"
+          password: "{{HOMEPAGE_VAR_GRAFANA_PASSWORD}}"
+          fields: ["dashboards", "datasources", "totalalerts", "alertstriggered"]
+    - Backstage:
+        icon: backstage.png
+        href: http://backstage.192.168.1.153.nip.io
+        description: Developer portal and service catalog
+        siteMonitor: http://backstage.backstage.svc.cluster.local:7007/.backstage/health/v1/liveness
+        namespace: backstage
+        podSelector: app.kubernetes.io/name=backstage
+
+- CI:
+    - Jenkins:
+        icon: jenkins.png
+        href: http://jenkins.192.168.1.153.nip.io
+        description: Pipelines, shared library, agents in the cluster
+        siteMonitor: http://jenkins.jenkins.svc.cluster.local:8080/login
+        namespace: jenkins
+        podSelector: app.kubernetes.io/component=jenkins-controller
+    - Artifactory:
+        icon: artifactory.png
+        href: http://artifactory.192.168.1.153.nip.io
+        description: Artifact repositories (OSS: generic, Maven)
+        siteMonitor: http://artifactory.artifactory.svc.cluster.local:8082/artifactory/api/system/ping
+        namespace: artifactory
+        podSelector: app=artifactory,component=artifactory
+
+- Playground:
+    - Playground Jenkins:
+        icon: jenkins.png
+        href: http://192.168.1.153:30094
+        description: Jenkins of the kind playground (Windows PC)
+        siteMonitor: http://192.168.1.153:30094/login
+    - Gitea:
+        icon: gitea.png
+        href: http://192.168.1.153:30300
+        description: Git server of the kind playground
+        siteMonitor: http://192.168.1.153:30300/api/healthz
+    - demo-api:
+        icon: mdi-api
+        href: http://192.168.1.153:30095
+        description: Sample app deployed by the playground pipeline
+        siteMonitor: http://192.168.1.153:30095/
+
+- Cluster:
+    - Kubernetes API:
+        icon: kubernetes.png
+        href: https://192.168.1.153:6443
+        description: RKE2 v1.33, 3 nodes (token or kubeconfig needed)
+        # Anonymous /version answers 401: that is "up" here.
+        siteMonitor: https://kubernetes.default.svc.cluster.local/version
+    - Prometheus:
+        icon: prometheus.png
+        description: No Ingress (no auth); kubectl port-forward svc/kube-prometheus-stack-prometheus 9090
+        siteMonitor: http://kube-prometheus-stack-prometheus.observability.svc.cluster.local:9090/-/healthy
