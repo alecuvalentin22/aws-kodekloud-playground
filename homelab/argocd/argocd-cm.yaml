@@ -17,6 +17,10 @@ metadata:
     app.kubernetes.io/name: argocd-cm
     app.kubernetes.io/part-of: argocd
 data:
+  # A local account for the start page's Argo CD widget: API key only (no UI
+  # login), read-only via argocd-rbac-cm.yaml. Its token lives in the Secret
+  # homepage/homepage-widgets (HOMEPAGE_VAR_ARGOCD_KEY), never in git.
+  accounts.homepage: apiKey
   resource.customizations.health.argoproj.io_Application: |
     hs = {}
     hs.status = "Progressing"

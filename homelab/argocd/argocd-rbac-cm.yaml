@@ -1,0 +1,14 @@
+# Argo CD RBAC on top of install.yaml's empty argocd-rbac-cm.
+# The `homepage` account (argocd-cm.yaml, API key only) may read, never change:
+# it feeds the start page's Argo CD widget. admin keeps its built-in role.
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: argocd-rbac-cm
+  namespace: argocd
+  labels:
+    app.kubernetes.io/name: argocd-rbac-cm
+    app.kubernetes.io/part-of: argocd
+data:
+  policy.csv: |
+    g, homepage, role:readonly

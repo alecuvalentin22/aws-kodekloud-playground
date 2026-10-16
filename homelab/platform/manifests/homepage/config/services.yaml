@@ -14,6 +14,14 @@
         siteMonitor: http://argocd-server.argocd.svc.cluster.local/healthz
         namespace: argocd
         podSelector: app.kubernetes.io/name=argocd-server
+        # Read-only local account `homepage` (homelab/argocd/argocd-cm.yaml +
+        # argocd-rbac-cm.yaml); its API token is HOMEPAGE_VAR_ARGOCD_KEY in the
+        # Secret homepage-widgets. Verified: it reads apps, a sync gets 403.
+        widget:
+          type: argocd
+          url: http://argocd-server.argocd.svc.cluster.local
+          key: "{{HOMEPAGE_VAR_ARGOCD_KEY}}"
+          fields: ["apps", "synced", "outOfSync", "healthy"]
     - Grafana:
         icon: grafana.png
         href: http://grafana.192.168.1.153.nip.io
