@@ -41,19 +41,21 @@ load_creds() {
   [[ -f "$STATE/creds.env" ]] || die "No playground yet. Run: playground/setup/up.sh"
   # shellcheck disable=SC1091
   source "$STATE/creds.env"
+  # Older creds.env files predate GITEA_USER; their Gitea login is `dev`.
+  GITEA_USER=${GITEA_USER:-dev}
 }
 
 # --- Gitea -----------------------------------------------------------------
 
 gitea_api() {   # gitea_api METHOD PATH [JSON]
   local m=$1 p=$2 d=${3:-}
-  curl -fsS -u "dev:$GITEA_PASSWORD" -X "$m" -H 'Content-Type: application/json' \
+  curl -fsS -u "$GITEA_USER:$GITEA_PASSWORD" -X "$m" -H 'Content-Type: application/json' \
     ${d:+--data "$d"} "$GITEA_URL/api/v1$p"
 }
 
 # Authenticated remote URL for scripts. The candidate's own clones use a
 # credential helper instead, so the password is not in their .git/config.
-repo_url() { echo "${GITEA_URL/:\/\//://dev:$GITEA_PASSWORD@}/$1.git"; }
+repo_url() { echo "${GITEA_URL/:\/\//://$GITEA_USER:$GITEA_PASSWORD@}/$1.git"; }
 
 # Push a change as a TEAMMATE would: from a scratch clone under STATE, with a
 # different author, so the candidate has to `git pull` and read the log.

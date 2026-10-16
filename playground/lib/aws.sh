@@ -50,6 +50,7 @@ load_creds() {
   [[ -f "$STATE/creds.env" ]] || die "AWS tier not set up. Run: playground/setup/up-aws.sh"
   # shellcheck disable=SC1091
   source "$STATE/creds.env"
+  GITEA_USER=${GITEA_USER:-dev}
   [[ -f "$STATE/aws.env" ]] && {
     # shellcheck disable=SC1091
     source "$STATE/aws.env"; }

@@ -38,6 +38,13 @@ Your clones live in `~/platform-playground/` — **work there**, like you
 would in your own checkout. Teammates (the drills) push to the same repos, so
 `git pull` first. Credentials are in `~/.local/state/platform-lab-playground/creds.env`.
 
+The logins are `admin` on both Jenkins and Gitea. The passwords are generated
+unless you choose one: with `PLAYGROUND_ADMIN_PASSWORD` set, the first `up.sh`
+uses it for both, and `PLAYGROUND_ADMIN_PASSWORD=... setup/up.sh --set-password`
+changes an existing playground (Jenkins via helm, Gitea via `gitea admin user
+change-password`, the clones' credential store rewritten). It is only ever
+written to `creds.env` (mode 600), never printed or committed.
+
 ## How a round goes
 
 ```text

@@ -67,11 +67,12 @@ c_ok "account $ACCT, cluster $EKS_CLUSTER, $(K get nodes --no-headers | wc -l | 
 c_hdr "1/6 credentials for this tier ($STATE/creds.env)"
 if [[ ! -f "$STATE/creds.env" ]]; then
   umask 077
-  { echo "JENKINS_PASSWORD=$(openssl rand -hex 12)"; echo "GITEA_PASSWORD=$(openssl rand -hex 12)"; } > "$STATE/creds.env"
+  { echo "JENKINS_PASSWORD=$(openssl rand -hex 12)"; echo "GITEA_PASSWORD=$(openssl rand -hex 12)"; echo "GITEA_USER=admin"; } > "$STATE/creds.env"
   umask 022
 fi
 # shellcheck disable=SC1091
 source "$STATE/creds.env"
+GITEA_USER=${GITEA_USER:-dev}
 
 c_hdr "2/6 Gitea in the cluster"
 sed -e "s|IMAGE_PLACEHOLDER|$GITEA_IMAGE|" \
@@ -80,7 +81,7 @@ sed -e "s|IMAGE_PLACEHOLDER|$GITEA_IMAGE|" \
 K -n git rollout status deploy/gitea --timeout=300s >/dev/null
 gitea_forward || die "port-forward to Gitea failed ($STATE/logs/gitea-pf.log)"
 if ! gitea_api GET /user >/dev/null 2>&1; then
-  K -n git exec deploy/gitea -- gitea admin user create --admin --username dev \
+  K -n git exec deploy/gitea -- gitea admin user create --admin --username "$GITEA_USER" \
     --password "$GITEA_PASSWORD" --email dev@playground.local --must-change-password=false >/dev/null
 fi
 for org in platform payments; do
@@ -88,7 +89,7 @@ for org in platform payments; do
     gitea_api POST /orgs "{\"username\":\"$org\",\"visibility\":\"public\"}" >/dev/null
 done
 PLAYGROUND_STATE="$STATE" PLAYGROUND_GITEA_URL="$GITEA_URL" "$PG_ROOT/setup/seed.sh"
-c_ok "$GITEA_URL (port-forward; dev / see creds.env)"
+c_ok "$GITEA_URL (port-forward; $GITEA_USER / see creds.env)"
 
 c_hdr "3/6 ECR repository + node-role push (what scripts/jenkins-install.sh does)"
 aws ecr describe-repositories --repository-names "$ECR_REPO" >/dev/null 2>&1 || \
@@ -122,11 +123,11 @@ c_ok "$JENKINS_URL (admin / see $STATE/creds.env)"
 
 c_hdr "5/6 your workspace: $WORK"
 cred_file="$STATE/git-credentials"
-umask 077; printf 'http://dev:%s@localhost%%3a%s\n' "$GITEA_PASSWORD" "$GITEA_PF_PORT" > "$cred_file"; umask 022
+umask 077; printf 'http://%s:%s@localhost%%3a%s\n' "$GITEA_USER" "$GITEA_PASSWORD" "$GITEA_PF_PORT" > "$cred_file"; umask 022
 for repo in platform/platform-lib payments/demo-api; do
   d="$WORK/${repo#*/}"
   if [[ ! -d "$d/.git" ]]; then
-    git clone -q "http://dev@localhost:$GITEA_PF_PORT/$repo.git" "$d" \
+    git clone -q "http://$GITEA_USER@localhost:$GITEA_PF_PORT/$repo.git" "$d" \
       -c credential.helper="store --file=$cred_file"
     git -C "$d" config user.name "You (platform team)"
     git -C "$d" config user.email "you@playground.local"

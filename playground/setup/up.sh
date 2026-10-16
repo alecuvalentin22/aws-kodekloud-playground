@@ -5,9 +5,26 @@
 #   playground/setup/up.sh
 #
 # ~10 minutes the first time (images, Jenkins plugins, first build), ~1 after.
+#
+# Choosing the logins: the passwords are generated unless you export
+# PLAYGROUND_ADMIN_PASSWORD, which then becomes BOTH the Jenkins and the Gitea
+# password (users: admin / admin). It is read from the environment, written
+# only to $STATE/creds.env (mode 600, outside git) and never printed. It is
+# consulted when creds.env is first generated, or when you change an existing
+# playground with:
+#
+#   PLAYGROUND_ADMIN_PASSWORD=... playground/setup/up.sh --set-password
 set -euo pipefail
 # shellcheck disable=SC1091
 source "$(dirname "${BASH_SOURCE[0]}")/../lib/common.sh"
+SET_PASSWORD=0
+case "${1:-}" in
+  "") ;;
+  --set-password) SET_PASSWORD=1 ;;
+  *) die "usage: up.sh [--set-password]   (reads PLAYGROUND_ADMIN_PASSWORD)" ;;
+esac
+(( SET_PASSWORD == 0 )) || [[ -n "${PLAYGROUND_ADMIN_PASSWORD:-}" ]] \
+  || die "--set-password needs PLAYGROUND_ADMIN_PASSWORD in the environment"
 mkdir -p "$STATE/bin" "$STATE/scratch" "$STATE/logs" "$WORK"
 chmod 700 "$STATE"
 
@@ -58,12 +75,17 @@ done
 c_ok "context $CTX"
 
 c_hdr "4/7 credentials (generated once, kept in $STATE/creds.env)"
-if [[ ! -f "$STATE/creds.env" ]]; then
+if [[ ! -f "$STATE/creds.env" ]] || (( SET_PASSWORD )); then
   umask 077
-  {
-    echo "JENKINS_PASSWORD=$(openssl rand -hex 12)"
-    echo "GITEA_PASSWORD=$(openssl rand -hex 12)"
-  } > "$STATE/creds.env"
+  jp=${PLAYGROUND_ADMIN_PASSWORD:-$(openssl rand -hex 12)}
+  gp=${PLAYGROUND_ADMIN_PASSWORD:-$(openssl rand -hex 12)}
+  {   # %q so any value survives being sourced back
+    printf 'JENKINS_PASSWORD=%q\n' "$jp"
+    printf 'GITEA_PASSWORD=%q\n' "$gp"
+    echo "GITEA_USER=admin"
+  } > "$STATE/creds.env.new"
+  mv "$STATE/creds.env.new" "$STATE/creds.env"
+  unset jp gp
 fi
 load_creds
 # GNU first: on Linux `stat -f` means --file-system and prints junk, not an error.
@@ -73,15 +95,22 @@ c_hdr "5/7 Gitea (the GitHub stand-in)"
 sed "s|IMAGE_PLACEHOLDER|$GITEA_IMAGE|" "$PG_ROOT/setup/gitea.yaml" | K apply -f - >/dev/null
 K -n git rollout status deploy/gitea --timeout=180s >/dev/null
 if ! gitea_api GET /user >/dev/null 2>&1; then
-  K -n git exec deploy/gitea -- gitea admin user create --admin --username dev \
-    --password "$GITEA_PASSWORD" --email dev@playground.local --must-change-password=false >/dev/null
+  gitea_users=$(K -n git exec deploy/gitea -- gitea admin user list 2>/dev/null | awk 'NR>1 {print $2}' || true)
+  if grep -qx "$GITEA_USER" <<<"$gitea_users"; then
+    # The login exists but the password in creds.env does not match: a --set-password run.
+    K -n git exec deploy/gitea -- gitea admin user change-password --username "$GITEA_USER" \
+      --password "$GITEA_PASSWORD" --must-change-password=false >/dev/null
+  else
+    K -n git exec deploy/gitea -- gitea admin user create --admin --username "$GITEA_USER" \
+      --password "$GITEA_PASSWORD" --email "$GITEA_USER@playground.local" --must-change-password=false >/dev/null
+  fi
 fi
 for org in platform payments; do
   gitea_api GET "/orgs/$org" >/dev/null 2>&1 || \
     gitea_api POST /orgs "{\"username\":\"$org\",\"visibility\":\"public\"}" >/dev/null
 done
 "$PG_ROOT/setup/seed.sh"
-c_ok "$GITEA_URL  (dev / see creds.env)"
+c_ok "$GITEA_URL  ($GITEA_USER / see creds.env)"
 
 c_hdr "6/7 Jenkins (same chart + JCasC as EKS, local overlay)"
 K create namespace jenkins --dry-run=client -o yaml | K apply -f - >/dev/null
@@ -99,14 +128,16 @@ c_ok "$JENKINS_URL  (admin / see creds.env)"
 
 c_hdr "7/7 your workspace: $WORK"
 cred_file="$STATE/git-credentials"
-umask 077; printf 'http://dev:%s@localhost%%3a30300\n' "$GITEA_PASSWORD" > "$cred_file"
+umask 077; printf 'http://%s:%s@localhost%%3a30300\n' "$GITEA_USER" "$GITEA_PASSWORD" > "$cred_file"
 for repo in platform/platform-lib payments/demo-api; do
   d="$WORK/${repo#*/}"
   if [[ ! -d "$d/.git" ]]; then
-    git clone -q "http://dev@localhost:30300/$repo.git" "$d" \
+    git clone -q "http://$GITEA_USER@localhost:30300/$repo.git" "$d" \
       -c credential.helper="store --file=$cred_file"
     git -C "$d" config user.name "You (platform team)"
     git -C "$d" config user.email "you@playground.local"
+  else   # a clone from before the login was renamed still points at the old user
+    git -C "$d" remote set-url origin "http://$GITEA_USER@localhost:30300/$repo.git"
   fi
   c_ok "$d"
 done
@@ -120,7 +151,7 @@ cat <<EOF
                   playground/play start
 
   Jenkins   $JENKINS_URL        admin
-  Gitea     $GITEA_URL        dev
+  Gitea     $GITEA_URL        $GITEA_USER
   Passwords: $STATE/creds.env (mode 600), not printed here so logs stay clean.
   Copy one:  grep JENKINS_PASSWORD $STATE/creds.env | cut -d= -f2 | pbcopy   # Linux: xclip -sel clip / wl-copy
   demo-api  http://localhost:30095
