@@ -14,7 +14,7 @@
 # --check   changes nothing and never reads a secret VALUE: for each tool it lists
 #           the Secret/account it would set, whether that Secret exists, whether the
 #           workload is running, and the HTTP code of its API through the ingress.
-# --apply   needs HOMELAB_ADMIN_PASSWORD (refuses without it; min 8 characters).
+# --apply   needs HOMELAB_ADMIN_PASSWORD (refuses without it; warns under 12 characters).
 #           Re-runnable: a tool that already accepts the password is left alone.
 #   Grafana      Secret observability/grafana-admin (admin-user, admin-password).
 #                The password is in Grafana's database after its first start, so it is
@@ -166,8 +166,10 @@ if [[ $MODE == apply ]]; then
   [[ $PW_SET == yes ]] || die "set HOMELAB_ADMIN_PASSWORD (it is never printed or stored in git). Example:
     HOMELAB_ADMIN_PASSWORD='...' homelab/platform/secrets.sh --apply"
   case "$HOMELAB_ADMIN_PASSWORD" in *$'\n'*|*$'\r'*) die "the password must not contain a newline" ;; esac
-  [[ ${#HOMELAB_ADMIN_PASSWORD} -ge 8 ]] || die "the password is shorter than 8 characters; Artifactory and Grafana would reject it"
-  [[ ${#HOMELAB_ADMIN_PASSWORD} -ge 12 ]] || echo "secrets.sh: WARNING: shorter than 12 characters; every tool on the LAN accepts it." >&2
+  # The user's choice wins (2026-10-16: a short shared password, accepted with
+  # the LAN exposure). Warn, don't refuse; a tool that enforces its own minimum
+  # (Artifactory may) fails on its own line below with its own message.
+  [[ ${#HOMELAB_ADMIN_PASSWORD} -ge 12 ]] || echo "secrets.sh: WARNING: ${#HOMELAB_ADMIN_PASSWORD} characters; anyone on the Wi-Fi who guesses it is admin on every tool." >&2
   export HOMELAB_ADMIN_PASSWORD
 fi
 
