@@ -6,7 +6,9 @@ img=$(K -n demo-ci get deploy demo-api -o jsonpath='{.spec.template.spec.contain
 [[ $img == *.dkr.ecr.*amazonaws.com/* ]] || { c_bad "running image $img is not from ECR"; exit 1; }
 c_ok "running image came from ECR, so the push worked"
 lib=$(curl -fsS "$GITEA_URL/platform/platform-lib/raw/branch/main/vars/buildImage.groovy")
-pod=$(curl -fsS "$GITEA_URL/platform/platform-lib/raw/branch/main/resources/podtemplates/build.yaml")
+# Strip YAML comments first: the baseline template's comments MENTION
+# `privileged: true` (as the DinD option it rejects), which is not a setting.
+pod=$(curl -fsS "$GITEA_URL/platform/platform-lib/raw/branch/main/resources/podtemplates/build.yaml" | sed -E 's/(^|[[:space:]])#.*$//')
 if grep -Eq 'privileged: *true|runAsUser: *0([^0-9]|$)' <<<"$pod"; then
   echo "PENALTY 30 BuildKit now runs as root or privileged to read one file. That is root on the node for every build."
 fi

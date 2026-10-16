@@ -39,6 +39,15 @@ commits, clears script approvals, deletes quota/namespace), `hint`, `status`,
 unsolved left" path. The verification scores are kept, out of the way, in
 `~/.local/state/platform-lab-playground/scores.verification-2026-10-16.tsv`.
 
+## AWS tier, live on EKS (account 975049900668, 2026-10-16)
+
+| | Result |
+|---|---|
+| `setup/up-aws.sh` (run by the user) | exit 0; Gitea + Jenkins on EKS; baseline build #1 `pushed ...dkr.ecr.us-east-1.amazonaws.com/platform-lab/demo-api:main-7c158239-1`, rolled out. This is the regression test for the registry-agnostic library on the real ECR path |
+| 11 | real failure: `WARNING: Error loading config file: .../config.json: permission denied`, then `unexpected status from HEAD request` to ECR. Revert fix scored 100 (after fixing a check that matched `privileged: true` inside a YAML comment) |
+| 12 | the token really leaked into a **green** build (`+ TOKEN=eyJ…`, `+ AUTH=…`). `set +x` back + deleting the leaky build scored 100 |
+| 13, 14 | **not run**: their break/fix changes IAM, which this session's auto mode refuses; the user runs them |
+
 ## Bugs the runs found (all fixed)
 
 - `jq '.building // true'` read every finished build as running: jq's `//`
@@ -51,4 +60,4 @@ unsolved left" path. The verification scores are kept, out of the way, in
 
 - `play close` (opens `$EDITOR`; trivially a file write, but not run here).
 - Drills under Docker with less than 4 GB. Never tried smaller.
-- The AWS tier and the Semaphore console: see their own READMEs once they land.
+- AWS drills 13 and 14 (IAM changes), and the Semaphore console attached to the live instance.

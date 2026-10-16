@@ -90,10 +90,18 @@ cmd_start() {
   if [[ $hidden == true ]]; then c_hdr "INCIDENT  (random drill, level $(stars "$level"), par ${par} min)"
   else c_hdr "INCIDENT $id: $title  ($(stars "$level"), par ${par} min)"; fi
   sed 's/^/  /' "$DIR/ticket.md"
+  # The footer names the drill's own tier: an AWS drill lives in a different
+  # workspace, Jenkins and cluster than the local one.
+  local w=$WORK j=$JENKINS_URL g=$GITEA_URL kc="--context $CTX"
+  if [[ $needs == aws ]]; then
+    # shellcheck disable=SC1091
+    read -r w j g kc < <( source "$PG_ROOT/lib/aws.sh"; load_creds >/dev/null 2>&1
+      echo "$WORK $JENKINS_URL $GITEA_URL --kubeconfig=$EKS_KUBECONFIG" )
+  fi
   cat <<EOF
 
-  Your workspace: $WORK  (git pull first -- others may have pushed)
-  Jenkins $JENKINS_URL   Gitea $GITEA_URL   kubectl --context $CTX
+  Your workspace: $w  (git pull first -- others may have pushed)
+  Jenkins $j   Gitea $g   kubectl $kc
 
   Clock is running.   play hint | play check | play reveal
 EOF

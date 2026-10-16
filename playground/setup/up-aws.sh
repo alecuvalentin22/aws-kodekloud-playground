@@ -142,7 +142,7 @@ c_ok "build $b, running $img"
 cat <<EOF
 
   AWS tier ready.   playground/play start --tier aws     (or: play start 11)
-  After a drill:    playground/setup/up-aws.sh --reset   (play reset is the LOCAL tier)
+  After a drill:    playground/play reset                (runs up-aws.sh --reset for AWS drills)
 
   Jenkins   $JENKINS_URL
   Gitea     $GITEA_URL   (port-forward, kept alive by the drills)
