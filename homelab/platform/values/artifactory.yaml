@@ -198,6 +198,23 @@ artifactory:
       requests: {cpu: 50m, memory: 128Mi}
       limits: {memory: 384Mi}
   jfbus:
+    # The chart gives jfbus 12 x 5s = 60s to start. After a cold boot (every
+    # pod on the node starting at once) it was still booting at ~1.6 CPU when
+    # that ran out: "Container jfbus failed startup probe, will be restarted",
+    # 22 restarts, Artifactory stuck Progressing (homelab-1, 2026-10-17).
+    # 120 x 5s = 10 minutes, like the other Artifactory containers here.
+    startupProbe:
+      enabled: true
+      config: |
+        httpGet:
+          path: /{{ .Values.jfbus.apiContext }}/system/health/readiness
+          port: {{ .Values.jfbus.internalRestPort }}
+          scheme: HTTP
+        timeoutSeconds: {{ .Values.probes.timeoutSeconds }}
+        initialDelaySeconds: 0
+        periodSeconds: 5
+        failureThreshold: 120
+        successThreshold: 1
     resources:
       requests: {cpu: 100m, memory: 256Mi}
       limits: {memory: 512Mi}
