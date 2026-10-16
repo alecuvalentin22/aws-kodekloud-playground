@@ -169,6 +169,15 @@ Ok 'DefaultShell set'
 Step 'Power: never sleep or hibernate on AC'
 powercfg /change standby-timeout-ac 0
 powercfg /change hibernate-timeout-ac 0
+# Laptops: closing the lid on AC must not sleep it. The setting is HIDDEN on
+# some Modern Standby models (homelab-1, an i9-10885H laptop), so unhide it
+# first or the change does not show anywhere. Battery (DC) stays "sleep".
+if (Get-CimInstance Win32_Battery) {
+  powercfg /attributes SUB_BUTTONS LIDACTION -ATTRIB_HIDE
+  powercfg /setacvalueindex SCHEME_CURRENT SUB_BUTTONS LIDACTION 0
+  powercfg /setactive SCHEME_CURRENT
+  Ok 'laptop: lid close on AC = do nothing'
+}
 Ok 'done (battery settings untouched)'
 
 # --- 6. WSL2's Windows features, no distribution yet ------------------------------------------

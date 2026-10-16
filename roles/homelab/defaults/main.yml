@@ -33,19 +33,34 @@ homelab_incus_trust_client: ""        # e.g. "mac"
 
 # --- VMs for Kubernetes ----------------------------------------------------------
 # Used by playbooks/homelab-vms.yml. Static DHCP reservations on the bridge.
-# The repo's roles/kubernetes builds ONE single-node cluster per host, with
-# k8s_distribution per host: these three give a k3s cluster, an RKE2 cluster,
-# and a spare to break things on.
-homelab_vm_image: images:ubuntu/24.04
+# ONE multi-node RKE2 cluster: a server and two agents that JOIN it
+# (playbooks/rke2-cluster.yml, roles/rke2_cluster). `role` decides the group in
+# the generated inventory; `distribution` is kept so playbooks/k8s.yml still
+# works against any single host. 12 vCPU / 24 GiB of the box's 16 / 47.
+# The /cloud variant: plain images:ubuntu/24.04 has NO cloud-init, so the user,
+# key and packages in cloud-init.yaml.j2 are silently ignored and the VM is
+# unreachable (seen on homelab-1: `cloud-init: command not found`).
+homelab_vm_image: images:ubuntu/24.04/cloud
 homelab_vm_user: lab
 homelab_vm_ssh_keys: []                # public keys allowed into the VMs
 homelab_vms:
-  - {name: k3s-01, ip: 10.77.0.21, cpus: 4, memory: 8GiB, disk: 40GiB, distribution: k3s}
-  - {name: rke2-01, ip: 10.77.0.22, cpus: 4, memory: 8GiB, disk: 40GiB, distribution: rke2}
-  - {name: spare-01, ip: 10.77.0.23, cpus: 2, memory: 4GiB, disk: 20GiB, distribution: k3s}
+  - {name: rke2-s1, ip: 10.77.0.31, cpus: 4, memory: 8GiB, disk: 40GiB, distribution: rke2, role: server}
+  - {name: rke2-a1, ip: 10.77.0.32, cpus: 4, memory: 8GiB, disk: 40GiB, distribution: rke2, role: agent}
+  - {name: rke2-a2, ip: 10.77.0.33, cpus: 4, memory: 8GiB, disk: 40GiB, distribution: rke2, role: agent}
 
 # Where the generated inventory lands ON THE CONTROLLER (the Mac).
 homelab_inventory_out: "{{ playbook_dir }}/../homelab/generated/k8s.ini"
 # How the controller reaches the VMs: through the Windows SSH server, then
 # the WSL sshd, then the VM. Hosts are as named in the controller's ~/.ssh/config.
-homelab_proxy_jump: "homelab-1,{{ homelab_user }}@127.0.0.1:2222"
+# homelab-N-wsl (written by homelab/mac/add-host.sh) already jumps through
+# homelab-N and carries the PINNED WSL host key; going via it means only the
+# VMs' own keys are learned on first use, over an already-verified tunnel.
+homelab_ssh_alias: homelab-1
+homelab_proxy_jump: "{{ homelab_ssh_alias }}-wsl"
+
+# Link inventory/group_vars (and its vault) into homelab/generated/ -- only
+# needed for playbooks/k8s.yml's single-node path. See tasks/vms.yml.
+homelab_link_group_vars: false
+
+# The controller's private key for the VMs (its .pub is in homelab_vm_ssh_keys).
+homelab_vm_private_key: ~/.ssh/homelab_ed25519

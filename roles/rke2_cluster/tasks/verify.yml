@@ -1,0 +1,36 @@
+---
+- name: Every node in the inventory is Ready
+  ansible.builtin.command: >-
+    kubectl --kubeconfig /etc/rancher/rke2/rke2.yaml
+    wait --for=condition=Ready {{ groups['rke2'] | map('regex_replace', '^', 'node/') | join(' ') }} --timeout=10s
+  register: rke2_cluster_all_ready
+  retries: 60
+  delay: 10
+  until: rke2_cluster_all_ready.rc == 0
+  changed_when: false
+
+- name: Nodes as the cluster sees them
+  ansible.builtin.command: kubectl --kubeconfig /etc/rancher/rke2/rke2.yaml get nodes -o wide
+  register: rke2_cluster_nodes
+  changed_when: false
+
+- name: Show nodes
+  ansible.builtin.debug:
+    msg: "{{ rke2_cluster_nodes.stdout_lines }}"
+
+- name: Read the admin kubeconfig
+  ansible.builtin.slurp:
+    src: /etc/rancher/rke2/rke2.yaml
+  register: rke2_cluster_kc
+  no_log: true
+
+# server: https://127.0.0.1:6443 stays as it is -- on the Mac that is the
+# local end of homelab/mac/kube-tunnel.sh, and 127.0.0.1 is in tls-san.
+- name: Kubeconfig on the controller, context {{ rke2_cluster_context }}, mode 600
+  ansible.builtin.copy:
+    dest: "{{ rke2_cluster_kubeconfig_out }}"
+    mode: "0600"
+    content: "{{ rke2_cluster_kc.content | b64decode | regex_replace('(?m)\\bdefault\\b', rke2_cluster_context) }}"
+  delegate_to: localhost
+  become: false
+  no_log: true

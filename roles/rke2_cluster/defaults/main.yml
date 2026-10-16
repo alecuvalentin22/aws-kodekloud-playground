@@ -1,0 +1,21 @@
+---
+# One multi-node RKE2 cluster: hosts in [rke2_servers] form the control plane,
+# hosts in [rke2_agents] join it. roles/kubernetes, by contrast, builds a
+# single-node cluster per host.
+
+# Same pin as roles/kubernetes (and one minor from the EKS lab's 1.33).
+rke2_cluster_version: "v1.33.13+rke2r1"
+
+# The join secret. Generated ONCE on the controller (the Mac), kept in the
+# git-ignored homelab/generated/, and handed to every node: an agent that has
+# it can join, so it is a credential -- never commit it.
+rke2_cluster_token_file: "{{ playbook_dir }}/../homelab/generated/rke2-token"
+
+# The kubeconfig fetched to the controller, mode 600. Its server is
+# https://127.0.0.1:6443, reached through homelab/mac/kube-tunnel.sh.
+rke2_cluster_kubeconfig_out: "{{ playbook_dir }}/../homelab/generated/rke2.kubeconfig"
+rke2_cluster_context: homelab-rke2
+
+# The first server; agents register against it on the supervisor port.
+rke2_cluster_server_ip: "{{ hostvars[groups['rke2_servers'][0]].ansible_host }}"
+rke2_cluster_supervisor_port: 9345

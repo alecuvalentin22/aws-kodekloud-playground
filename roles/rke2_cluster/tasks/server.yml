@@ -1,0 +1,67 @@
+---
+- name: RKE2 config directory
+  ansible.builtin.file:
+    path: /etc/rancher/rke2
+    state: directory
+    mode: "0755"
+
+# Written BEFORE the install so the first start already has the token: an
+# rke2-server that started once without it has generated its own, and agents
+# carrying ours are refused.
+- name: Server config
+  ansible.builtin.copy:
+    dest: /etc/rancher/rke2/config.yaml
+    mode: "0600"
+    content: |
+      token: {{ rke2_cluster_token }}
+      node-ip: {{ ansible_host }}
+      # 127.0.0.1 for the Mac's tunnel (homelab/mac/kube-tunnel.sh).
+      tls-san:
+        - {{ ansible_host }}
+        - 127.0.0.1
+      # cluster-admin credentials: root-only, unlike roles/kubernetes' 0644.
+      write-kubeconfig-mode: "0600"
+  no_log: true
+  notify: restart rke2-server
+
+- name: Install RKE2 {{ rke2_cluster_version }} (server)
+  ansible.builtin.shell: |
+    set -o pipefail
+    if ! systemctl list-unit-files | grep -q '^rke2-server'; then
+      curl -sfL https://get.rke2.io | INSTALL_RKE2_VERSION={{ rke2_cluster_version }} INSTALL_RKE2_TYPE=server sh -
+      echo CHANGED
+    fi
+  args:
+    executable: /bin/bash
+  register: rke2_cluster_install
+  changed_when: "'CHANGED' in rke2_cluster_install.stdout"
+
+- name: Start rke2-server
+  ansible.builtin.systemd:
+    name: rke2-server
+    state: started
+    enabled: true
+    daemon_reload: true
+
+- name: Supervisor port is up (agents register here)
+  ansible.builtin.wait_for:
+    port: "{{ rke2_cluster_supervisor_port }}"
+    host: "{{ ansible_host }}"
+    timeout: 600
+
+- name: Bundled kubectl on PATH
+  ansible.builtin.file:
+    src: /var/lib/rancher/rke2/bin/kubectl
+    dest: /usr/local/bin/kubectl
+    state: link
+    force: true
+
+- name: Server node Ready
+  ansible.builtin.command: >-
+    kubectl --kubeconfig /etc/rancher/rke2/rke2.yaml
+    wait --for=condition=Ready node/{{ inventory_hostname }} --timeout=10s
+  register: rke2_cluster_server_ready
+  retries: 60
+  delay: 10
+  until: rke2_cluster_server_ready.rc == 0
+  changed_when: false

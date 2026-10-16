@@ -1,0 +1,27 @@
+---
+# Called with rke2_cluster_step: server | agent | verify (playbooks/rke2-cluster.yml).
+- name: Join token (created on the controller on first use)
+  ansible.builtin.set_fact:
+    rke2_cluster_token: "{{ lookup('ansible.builtin.password', rke2_cluster_token_file ~ ' chars=ascii_letters,digits length=48') }}"
+  no_log: true
+
+# The password lookup creates the file with the default umask (0644).
+- name: Join token is readable by you only
+  ansible.builtin.file:
+    path: "{{ rke2_cluster_token_file }}"
+    mode: "0600"
+  delegate_to: localhost
+  become: false
+  run_once: true
+
+- name: Control plane
+  ansible.builtin.include_tasks: server.yml
+  when: rke2_cluster_step == 'server'
+
+- name: Join as agent
+  ansible.builtin.include_tasks: agent.yml
+  when: rke2_cluster_step == 'agent'
+
+- name: Verify and hand the kubeconfig to the controller
+  ansible.builtin.include_tasks: verify.yml
+  when: rke2_cluster_step == 'verify'

@@ -156,3 +156,37 @@
       and paste the token when asked)
       TOKEN: {{ homelab_trust_token.stdout_lines | last }}
   when: homelab_trust_token is changed
+
+# Docker sets the iptables FORWARD policy to DROP, which silently blocks every
+# bridge that is not its own -- incusbr0 included: VMs resolve names but every
+# outbound connection times out (seen on homelab-1; the Incus docs describe
+# it). Allow the bridge in DOCKER-USER, which Docker never flushes, and re-add
+# it at every boot after Docker starts.
+- name: Incus bridge through Docker's FORWARD drop (boot unit)
+  ansible.builtin.copy:
+    dest: /etc/systemd/system/incus-docker-forward.service
+    mode: "0644"
+    content: |
+      [Unit]
+      Description=Let {{ homelab_incus_bridge | default('incusbr0') }} through Docker's FORWARD DROP
+      After=docker.service incus.service
+      Wants=docker.service
+
+      [Service]
+      Type=oneshot
+      RemainAfterExit=yes
+      ExecStart=/bin/sh -c 'B={{ homelab_incus_bridge | default("incusbr0") }}; \
+        iptables -C DOCKER-USER -i $B -j ACCEPT 2>/dev/null || iptables -I DOCKER-USER -i $B -j ACCEPT; \
+        iptables -C DOCKER-USER -o $B -m conntrack --ctstate RELATED,ESTABLISHED -j ACCEPT 2>/dev/null || \
+        iptables -I DOCKER-USER -o $B -m conntrack --ctstate RELATED,ESTABLISHED -j ACCEPT'
+
+      [Install]
+      WantedBy=multi-user.target
+  register: homelab_fwd_unit
+
+- name: Incus bridge forwarding active now and at boot
+  ansible.builtin.systemd:
+    name: incus-docker-forward.service
+    enabled: true
+    state: "{{ 'restarted' if homelab_fwd_unit.changed else 'started' }}"
+    daemon_reload: true

@@ -62,13 +62,27 @@
   delegate_to: localhost
   become: false
 
-- name: Generated inventory shares inventory/group_vars
+# Opt-in: inventory/group_vars holds the Ansible VAULT of the Elasticsearch /
+# Kong track (roles/kubernetes via playbooks/k8s.yml). Linked by default, it
+# made every playbook against the VMs -- rke2-cluster.yml included, which
+# needs none of it -- stop at "Attempting to decrypt but no vault secrets found".
+- name: Generated inventory shares inventory/group_vars (only for playbooks/k8s.yml)
   ansible.builtin.file:
     path: "{{ homelab_inventory_out | dirname }}/group_vars"
     src: "{{ playbook_dir }}/../inventory/group_vars"
     state: link
   delegate_to: localhost
   become: false
+  when: homelab_link_group_vars | bool
+
+# `src` is rejected with state=absent, hence two tasks.
+- name: Generated inventory does NOT share group_vars (the default)
+  ansible.builtin.file:
+    path: "{{ homelab_inventory_out | dirname }}/group_vars"
+    state: absent
+  delegate_to: localhost
+  become: false
+  when: not (homelab_link_group_vars | bool)
 
 - name: Inventory for playbooks/k8s.yml (on the controller)
   ansible.builtin.template:

@@ -1,0 +1,26 @@
+---
+# One multi-node RKE2 cluster on the home-lab VMs: a server, then agents that
+# join it, then a check that every node is Ready.
+#
+#   ansible-playbook -i homelab/generated/k8s.ini playbooks/rke2-cluster.yml
+#   homelab/mac/kube-tunnel.sh        # then, in another terminal:
+#   KUBECONFIG=homelab/generated/rke2.kubeconfig kubectl get nodes
+#
+# The inventory comes from playbooks/homelab-vms.yml.
+- name: RKE2 control plane
+  hosts: rke2_servers
+  become: true
+  vars: {rke2_cluster_step: server}
+  roles: [rke2_cluster]
+
+- name: RKE2 agents join
+  hosts: rke2_agents
+  become: true
+  vars: {rke2_cluster_step: agent}
+  roles: [rke2_cluster]
+
+- name: Cluster Ready, kubeconfig to the controller
+  hosts: rke2_servers[0]
+  become: true
+  vars: {rke2_cluster_step: verify}
+  roles: [rke2_cluster]

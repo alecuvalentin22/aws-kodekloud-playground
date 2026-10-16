@@ -1,0 +1,42 @@
+---
+- name: RKE2 config directory
+  ansible.builtin.file:
+    path: /etc/rancher/rke2
+    state: directory
+    mode: "0755"
+
+- name: Agent config (where to join, and the secret that lets it)
+  ansible.builtin.copy:
+    dest: /etc/rancher/rke2/config.yaml
+    mode: "0600"
+    content: |
+      server: https://{{ rke2_cluster_server_ip }}:{{ rke2_cluster_supervisor_port }}
+      token: {{ rke2_cluster_token }}
+      node-ip: {{ ansible_host }}
+  no_log: true
+  notify: restart rke2-agent
+
+- name: Server reachable from this agent
+  ansible.builtin.wait_for:
+    host: "{{ rke2_cluster_server_ip }}"
+    port: "{{ rke2_cluster_supervisor_port }}"
+    timeout: 300
+
+- name: Install RKE2 {{ rke2_cluster_version }} (agent)
+  ansible.builtin.shell: |
+    set -o pipefail
+    if ! systemctl list-unit-files | grep -q '^rke2-agent'; then
+      curl -sfL https://get.rke2.io | INSTALL_RKE2_VERSION={{ rke2_cluster_version }} INSTALL_RKE2_TYPE=agent sh -
+      echo CHANGED
+    fi
+  args:
+    executable: /bin/bash
+  register: rke2_cluster_install
+  changed_when: "'CHANGED' in rke2_cluster_install.stdout"
+
+- name: Start rke2-agent
+  ansible.builtin.systemd:
+    name: rke2-agent
+    state: started
+    enabled: true
+    daemon_reload: true

@@ -6,7 +6,12 @@ users:
     shell: /bin/bash
     groups: [sudo]
     sudo: "ALL=(ALL) NOPASSWD:ALL"
-    lock_passwd: true
+    # NOT lock_passwd: true. That writes "!" into the password field, and this
+    # sshd then refuses the account for keys too: "User lab not allowed because
+    # account is locked" (homelab-1). "*" can never match a password, so the
+    # account is key-only without being locked. ssh_pwauth: false below as well.
+    lock_passwd: false
+    hashed_passwd: "*"
     ssh_authorized_keys:
 {% for k in homelab_vm_ssh_keys %}
       - {{ k }}
