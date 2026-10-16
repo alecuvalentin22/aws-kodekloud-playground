@@ -38,6 +38,26 @@
   when: item.name not in (homelab_list.stdout | from_json | map(attribute='name') | list)
   changed_when: true
 
+# Start with WSL, explicitly. Unset, Incus restores each VM's LAST power state,
+# which also worked in the 2026-10-16 recovery drill (wsl --shutdown) -- but a VM
+# someone stopped by hand would then stay down after every restart. Servers get
+# a higher priority so the control plane boots before its agents.
+- name: VMs start with WSL (servers first)
+  ansible.builtin.shell: |
+    set -eu
+    want_prio="{{ 10 if item.role | default('') == 'server' else 0 }}"
+    changed=""
+    [ "$(incus config get {{ item.name }} boot.autostart)" = true ] || { incus config set {{ item.name }} boot.autostart=true; changed=1; }
+    [ "$(incus config get {{ item.name }} boot.autostart.priority)" = "$want_prio" ] \
+      || [ -z "$(incus config get {{ item.name }} boot.autostart.priority)" -a "$want_prio" = 0 ] \
+      || { incus config set {{ item.name }} boot.autostart.priority="$want_prio"; changed=1; }
+    [ -z "$changed" ] || echo CHANGED
+  loop: "{{ homelab_vms }}"
+  loop_control:
+    label: "{{ item.name }}"
+  register: homelab_autostart
+  changed_when: "'CHANGED' in homelab_autostart.stdout"
+
 # The incus-agent inside the VM answers exec once the guest has booted;
 # cloud-init then finishes the user + key.
 - name: Wait for cloud-init in every VM

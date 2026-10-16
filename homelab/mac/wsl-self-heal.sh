@@ -29,6 +29,8 @@ HERE="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
 HOST="${HOMELAB_SSH:-homelab-1}"
 WSLHOST="$HOST-wsl"
 PS_RUN="powershell -NoProfile -ExecutionPolicy Bypass -File wsl-setup.ps1"
+# ssh -n on every remote command below: without it the first ssh swallows stdin, so
+# `echo y | wsl-self-heal.sh --prove` (or a Semaphore task) silently aborted at the prompt.
 SSH_OPTS=(-o BatchMode=yes -o ConnectTimeout=8)
 
 PROVE=0
@@ -40,12 +42,12 @@ case "${1:-}" in
 esac
 [[ $# -le 1 ]] || { sed -n '5,6p' "${BASH_SOURCE[0]}" >&2; exit 2; }
 
-ssh "${SSH_OPTS[@]}" "$HOST" 'exit 0' || { echo "ssh $HOST does not work: see homelab/README.md step 0" >&2; exit 1; }
+ssh -n "${SSH_OPTS[@]}" "$HOST" 'exit 0' || { echo "ssh $HOST does not work: see homelab/README.md step 0" >&2; exit 1; }
 scp -q "${SSH_OPTS[@]}" "$HERE/windows/wsl-setup.ps1" "$HOST:wsl-setup.ps1"
 
 if [[ $PROVE -eq 0 ]]; then
   echo "==> $HOST: registering the task (wsl-setup.ps1 -TaskOnly)"
-  ssh "${SSH_OPTS[@]}" "$HOST" "$PS_RUN -TaskOnly"
+  ssh -n "${SSH_OPTS[@]}" "$HOST" "$PS_RUN -TaskOnly"
   echo
   echo "Look for: two triggers (BootTrigger; TimeTrigger with Repetition Interval PT5M and NO Duration),"
   echo "MultipleInstancesPolicy IgnoreNew, RestartOnFailure Count 3. To measure the recovery: $0 --prove"
@@ -67,7 +69,7 @@ TMP="$(mktemp)"
 trap 'rm -f "$TMP"' EXIT
 T0=$(date +%s)
 echo "==> $HOST: wsl --shutdown, then waiting for the task to bring the distro back"
-ssh "${SSH_OPTS[@]}" "$HOST" "$PS_RUN -ProveRecovery" 2>&1 | tee "$TMP" || true
+ssh -n "${SSH_OPTS[@]}" "$HOST" "$PS_RUN -ProveRecovery" 2>&1 | tee "$TMP" || true
 SECS="$(sed -n 's/^RECOVERY_SECONDS=//p' "$TMP" | tail -1 | tr -d '\r')"
 if [[ -z $SECS || $SECS == FAILED* ]]; then
   echo
@@ -80,7 +82,7 @@ echo
 echo "==> waiting for ssh $WSLHOST"
 ok=0
 for _ in $(seq 1 100); do
-  if ssh "${SSH_OPTS[@]}" "$WSLHOST" 'exit 0' 2>/dev/null; then ok=1; break; fi
+  if ssh -n "${SSH_OPTS[@]}" "$WSLHOST" 'exit 0' 2>/dev/null; then ok=1; break; fi
   sleep 3
 done
 T2=$(date +%s)
@@ -94,5 +96,5 @@ fi
 if [[ $ok -eq 1 ]]; then
   echo
   echo "Incus VMs now (they only come back by themselves if boot.autostart is set):"
-  ssh "${SSH_OPTS[@]}" "$WSLHOST" 'incus list -c ns4 --format csv 2>&1 | sed "s/^/    /"' || true
+  ssh -n "${SSH_OPTS[@]}" "$WSLHOST" 'incus list -c ns4 --format csv 2>&1 | sed "s/^/    /"' || true
 fi
