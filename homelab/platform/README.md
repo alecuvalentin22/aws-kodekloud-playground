@@ -470,6 +470,60 @@ CI path, run 2026-10-16 from the Mac (Jenkins REST with crumb, `kubectl` on the 
   HAProxy's check is layer 4 (it cannot see "backend app not Ready"), so during that window
   it forwards to nodes whose ingress answers 503.
 
+### Backstage in a browser (2026-10-16)
+
+Driven like a person, in headless Chromium 1.57 (Playwright image `v1.57.0-noble`, package
+pinned the same) from the Mac over the home Wi-Fi, plain `http://backstage.192.168.1.153.nip.io`.
+Re-runnable: [`tests/backstage-smoke.sh`](tests/backstage-smoke.sh) (needs Docker; writes
+screenshots and `results.json` to `tests/out/`, which is git-ignored). Screenshots are **not
+stored in git**: they stay in `tests/out/` on the machine that ran it.
+
+Worked (all on the final run, 0 failed steps):
+- Root `/` -> HTTP 200, title "Platform Lab"; guest "Enter" signs in and lands on the catalog.
+  The page really is a non-secure context (`isSecureContext=false`, no `crypto.randomUUID`).
+- **The catalog is served at `/`, not `/catalog`**: `/catalog` is the 404 page ("Looks like
+  someone dropped the mic!"), because `page:catalog` is moved to `path: /` in the values.
+- Catalog table: 7 Component rows (argocd, artifactory, backstage, demo-api, flux, jenkins,
+  platform-lib), exactly the 7 in `catalog/components.yaml`. The API from the browser session
+  gives **22 entities**: 7 Component, 4 System, 3 Group, 3 Resource, 2 Location, 1 each API,
+  Domain, Template = the 20 documents in `catalog-info.yaml` + `catalog/*.yaml` (1 Location, 7
+  Component, 1 API, 3 Group, 3 Resource, 1 Domain, 4 System) plus the Template that
+  `templates/new-service/template.yaml` adds and the Location Backstage generates for the
+  configured `catalog.locations` URL. Nothing missing, nothing extra.
+- demo-api entity page: overview renders, Owner app-team, System demo-product, lifecycle
+  experimental, the two links from the annotations. APIs tab lists the `demo-api` API
+  (OpenAPI, app-team); its Definition tab renders swagger-ui with `GET /` and `GET /healthz`.
+- Catalog Graph (`/catalog-graph`, root demo-api): 20 nodes and the relations drawn
+  (ownerOf, partOf, providesApi, dependsOn); the sidebar's Visualizer renders too.
+- Kubernetes tab, demo-api: cluster `rke2`, **2 pods, no pods with errors**, the `demo-api`
+  Deployment and NodePort Service in `demo-ci`. The `backstage` component's tab (label selector)
+  shows its own pod. The permission-framework workaround holds: no "Permission required".
+- API Explorer, Create (the Template is listed), Docs (empty: no TechDocs annotations), Settings
+  (profile `user:development/guest`) all render.
+
+Switched off on purpose (404 page, as designed): `/search`, `/notifications`.
+
+Broken or odd, with the cause:
+- **Kubernetes tab warning banner (real defect, fixed):** "There was a problem retrieving
+  Kubernetes objects ... `/apis/argoproj.io/v1alpha1/namespaces/demo-ci/rollouts` NOT_FOUND 404".
+  The Argo Rollouts `customResources` entry came from the EKS values and RKE2 has no such CRD.
+  The pods were listed anyway. Entry removed (commit b17fb2f); banner gone afterwards.
+- **Backstage was killed by its own startup probe (real defect, fixed):** after the pod rolled
+  for that change it restarted 4 times in 4 minutes (`Startup probe failed ... connection
+  refused`, exit 0). The chart allows 3 x 10s with a 1s timeout; a cold start here takes 35-60s.
+  Startup probe now 30 x 10s, 3s timeouts (commit 31031f2); the new pod started with 0 restarts.
+- **`globalThis.crypto.randomUUID is not a function`**, an uncaught error in the browser console
+  on every page that loads the entity/API/scaffolder/docs plugins (stack: `subscribe` in
+  `module-backstage`, called from the signals/observable client). It is the plain-http
+  secure-context problem named in `values/backstage.yaml`; `api:signals` cannot be switched off
+  (it broke catalog, api-docs and scaffolder). **No visible effect** on any page tested, so it is
+  left alone; it will go away with https, not before.
+- `GET /api/catalog/entities/by-name/user/development/guest` -> 404 on Settings: the guest user
+  has no User entity in the catalog. Harmless (the "Owned" filters show 0).
+- No Dependencies tab and no CI/CD tab on entity pages: the image's entity page has only
+  Overview / TechDocs / APIs / Kubernetes, and no Jenkins plugin, so the `jenkins.io/job-full-name`
+  annotation does nothing. Not an http problem; relations are visible in the Catalog Graph.
+
 ## Not verified yet
 
 Done earlier (static only): the YAML parses and passes `yamllint`; `helm template`
@@ -481,8 +535,8 @@ Not done:
   OSS cannot delete repositories (`DELETE /artifactory/api/repositories/<key>` and the UI delete
   route both answer "available only in Artifactory Pro"), so the probe repos `pypi-remote`,
   `npm-remote`, `docker-remote` and `docker-probe` are still there as inert config entries.
-- **Backstage over https**: the http-only workarounds are kept on the strength of their own
-  comments; the Kubernetes tab, the shared-library link and TechDocs were not opened in a browser.
+- **Backstage over https** was not tried (the front door is http by decision). Over http it was
+  exercised in a browser (see Verified); the shared-library link and TechDocs content were not.
 - The pipeline only deploys on branch `main`; a failing build's auto-rollback was not
   exercised in this pass.
 - RKE2's `kube-controller-manager`, scheduler, etcd and kube-proxy scrapes are switched off
