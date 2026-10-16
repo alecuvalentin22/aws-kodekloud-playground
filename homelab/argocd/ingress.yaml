@@ -1,16 +1,37 @@
 # Argo CD UI/API through RKE2's bundled ingress-nginx.
-# argocd-server serves TLS itself (self-signed), so nginx must speak HTTPS to
-# the backend; the browser-facing certificate is nginx's default one.
+#
+# Two hosts:
+#   argocd.192.168.1.153.nip.io  plain http, from any device on the home Wi-Fi
+#                                (the user's decision, 2026-10-16: no TLS, no CA)
+#   argocd.127.0.0.1.nip.io      the SSH tunnel (homelab/mac/kube-tunnel.sh era);
+#                                https at the browser via nginx's default cert
+#
+# argocd-server runs with server.insecure=true (argocd-cmd-params-cm.yaml), so
+# the backend is plain http. Without insecure mode its login cookie is marked
+# Secure and a browser on plain http drops it: an endless login loop.
+#
+# The LAN IP is in the host name. For another home-lab PC, change it here and
+# in homelab/platform/manifests/lan-ingress/.
 apiVersion: networking.k8s.io/v1
 kind: Ingress
 metadata:
   name: argocd-server
   namespace: argocd
   annotations:
-    nginx.ingress.kubernetes.io/backend-protocol: "HTTPS"
+    nginx.ingress.kubernetes.io/backend-protocol: "HTTP"
 spec:
   ingressClassName: nginx
   rules:
+    - host: argocd.192.168.1.153.nip.io
+      http:
+        paths:
+          - path: /
+            pathType: Prefix
+            backend:
+              service:
+                name: argocd-server
+                port:
+                  name: http
     - host: argocd.127.0.0.1.nip.io
       http:
         paths:
@@ -20,4 +41,4 @@ spec:
               service:
                 name: argocd-server
                 port:
-                  name: https
+                  name: http

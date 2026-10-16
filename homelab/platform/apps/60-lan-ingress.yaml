@@ -1,0 +1,25 @@
+# Wave 6, last: the plain-http Wi-Fi names for the tools
+# (manifests/lan-ingress/ingresses.yaml explains the decision and its cost).
+# Delete this Application to take every tool off the Wi-Fi names at once; the
+# tunnel names (<tool>.127.0.0.1.nip.io) stay.
+apiVersion: argoproj.io/v1alpha1
+kind: Application
+metadata:
+  name: lan-ingress
+  namespace: argocd
+  annotations:
+    argocd.argoproj.io/sync-wave: "6"
+spec:
+  project: homelab
+  destination:
+    server: https://kubernetes.default.svc
+  source:
+    repoURL: https://github.com/alecuvalentin22/aws-kodekloud-playground.git
+    targetRevision: feat/playground
+    path: homelab/platform/manifests/lan-ingress
+  syncPolicy:
+    automated: {prune: true, selfHeal: true}
+    syncOptions:
+      - ServerSideApply=true
+      - ServerSideDiff=true
+      - FailOnSharedResource=true

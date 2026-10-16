@@ -1,0 +1,12 @@
+# argocd-server serves plain http: TLS ends at ingress-nginx (or nowhere, on
+# the LAN host). Required for the plain-http LAN host -- see ingress.yaml.
+# Applied server-side on top of install.yaml's empty ConfigMap; argocd-server
+# reads it at start, so restart it after changing:
+#   kubectl -n argocd rollout restart deploy/argocd-server
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: argocd-cmd-params-cm
+  namespace: argocd
+data:
+  server.insecure: "true"

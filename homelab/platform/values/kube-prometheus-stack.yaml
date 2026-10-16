@@ -103,7 +103,9 @@ grafana:
       # The browser reaches Grafana through the SSH tunnel on :8443; without
       # this, Grafana builds redirects and links to https://grafana.127.0.0.1.nip.io
       # (port 443 on the Mac), which goes nowhere.
-      root_url: https://grafana.127.0.0.1.nip.io:8443
+      # The Wi-Fi name is primary (manifests/lan-ingress). Through the old
+      # tunnel name, login redirects now land on this URL instead.
+      root_url: http://grafana.192.168.1.153.nip.io
   resources:
     requests: {cpu: 50m, memory: 192Mi}
     limits: {memory: 384Mi}

@@ -1,0 +1,82 @@
+# The tools on the home Wi-Fi, plain http: http://<tool>.192.168.1.153.nip.io
+#
+# The user's decision (2026-10-16): reachable from the whole 192.168.1.0/24,
+# no TLS, no local CA to trust, one shared admin login (set by
+# homelab/platform/secrets.sh, never in git). So logins cross the Wi-Fi in
+# clear text -- fine on a trusted home network, wrong anywhere else.
+#
+# These are SEPARATE Ingress objects, not extra hosts in each chart's values, so
+# the LAN exposure is one file to read, one Argo CD app to delete, and the LAN IP
+# appears in exactly two places: here and homelab/argocd/ingress.yaml (Argo CD's
+# own Ingress is applied outside Argo CD). For another home-lab PC, change the IP
+# in both.
+#
+# No `tls:` blocks on purpose: ingress-nginx only forces the https redirect for
+# hosts it has a certificate entry for.
+apiVersion: networking.k8s.io/v1
+kind: Ingress
+metadata:
+  name: grafana-lan
+  namespace: observability
+spec:
+  ingressClassName: nginx
+  rules:
+    - host: grafana.192.168.1.153.nip.io
+      http:
+        paths:
+          - path: /
+            pathType: Prefix
+            backend:
+              service: {name: kube-prometheus-stack-grafana, port: {number: 80}}
+---
+apiVersion: networking.k8s.io/v1
+kind: Ingress
+metadata:
+  name: jenkins-lan
+  namespace: jenkins
+spec:
+  ingressClassName: nginx
+  rules:
+    - host: jenkins.192.168.1.153.nip.io
+      http:
+        paths:
+          - path: /
+            pathType: Prefix
+            backend:
+              service: {name: jenkins, port: {number: 8080}}
+---
+apiVersion: networking.k8s.io/v1
+kind: Ingress
+metadata:
+  name: artifactory-lan
+  namespace: artifactory
+  annotations:
+    # nginx's default 1m body limit would 413 every upload (same as the chart's
+    # own Ingress, values/artifactory.yaml).
+    nginx.ingress.kubernetes.io/proxy-body-size: "0"
+spec:
+  ingressClassName: nginx
+  rules:
+    - host: artifactory.192.168.1.153.nip.io
+      http:
+        paths:
+          - path: /
+            pathType: Prefix
+            backend:
+              service: {name: artifactory, port: {number: 8082}}
+---
+apiVersion: networking.k8s.io/v1
+kind: Ingress
+metadata:
+  name: backstage-lan
+  namespace: backstage
+spec:
+  ingressClassName: nginx
+  rules:
+    - host: backstage.192.168.1.153.nip.io
+      http:
+        paths:
+          - path: /
+            pathType: Prefix
+            backend:
+              service: {name: backstage, port: {number: 7007}}
