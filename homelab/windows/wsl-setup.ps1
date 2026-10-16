@@ -31,7 +31,9 @@ param(
   [string]$Distro     = 'Ubuntu-24.04',
   [int]   $MemoryGB   = 48,
   [int]   $Processors = 0,          # 0 = all logical processors minus 4 for Windows
-  [int]   $SshPort    = 2222
+  [int]   $SshPort    = 2222,
+  # Pinned; github.com/microsoft/WSL releases. 3.0.1 = 2026-09-29.
+  [string]$WslVersion = '3.0.1'
 )
 $ErrorActionPreference = 'Stop'
 $env:WSL_UTF8 = '1'                 # wsl.exe prints UTF-16 otherwise
@@ -87,9 +89,25 @@ if ($have -ne $want) {
 # says "WSL installation appears to be corrupted. Press any key to repair" and
 # waits 60 s for a key nobody can press over SSH (seen on homelab-1,
 # 2026-10-16). Installing/updating the WSL package first avoids the prompt.
-Step 'WSL package (from GitHub, not the Store)'
-Wsl @('--update', '--web-download') | Out-Null
-Ok 'installed or already current'
+# `wsl --update --web-download` does NOT work here: over SSH it fails with
+# Wsl/CallMsi/Install/REGDB_E_CLASSNOTREG (seen on homelab-1). It only wraps
+# an MSI install, so do that directly: Microsoft's signed MSI from GitHub,
+# signature checked, msiexec quiet. Works without a desktop session.
+Step "WSL package $WslVersion (signed MSI from github.com/microsoft/WSL)"
+$ErrorActionPreference = 'Continue'
+$haveWsl = ((& wsl.exe --version 2>&1 | Out-String) -replace "`0", '') -match 'WSL version: ([0-9.]+)'
+$ErrorActionPreference = 'Stop'
+if ($haveWsl) { Ok "already installed: $($Matches[1])" } else {
+  $msi = Join-Path $env:TEMP "wsl.$WslVersion.0.x64.msi"
+  Invoke-WebRequest "https://github.com/microsoft/WSL/releases/download/$WslVersion/wsl.$WslVersion.0.x64.msi" -OutFile $msi -UseBasicParsing
+  $sig = Get-AuthenticodeSignature $msi
+  if ($sig.Status -ne 'Valid' -or $sig.SignerCertificate.Subject -notmatch 'O=Microsoft Corporation') {
+    throw "WSL MSI signature is $($sig.Status) / $($sig.SignerCertificate.Subject) -- refusing to install"
+  }
+  $p = Start-Process msiexec.exe -ArgumentList "/i `"$msi`" /qn /norestart" -Wait -PassThru
+  if ($p.ExitCode -notin 0, 3010) { throw "msiexec exit $($p.ExitCode)" }
+  Ok "installed $WslVersion (Microsoft-signed)"
+}
 
 # --- 2. the distribution -------------------------------------------------------------
 Step "$Distro"
@@ -109,8 +127,14 @@ install -d -m 700 -o $LinuxUser -g $LinuxUser /home/$LinuxUser/.ssh
 grep -qxF '$AuthorizedKey' /home/$LinuxUser/.ssh/authorized_keys 2>/dev/null || echo '$AuthorizedKey' >> /home/$LinuxUser/.ssh/authorized_keys
 chown $LinuxUser`:$LinuxUser /home/$LinuxUser/.ssh/authorized_keys && chmod 600 /home/$LinuxUser/.ssh/authorized_keys
 printf '[boot]\nsystemd=true\n\n[user]\ndefault=%s\n' $LinuxUser > /etc/wsl.conf
-command -v sshd >/dev/null || { DEBIAN_FRONTEND=noninteractive apt-get update -qq && DEBIAN_FRONTEND=noninteractive apt-get install -y -qq --no-install-recommends openssh-server python3 >/dev/null; }
+# The sshd drop-in goes in BEFORE the package: Ubuntu 24.04 starts ssh.socket
+# on :22 during install, and under mirrored networking Windows' own sshd holds
+# :22 -- 'Failed to create listening socket (0.0.0.0:22): Address already in
+# use', and dpkg leaves openssh-server half-configured (seen on homelab-1).
+install -d -m 755 /etc/ssh/sshd_config.d
 printf '# Managed by Ansible (roles/playground). Keys only.\nPort %s\nListenAddress 127.0.0.1\nPubkeyAuthentication yes\nPasswordAuthentication no\nKbdInteractiveAuthentication no\nPermitRootLogin no\n' $SshPort > /etc/ssh/sshd_config.d/10-playground.conf
+command -v sshd >/dev/null || { DEBIAN_FRONTEND=noninteractive apt-get update -qq && DEBIAN_FRONTEND=noninteractive apt-get install -y -qq --no-install-recommends openssh-server python3 >/dev/null; }
+DEBIAN_FRONTEND=noninteractive dpkg --configure -a
 echo inside-ok
 "@ -replace "`r", ''
 $r = Wsl @('-d', $Distro, '-u', 'root', '--', 'bash', '-c', $inside)

@@ -172,3 +172,32 @@ Do not also run Tailscale on Windows: in mirrored mode the two would share inter
 
 If the S4U task does not start WSL, fall back to automatic logon
 (Sysinternals Autologon) plus the same task "At log on".
+
+## Verified on real hardware: homelab-1, 2026-10-16
+
+Windows 11 Home 10.0.26200, Intel i9-10885H (8c/16t), 64 GB, fresh install.
+
+| Step | Result |
+|---|---|
+| `bootstrap.ps1` | sshd key-only, LAN-only rule, rename; the first version then crashed printing the handoff (fixed, see git log) |
+| `ssh homelab-1` from the Mac | works; host key verified against the PC's screen |
+| WSL features | enabled over SSH with DISM (exit 3010), then a remote reboot: back in ~70 s, nobody logged in |
+| WSL itself | `wsl --update` **fails over SSH** (`Wsl/CallMsi/Install/REGDB_E_CLASSNOTREG`); the signed MSI 3.0.1 via msiexec works |
+| Ubuntu 24.04.5 | installed unattended; openssh-server first failed on `0.0.0.0:22: Address already in use` (mirrored networking shares :22 with Windows) -- the drop-in now goes in first |
+| `ssh homelab-1-wsl` | `lab@homelab-1`, 12 CPUs, 47 GB, systemd, passwordless sudo, sshd on 127.0.0.1:2222 only |
+| `/dev/kvm` in WSL | **present**: nested virtualization works on Win 11 Home + this i9, so Incus VMs are on |
+| boot without login | rebooted: WSL up 17 s after boot via the `Homelab-WSL` task, no desktop session |
+
+The Mac-side alias for the Ubuntu side (added by hand this time; `add-host.sh`
+does not write it yet):
+
+```sshconfig
+Host homelab-1-wsl
+  HostName 127.0.0.1
+  Port 2222
+  User lab
+  ProxyJump homelab-1
+  HostKeyAlias homelab-1-wsl
+  IdentityFile ~/.ssh/homelab_ed25519
+  IdentitiesOnly yes
+```
