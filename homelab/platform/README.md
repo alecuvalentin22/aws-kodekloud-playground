@@ -260,30 +260,38 @@ GitHub, so changes must be **pushed** to take effect.
 Expect the first full sync to take 15-25 minutes, most of it Artifactory and
 the Jenkins plugin download.
 
-## Reaching it from the Mac
+## Reaching it: from any device on the home Wi-Fi
 
-```bash
-ssh -N -L 8443:10.77.0.31:443 homelab-1-wsl
-```
+Plain http, no certificate to trust, one login everywhere: user `admin`, the
+password set by `secrets.sh` (`HOMELAB_ADMIN_PASSWORD`, never in git). The
+user's decision (2026-10-16), knowing that logins then cross the Wi-Fi in
+clear text and that anyone on it can reach every login page.
 
-All hostnames are `<tool>.127.0.0.1.nip.io` (nip.io resolves them to
-127.0.0.1, i.e. the tunnel's local end; ingress-nginx routes by `Host`). The
-browser will warn about the self-signed certificate once per host.
+Verified 2026-10-16 from the Mac over the Wi-Fi, real nip.io DNS, real logins:
 
-| Tool | URL | Login |
-|---|---|---|
-| Argo CD | https://argocd.127.0.0.1.nip.io:8443 | `admin` / `argocd-initial-admin-secret` |
-| Grafana | https://grafana.127.0.0.1.nip.io:8443 | secret `grafana-admin` |
-| Jenkins | https://jenkins.127.0.0.1.nip.io:8443 | secret `jenkins-admin` |
-| Artifactory | https://artifactory.127.0.0.1.nip.io:8443 | `admin` / secret `artifactory-admin` |
-| Backstage | https://backstage.127.0.0.1.nip.io:8443 | guest sign-in |
+| Tool | URL | Page | Login check |
+|---|---|---|---|
+| Argo CD | http://argocd.192.168.1.153.nip.io | 200 | `POST /api/v1/session` 200; cookie without `Secure` |
+| Grafana | http://grafana.192.168.1.153.nip.io | 200 | `/api/user` 200 |
+| Jenkins | http://jenkins.192.168.1.153.nip.io | 200 | `/whoAmI` 200 (wrong password: 401) |
+| Artifactory | http://artifactory.192.168.1.153.nip.io | 200 | `/api/repositories` 200 |
+| Backstage | http://backstage.192.168.1.153.nip.io | 200 | guest (read-only) |
+| Kubernetes API | https://192.168.1.153:6443 | — | `homelab/generated/rke2-lan.kubeconfig` (`homelab/mac/lan-kube-api.sh`) |
 
-Prometheus and Alertmanager have **no Ingress** (neither authenticates, and 80/443 are
-forwarded to the whole LAN): `kubectl -n observability port-forward svc/kube-prometheus-stack-prometheus 9090`
+The Wi-Fi names are `manifests/lan-ingress/` (Argo CD app `lan-ingress`) and,
+for Argo CD itself, `homelab/argocd/ingress.yaml`. The LAN IP is in those two
+files only; the tools' browser-facing URLs (Grafana `root_url`, Backstage
+`baseUrl`, Jenkins `jenkinsUrl`) follow the Wi-Fi names. Argo CD runs with
+`server.insecure=true` (`homelab/argocd/argocd-cmd-params-cm.yaml`): without
+it the login cookie is `Secure` and a plain-http browser loops on the login.
+
+Prometheus and Alertmanager have **no Ingress** (neither authenticates):
+`kubectl -n observability port-forward svc/kube-prometheus-stack-prometheus 9090`
 (Alertmanager: `svc/kube-prometheus-stack-alertmanager 9093`). Grafana, which has a login, is the UI.
-The tools' own external URLs include `:8443` (Jenkins `jenkinsUrl`, Grafana
-`root_url`, Backstage `baseUrl`), so if you change the tunnel's local port,
-change those too.
+
+The old tunnel names (`ssh -N -L 8443:10.77.0.31:443 homelab-1-wsl`, then
+`https://<tool>.127.0.0.1.nip.io:8443`) still route, but redirects and links now
+point at the Wi-Fi names.
 
 ## Verified (2026-10-16)
 
