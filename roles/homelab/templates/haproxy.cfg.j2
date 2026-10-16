@@ -1,5 +1,5 @@
 # Managed by Ansible (roles/homelab, tasks/lan_ingress.yml). Do not edit.
-# L4 / TLS passthrough to the RKE2 nodes' ingress-nginx hostPorts.
+# L4 / TLS passthrough: the RKE2 nodes' ingress-nginx hostPorts, plus homelab_lan_tcp_forwards.
 global
     log stdout format raw local0
     chroot /var/lib/haproxy
@@ -42,6 +42,20 @@ backend rke2_https
     server {{ vm.name }} {{ vm.ip }}:{{ homelab_lan_ingress_backend_https_port }}
 {% endfor %}
 
+{% for f in homelab_lan_tcp_forwards %}
+# {{ f.name }}: {{ f.bind | default('0.0.0.0') }}:{{ f.port }} -> {{ f.backends | join(',') }}:{{ f.backend_port }}
+frontend fwd_{{ f.name }}
+    bind {{ f.bind | default('0.0.0.0') }}:{{ f.port }} transparent
+    default_backend fwd_{{ f.name }}
+
+backend fwd_{{ f.name }}
+    balance leastconn
+    default-server check inter {{ homelab_lan_ingress_check_inter }} fall {{ homelab_lan_ingress_check_fall }} rise {{ homelab_lan_ingress_check_rise }} on-marked-down shutdown-sessions
+{% for ip in f.backends %}
+    server b{{ loop.index }} {{ ip }}:{{ f.backend_port }}
+{% endfor %}
+
+{% endfor %}
 # Loopback only: curl -s 'http://127.0.0.1:{{ homelab_lan_ingress_stats_port }}/;csv' for UP/DOWN per backend.
 frontend stats
     bind 127.0.0.1:{{ homelab_lan_ingress_stats_port }}

@@ -1,5 +1,6 @@
 #!/usr/bin/env bash
-# Make the lab's Kubernetes ingress answer on the home LAN (TCP 80/443) -- from the Mac.
+# Make the lab answer on the home LAN -- from the Mac: ingress 80/443, RKE2 API 6443,
+# the playground's 30094/30095/30300 (ports: lan-ingress.ps1 -Ports, homelab_lan_tcp_forwards).
 #
 #   homelab/mac/lan-ingress.sh               Windows firewall rules, then the forwarder in WSL
 #   homelab/mac/lan-ingress.sh --windows     only the Windows side (lan-ingress.ps1)
@@ -16,7 +17,7 @@ LAB="$(cd "$HERE/.." && pwd)"
 HOST="${HOMELAB_SSH:-homelab-1}"
 INV="$HERE/inventory.ini"
 MODE="${1:-all}"
-case $MODE in all|--windows|--ansible|--uninstall) ;; *) sed -n '2,9p' "${BASH_SOURCE[0]}" >&2; exit 2 ;; esac
+case $MODE in all|--windows|--ansible|--uninstall) ;; *) sed -n '2,10p' "${BASH_SOURCE[0]}" >&2; exit 2 ;; esac
 
 windows() {   # $1 = extra lan-ingress.ps1 arguments
   ssh -o BatchMode=yes "$HOST" 'exit 0' || { echo "ssh $HOST does not work: see homelab/README.md step 0" >&2; exit 1; }

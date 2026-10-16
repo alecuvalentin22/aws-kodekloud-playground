@@ -1,24 +1,46 @@
 ---
 # Layer-4 (TLS passthrough) forwarder: the LAN -> this WSL box :80/:443 -> the
-# three RKE2 nodes' ingress-nginx hostPorts. TLS is NOT terminated here, so the
+# three RKE2 nodes' ingress-nginx hostPorts, and homelab_lan_tcp_forwards
+# (RKE2 API 6443, the playground's NodePorts). TLS is NOT terminated here, so the
 # certificates, SNI and Host routing stay entirely ingress-nginx's business.
 # Enabled by homelab_lan_ingress; run alone with `--tags lan_ingress`.
 
+- name: The forwarder's LAN address is known
+  ansible.builtin.assert:
+    that: homelab_lan_ingress_lan_address is match('^[0-9]+[.][0-9]+[.][0-9]+[.][0-9]+$')
+    fail_msg: "No IPv4 address to bind the forwards to (got '{{ homelab_lan_ingress_lan_address }}'): set homelab_lan_ingress_lan_address."
+    quiet: true
+
+- name: Every forward has at least one backend
+  ansible.builtin.assert:
+    that: item.backends | length > 0
+    fail_msg: "Forward {{ item.name }} has no backends (rke2_api needs a homelab_vms entry with role: server)."
+    quiet: true
+  loop: "{{ homelab_lan_tcp_forwards }}"
+  loop_control: {label: "{{ item.name }}"}
+
+# A listener conflicts when it is on the wildcard or on the very address we bind.
+# kind's 127.0.0.1:30094 is neither, so it does not block a bind on the LAN address.
 - name: Nothing else in WSL may hold the forwarder's ports
   ansible.builtin.shell: >-
     set -o pipefail &&
-    ss -H -ltnp "( sport = :{{ homelab_lan_ingress_http_port }} or sport = :{{ homelab_lan_ingress_https_port }} )"
-    | grep -v '"haproxy"' || true
+    ss -H -ltnp "sport = :{{ item.port }}" | grep -v '"haproxy"'
+    | awk -v bind='{{ item.bind | default("0.0.0.0") }}'
+    'bind == "0.0.0.0" || $4 ~ /^(\*|0\.0\.0\.0|\[::\]):/ || index($4, bind ":") == 1' || true
   args:
     executable: /bin/bash
   register: homelab_lan_ingress_busy
   changed_when: false
+  loop: "{{ [{'port': homelab_lan_ingress_http_port}, {'port': homelab_lan_ingress_https_port}] + homelab_lan_tcp_forwards }}"
+  loop_control: {label: "{{ item.port }}"}
 
 - name: Refuse to start on top of another listener
   ansible.builtin.assert:
-    that: homelab_lan_ingress_busy.stdout | trim == ''
-    fail_msg: "Something other than haproxy already listens on {{ homelab_lan_ingress_http_port }}/{{ homelab_lan_ingress_https_port }}: {{ homelab_lan_ingress_busy.stdout }}"
+    that: item.stdout | trim == ''
+    fail_msg: "Something other than haproxy already listens on {{ item.item.port }}: {{ item.stdout }}"
     quiet: true
+  loop: "{{ homelab_lan_ingress_busy.results }}"
+  loop_control: {label: "{{ item.item.port }}"}
 
 - name: HAProxy {{ homelab_lan_ingress_haproxy_version }}
   ansible.builtin.apt:
@@ -53,11 +75,11 @@
 - name: Apply config
   ansible.builtin.meta: flush_handlers
 
+# Loopback answers for a wildcard bind; a bind on the LAN address is probed there.
 - name: Forwarder is listening
   ansible.builtin.wait_for:
-    port: "{{ item }}"
-    host: 127.0.0.1
+    port: "{{ item.port }}"
+    host: "{{ item.bind | default('127.0.0.1') }}"
     timeout: 15
-  loop:
-    - "{{ homelab_lan_ingress_http_port }}"
-    - "{{ homelab_lan_ingress_https_port }}"
+  loop: "{{ [{'port': homelab_lan_ingress_http_port}, {'port': homelab_lan_ingress_https_port}] + homelab_lan_tcp_forwards }}"
+  loop_control: {label: "{{ item.port }}"}

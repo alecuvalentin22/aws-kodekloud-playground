@@ -185,42 +185,68 @@ kind publishes its NodePorts on `127.0.0.1` only
 ([`playground/setup/kind.yaml`](../playground/setup/kind.yaml)). Use a tunnel,
 as above, rather than opening them to the LAN.
 
-## LAN access: the ingress from the whole home Wi-Fi
+## LAN access: the lab from the whole home Wi-Fi
 
 ```bash
 homelab/mac/lan-ingress.sh               # Windows firewall rules, then the forwarder
 curl -k --resolve argocd.127.0.0.1.nip.io:443:192.168.1.153 https://argocd.127.0.0.1.nip.io/
+curl -sk https://192.168.1.153:6443/version        # RKE2 API: 401 without a client cert, which proves the path
 ```
 
-**Path:** LAN client -> Windows `192.168.1.153:80/443` (shared with WSL by mirrored
-networking) -> HAProxy in WSL, **layer 4, TLS passthrough** -> `:80/:443` of
-`10.77.0.31/.32/.33`, where ingress-nginx's DaemonSet listens on hostPorts.
-Certificates and Host routing stay ingress-nginx's; clients need the right Host/SNI.
+**Path:** LAN client -> Windows `192.168.1.153:<port>` (shared with WSL by mirrored
+networking) -> HAProxy in WSL, **layer 4, TCP passthrough** (TLS is never terminated) ->
 
-**Exposed, and to whom:**
+- `80/443` -> `:80/:443` of `10.77.0.31/.32/.33` (ingress-nginx DaemonSet hostPorts);
+  certificates and Host routing stay ingress-nginx's, so clients need the right Host/SNI.
+- `6443` -> `:6443` of every `homelab_vms` entry with `role: server` (today `10.77.0.31`;
+  a future HA control plane joins the pool by itself). The API authenticates with client
+  certificates, so passthrough is enough.
+- `30094/30095/30300` -> `127.0.0.1:<same port>` in WSL, where kind publishes the
+  playground's NodePorts. HAProxy binds the WSL's LAN address (`192.168.1.153`) rather
+  than `0.0.0.0` because a wildcard bind clashes with Docker's `127.0.0.1:30094`;
+  `playground/setup/kind.yaml` (the Mac keeps its own copy) is untouched and the cluster
+  is not recreated.
 
-| What | To whom | By |
+**Reachable from the Wi-Fi (`192.168.1.0/24`, Private network profile) and what is deliberately not:**
+
+| Port | What | From the LAN |
 |---|---|---|
-| TCP 80, 443 | the PC's own LAN subnet (auto-detected, `192.168.1.0/24`; override with `HOMELAB_LAN_CIDR`), **Private** network profile only | Defender rule `Homelab-LAN-Ingress-In` **and** Hyper-V firewall rule `Homelab-LAN-Ingress-HyperV-In` (WSL VMCreatorId `{40E0AC32-...}`), both scoped identically |
-| everything else (2222 WSL sshd, 8443 Incus, 6443, kind's 30094/30095/30300, HAProxy stats 8404) | nobody on the LAN | unchanged: sshd/Incus-API/stats are loopback or blocked by the firewalls; the Hyper-V default stays Block (the script does **not** set `DefaultInboundAction Allow`, which would open every WSL listener) |
-| TCP 22 | LAN, as before | `Homelab-SSH-LAN-In` (bootstrap.ps1), untouched |
+| 22 | Windows sshd (`Homelab-SSH-LAN-In`, bootstrap.ps1, unchanged) | open |
+| 80, 443 | Kubernetes ingress (Argo CD, Grafana, ...) | open |
+| 6443 | RKE2 Kubernetes API | open (client-cert auth) |
+| 30094 | Jenkins (playground) | open |
+| 30095 | demo-api (playground) | open |
+| 30300 | Gitea (playground) | open |
+| 9345 | RKE2 supervisor / node join | **closed** (not forwarded, not in the firewall rule) |
+| 2379, 2380 | etcd | **closed** |
+| 10250 | kubelet | **closed** |
+| 2222 | WSL sshd | **closed** (loopback + blocked by both firewalls) |
+| 8443 | Incus API | **closed** (blocked by both firewalls) |
+| 5001 | kind's image registry | **closed** (loopback only) |
+| 8404 | HAProxy stats | **closed** (loopback only) |
 
-Anyone on that Wi-Fi can then reach every Ingress host on the cluster, including
-Argo CD's login page, so the apps' own authentication is the protection.
+Firewall: Defender rule `Homelab-LAN-Ingress-In` **and** Hyper-V firewall rule
+`Homelab-LAN-Ingress-HyperV-In` (WSL VMCreatorId `{40E0AC32-...}`) allow exactly
+`-Ports` (default `80,443,6443,30094,30095,30300` in
+[`lan-ingress.ps1`](windows/lan-ingress.ps1)) from the PC's own LAN subnet
+(auto-detected; override with `HOMELAB_LAN_CIDR`), scoped identically. The Hyper-V default
+stays Block: the script does **not** set `DefaultInboundAction Allow`, which would open
+every WSL listener. Keep `-Ports` in step with `homelab_lan_ingress_*` / `homelab_lan_tcp_forwards`
+in [`roles/homelab/defaults`](../roles/homelab/defaults/main.yml).
 
-**Currently open to the whole LAN:** both firewall rules (`Homelab-LAN-Ingress-In` and
-`Homelab-LAN-Ingress-HyperV-In`) allow TCP 80/443 from the entire `192.168.1.0/24`
-(the user's decision, 2026-10-16). Every tool's login page, Argo CD's included, is
-therefore reachable by any device on the Wi-Fi, so the tools' own authentication is the
-only protection. To narrow it again, run on the PC
+**Currently open to the whole LAN** (the user's decision, 2026-10-16: "everything deployed,
+like the k8s api, should be ok from wifi"): any device on the Wi-Fi can reach every
+Ingress host, Jenkins, Gitea, demo-api and the Kubernetes API endpoint, so those tools' own
+authentication is the only protection. To narrow it, run on the PC
 `homelab/windows/lan-ingress.ps1 -AllowFrom <ip>`, for example `-AllowFrom 192.168.1.161`
 for the Mac only.
 
 **Forwarder:** HAProxy 2.8.16 from Ubuntu's noble archive, pinned and held, TCP-connect
-health check on every node every 2 s (3 fails = out, 2 passes = back), `leastconn`.
+health check on every backend every 2 s (3 fails = out, 2 passes = back), `leastconn`.
 Why HAProxy, not nginx `stream`: real active health checks and a per-server UP/DOWN view
-without nginx Plus. Backends are `homelab_vms`; ports and checks are `homelab_lan_ingress_*`
-in [`roles/homelab/defaults`](../roles/homelab/defaults/main.yml). See state with
+without nginx Plus. The LAN-address binds use `transparent`, so HAProxy still starts at
+boot if WSL's network is not up yet. If the PC's DHCP lease changes, re-run
+`homelab/mac/lan-ingress.sh --ansible` to re-render the bind address. State:
 `ssh homelab-1-wsl "curl -s 'http://127.0.0.1:8404/;csv' | cut -d, -f1,2,18"`.
 
 **Undo:**
@@ -230,8 +256,9 @@ homelab/mac/lan-ingress.sh --uninstall   # removes exactly the two rules; stops 
 ```
 
 The `haproxy` package stays installed and held. Mirrored networking means Windows must
-keep 80/443 free; the role refuses to start on top of another listener in WSL, and the
-script warns if Windows itself listens on them.
+keep these ports free; the role refuses to start on top of another listener in WSL, and the
+script warns if Windows itself listens on them. To drop only some ports, edit
+`homelab_lan_tcp_forwards` and re-run with `-Ports` (without them) for the firewall.
 
 ## Staying up (human-only settings on the PC)
 

@@ -89,3 +89,27 @@ homelab_lan_ingress_check_fall: 3
 homelab_lan_ingress_check_rise: 2
 # Read-only stats page, loopback only (never reachable from the LAN).
 homelab_lan_ingress_stats_port: 8404
+
+# Extra TCP passthrough forwards, one HAProxy frontend+backend each. Keep the port
+# list in step with -Ports in homelab/windows/lan-ingress.ps1 (the firewall side).
+#   port          what the LAN connects to
+#   bind          address HAProxy listens on (default 0.0.0.0)
+#   backends      list of IPs; each is health-checked, dead ones are skipped
+#   backend_port  port on the backends
+# The RKE2 API authenticates with client certs, so passthrough is enough. Its
+# backends are every homelab_vms entry with role: server, so an HA control plane
+# (more servers) joins the pool by itself. 9345 (join), 2379/2380 (etcd), 10250
+# (kubelet) are deliberately not forwarded.
+homelab_lan_ingress_lan_address: "{{ ansible_default_ipv4.address }}"
+homelab_lan_tcp_forwards:
+  - name: rke2_api
+    port: 6443
+    backends: "{{ homelab_vms | selectattr('role', 'equalto', 'server') | map(attribute='ip') | list }}"
+    backend_port: 6443
+  # The drill game (kind in WSL) publishes these NodePorts on 127.0.0.1 only, and
+  # on Linux a wildcard bind clashes with that. So HAProxy binds the WSL's LAN
+  # address (mirrored mode: the PC's own) and relays to loopback: kind.yaml, and
+  # the Mac's copy of it, stay as they are and the cluster is not recreated.
+  - {name: jenkins,  port: 30094, bind: "{{ homelab_lan_ingress_lan_address }}", backends: [127.0.0.1], backend_port: 30094}
+  - {name: demo_api, port: 30095, bind: "{{ homelab_lan_ingress_lan_address }}", backends: [127.0.0.1], backend_port: 30095}
+  - {name: gitea,    port: 30300, bind: "{{ homelab_lan_ingress_lan_address }}", backends: [127.0.0.1], backend_port: 30300}

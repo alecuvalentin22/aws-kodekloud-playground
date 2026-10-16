@@ -1,8 +1,9 @@
 #Requires -Version 5.1
 <#
 .SYNOPSIS
-  Let the home Wi-Fi/LAN (and nothing beyond it) reach the lab's Kubernetes
-  ingress on TCP 80/443, which a forwarder inside WSL answers.
+  Let the home Wi-Fi/LAN (and nothing beyond it) reach the lab: Kubernetes
+  ingress 80/443, the RKE2 API 6443 and the playground's 30094/30095/30300,
+  which a forwarder inside WSL answers.
 .DESCRIPTION
   Run FROM THE MAC over SSH: homelab/mac/lan-ingress.sh copies this file over
   and runs it, like wsl-setup.ps1. Idempotent: a second run changes nothing
@@ -12,7 +13,7 @@
   Windows' ports and addresses, but an inbound packet has to pass TWO firewalls:
 
     1. Windows Defender Firewall (the host's):
-         Homelab-LAN-Ingress-In          TCP 80,443 from the LAN subnet, Private profile
+         Homelab-LAN-Ingress-In          TCP -Ports from the LAN subnet, Private profile
     2. The Hyper-V firewall, which filters traffic into the WSL VM and drops it
        by default (DefaultInboundAction = Block):
          Homelab-LAN-Ingress-HyperV-In   same ports, same subnet, same profile,
@@ -29,7 +30,8 @@
   Who may connect, as a CIDR. Default: this PC's own LAN subnet, detected from
   the interface that holds the default route (e.g. 192.168.1.0/24), as in bootstrap.ps1.
 .PARAMETER Ports
-  TCP ports to open. Default 80, 443.
+  TCP ports to open, in BOTH rules. Default 80, 443, 6443, 30094, 30095, 30300
+  (keep in step with homelab_lan_tcp_forwards in roles/homelab/defaults).
 .PARAMETER Uninstall
   Remove the two rules this script added.
 .EXAMPLE
@@ -38,7 +40,7 @@
 [CmdletBinding()]
 param(
   [string]  $AllowFrom,
-  [int[]]   $Ports = @(80, 443),
+  [int[]]   $Ports = @(80, 443, 6443, 30094, 30095, 30300),
   [switch]  $Uninstall
 )
 $ErrorActionPreference = 'Stop'
@@ -88,7 +90,7 @@ if ($busy) {
 # --- 1. Windows Defender Firewall -------------------------------------------------------
 Step "Defender Firewall: TCP $($Ports -join ',') from $AllowFrom, Private networks only"
 Get-NetFirewallRule -Name $HostRule -ErrorAction SilentlyContinue | Remove-NetFirewallRule
-New-NetFirewallRule -Name $HostRule -DisplayName 'Homelab ingress 80/443 (LAN only)' `
+New-NetFirewallRule -Name $HostRule -DisplayName 'Homelab LAN ingress (LAN only)' `
   -Direction Inbound -Protocol TCP -LocalPort $Ports -Action Allow `
   -RemoteAddress $AllowFrom -Profile Private | Out-Null
 # The rules only apply on Private networks, so the home network must be one.
@@ -101,7 +103,7 @@ Ok "rule $HostRule"
 # --- 2. Hyper-V firewall (into the WSL VM) -------------------------------------------------
 Step "Hyper-V firewall (WSL $WslCreator): same ports, same subnet, Private profile"
 Get-NetFirewallHyperVRule -Name $HvRule -ErrorAction SilentlyContinue | Remove-NetFirewallHyperVRule
-New-NetFirewallHyperVRule -Name $HvRule -DisplayName 'Homelab ingress 80/443 into WSL (LAN only)' `
+New-NetFirewallHyperVRule -Name $HvRule -DisplayName 'Homelab LAN ingress into WSL (LAN only)' `
   -Direction Inbound -VMCreatorId $WslCreator -Protocol TCP -LocalPorts $Ports `
   -RemoteAddresses $AllowFrom -Action Allow -Profiles Private | Out-Null
 Ok "rule $HvRule"
