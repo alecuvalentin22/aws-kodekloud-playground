@@ -1,17 +1,19 @@
 # Backstage on the home-lab cluster. Derived from ci/backstage/values.yaml; read
 # the comments there for the history of each setting. What differs:
 #
-#   exposure   NodePort 30096 -> Ingress backstage.127.0.0.1.nip.io (HTTPS)
-#   http-only workarounds REMOVED. The EKS file turned off notifications, search,
-#              the custom sidebar, the permission framework and the CSP
-#              `upgrade-insecure-requests` directive, all to survive plain http
-#              on a node IP (no secure context -> crypto.randomUUID missing).
-#              Here the browser uses https (ingress-nginx's self-signed
-#              certificate, accepted once), which IS a secure context, so the
-#              file's own advice applies: "behind TLS, delete every `false`
-#              line". NOT VERIFIED -- if the page blanks or the sidebar throws,
-#              restore the `extensions:` block and `permission.enabled: false`
-#              and `csp.upgrade-insecure-requests: false` from the EKS file.
+#   exposure   NodePort 30096 -> Ingress backstage.127.0.0.1.nip.io
+#   http-only workarounds KEPT (decision 2026-10-16: the LAN front door is plain
+#              http, no TLS, no local CA). Over http the browser has no secure
+#              context, so crypto.randomUUID is missing: notifications, the
+#              custom sidebar and search are switched off, the permission
+#              framework is off (otherwise the Kubernetes tab says "Permission
+#              required"), and the CSP `upgrade-insecure-requests` directive is
+#              off (otherwise the browser rewrites script URLs to https and the
+#              page is blank). Anything that only works over https is listed in
+#              README.md "Not verified yet".
+#   baseUrl    the address the BROWSER uses. Today that is the SSH tunnel
+#              (https://...:8443); the LAN front door changes both baseUrls to
+#              http://backstage.<lan-ip>.nip.io.
 #   cluster    name eks -> rke2
 #   catalog    main -> feat/playground
 backstage:
@@ -32,18 +34,32 @@ backstage:
       # be the address the BROWSER uses: the SSH tunnel's port 8443, not the
       # Ingress' 443.
       baseUrl: https://backstage.127.0.0.1.nip.io:8443
+      # This list REPLACES the image's app.extensions (Backstage replaces arrays
+      # rather than merging them), so the catalog-at-/ entry is repeated.
       extensions:
-        # Repeated from the image's own app.extensions because Backstage
-        # REPLACES arrays: this keeps the catalog mounted at / .
         - page:catalog:
             config:
               path: /
+        - page:notifications: false
+        - home-page-widget:notifications/unread-notifications: false
+        # The image's custom sidebar hardcodes a notifications link; with the
+        # page off it would throw "No path for routeRef{id=notifications.root}".
+        - nav-content:app: false
+        # Search also needs crypto.randomUUID. (NOT api:signals: core.storage
+        # depends on it; turning it off broke catalog, api-docs and scaffolder.)
+        - page:search: false
+        - home-page-widget:search/search-bar: false
     organization:
       name: Platform Lab
     backend:
       baseUrl: https://backstage.127.0.0.1.nip.io:8443
       cors:
         origin: https://backstage.127.0.0.1.nip.io:8443
+      # Required over plain http: the default CSP ends in
+      # upgrade-insecure-requests, the browser rewrites every script URL to
+      # https://, nothing serves that, and the page is blank with HTTP 200.
+      csp:
+        upgrade-insecure-requests: false
       # In-memory SQLite: the catalog is rebuilt from git on every start, which
       # is fine because git is its source of truth. Search indexes and
       # scaffolder history do not survive a restart.
@@ -54,6 +70,13 @@ backstage:
       providers:
         guest:
           dangerouslyAllowOutsideDevelopment: true
+    # Permission framework OFF, for plain http only: the Kubernetes tab checks
+    # permissions in the browser, the check throws without a secure context, and
+    # the tab shows "Permission required" although the backend would allow it.
+    # Consequence: nothing is authorised per user; everyone signed in as guest
+    # can do whatever the backend plugins let a guest do (see README).
+    permission:
+      enabled: false
     kubernetes:
       serviceLocatorMethod:
         type: multiTenant
@@ -64,7 +87,8 @@ backstage:
               url: https://kubernetes.default.svc
               authProvider: serviceAccount
               skipTLSVerify: true
-              # No metrics-server on this cluster.
+              # Metrics lookup skipped to keep the tab simple (RKE2 does ship
+              # metrics-server; the ClusterRole already allows pods metrics).
               skipMetricsLookup: true
       customResources:
         - group: argoproj.io
