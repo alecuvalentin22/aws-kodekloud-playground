@@ -116,6 +116,44 @@ ceiling (a node that joins wrong must be terminated). Talk it through from
 `STORY-AWS.md` instead. Artifactory as a pip/maven remote runs on GCP
 (`terraform/gcp-artifactory`) and is not wired into a drill yet.
 
+## Playing on the home lab
+
+The whole game can run on the Ubuntu/WSL2 box (`homelab-1-wsl`) instead of on
+your Mac: same `setup/up.sh`, same drills. `play` and your clones
+(`~/platform-playground`) live **on the box**; your Mac is only a browser.
+
+```bash
+ssh homelab-1-wsl
+git -C ~/platform-lab pull          # branch feat/playground
+~/platform-lab/playground/setup/up.sh     # ~4 min with a fast link; 4 s when nothing changed
+~/platform-lab/playground/play start 01   # then work in ~/platform-playground, as usual
+```
+
+kind publishes Jenkins, Gitea and demo-api on the box's `127.0.0.1` only, so
+from the Mac you reach them through an SSH tunnel:
+
+```bash
+ssh -N -o ExitOnForwardFailure=yes \
+    -L 30094:localhost:30094 -L 30300:localhost:30300 -L 30095:localhost:30095 homelab-1-wsl
+# Jenkins http://localhost:30094   Gitea http://localhost:30300   demo-api http://localhost:30095
+```
+
+The logins are in `~/.local/state/platform-lab-playground/creds.env` **on the box**.
+
+**If your Mac's own playground is running, that command fails** ("Address
+already in use": kind there holds the same three ports). Keep
+`ExitOnForwardFailure=yes`: without it ssh carries on without the forward and
+`localhost:30094` quietly answers from your *Mac's* Jenkins, not the box's.
+Either `playground/setup/down.sh` on the Mac first, or use other local ports:
+
+```bash
+ssh -N -o ExitOnForwardFailure=yes \
+    -L 31094:localhost:30094 -L 31300:localhost:30300 -L 31095:localhost:30095 homelab-1-wsl
+# Jenkins http://localhost:31094   Gitea http://localhost:31300   demo-api http://localhost:31095
+```
+
+(Gitea's clone URLs on its pages still say `localhost:30300`; that is only text.)
+
 ## When the playground itself breaks
 
 ```bash

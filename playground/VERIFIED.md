@@ -39,6 +39,54 @@ commits, clears script approvals, deletes quota/namespace), `hint`, `status`,
 unsolved left" path. The verification scores are kept, out of the way, in
 `~/.local/state/platform-lab-playground/scores.verification-2026-10-16.tsv`.
 
+## Home lab (Ubuntu 24.04, WSL2), 2026-10-16
+
+`homelab-1-wsl`: Ubuntu 24.04.x in WSL2 (kernel 6.18 microsoft-standard), 16
+threads, 47 GB, Docker Engine 29.8.2 (cgroup v2, overlayfs), kubectl 1.34.11,
+helm 3.20.0, terraform 1.14.4, user `lab` in the `docker` group. Same pinned
+kind v0.33.0 / node v1.34.11 / Jenkins chart as the Mac. Nothing was installed
+with apt (`jq`, `curl`, `git`, `openssl`, `rsync` were already there). Commit
+under test: `34c675b`, then `980bf6e`.
+
+| | Result |
+|---|---|
+| `setup/up.sh` from nothing (images, kind, Gitea, Jenkins, first build) | exit 0 on the first try, **4m01s**; baseline build #1 green and deployed. This was the first Linux run: the `sha256sum` kind-checksum branch and the `stat -c %a` branch both worked as written (`mode 600`) |
+| `setup/up.sh` again | **4s**, everything kept, build #7 still green |
+| `play reset` after a drill | **~51s** (one new commit, scan, build, rollout) |
+| kind NodePorts on WSL2 | `127.0.0.1:30094/30095/30300` answer on the box itself, so no WSL-specific port handling was needed |
+| SSH tunnel from the Mac (`-L` x3) | with the documented local ports: **refused**, the Mac's own kind already listens on 30094/30095/30300 (`bind: Address already in use`). With `-L 31094/31300/31095`: Jenkins `/login` 200; Jenkins `/api/json` with the *box's* admin password 200 (proves it is the box, not the Mac's Jenkins); Gitea `/api/healthz` `status: pass`; demo-api `{"app":"demo-api","version":"main-c392fbab-7"}`; tunnel closed, port dead afterwards |
+
+Drills played with `play start NN` on the box, the failure observed first,
+fixed from `~/platform-playground`, then `play check`, then `play reset`:
+
+| Drill | Real failure observed | Fix | `play check` |
+|---|---|---|---|
+| 01 | build #2: `Loading library platform-lib@v2` ... `ERROR: Could not resolve v2` | pin `@v1.0.0` | 100, 1:40 |
+| 03 | `FailedCreate ... exceeded quota: cost-guardrails, requested: pods=1, used: pods=2, limited: pods=2`, no new pod | `maxSurge: 0 / maxUnavailable: 1`, quota kept | 100, 4:27 |
+| 08 | `Plan: 1 to add, 0 to change, 2 to destroy` | `for_each` + `moved` -> `0 to add, 0 to change, 1 to destroy`, then apply | 100, 0:20 (scripted, no thinking time) |
+
+### Bugs found on Linux
+
+- None was Linux-specific. The portability fixes already in the repo
+  (`sha256sum`, GNU `stat`, `sed -i.bak`) all behaved on GNU userland.
+- `drills/11-ecr-401/drill.env` and `drills/12-token-in-the-log/drill.env` had an
+  unquoted `VERIFIED=2026-10-16 (...)`: bash printed a syntax error on every
+  `play list` and `play doctor`. Not platform specific (it just was not
+  noticed); quoted in `980bf6e`. No drill behaviour changed.
+- Documentation, not code: the three tunnel ports collide with the Mac's own
+  playground, and a tunnel without `ExitOnForwardFailure=yes` would then
+  silently talk to the Mac's Jenkins. The README now says so.
+- Not a bug, but worth knowing: `up.sh`'s closing banner prints both generated
+  passwords, so they end up in any log you redirect it to.
+
+### Not verified on the box
+
+- Drills 02, 04-07 (and `hint`, `reveal`, `close`) on Linux.
+- The tunnel with the default local ports 30094/30300/30095 (the Mac's playground
+  was running and is not to be touched), and opening Jenkins from a browser on
+  the Windows host itself.
+- That the cluster and registry come back after a WSL or Windows restart.
+
 ## AWS tier, live on EKS (account 975049900668, 2026-10-16)
 
 | | Result |
