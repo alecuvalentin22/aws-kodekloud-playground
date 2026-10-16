@@ -36,7 +36,7 @@ homelab_incus_trust_client: ""        # e.g. "mac"
 # ONE multi-node RKE2 cluster: a server and two agents that JOIN it
 # (playbooks/rke2-cluster.yml, roles/rke2_cluster). `role` decides the group in
 # the generated inventory; `distribution` is kept so playbooks/k8s.yml still
-# works against any single host. 12 vCPU / 24 GiB of the box's 16 / 47.
+# works against any single host. 12 vCPU / 36 GiB of the box's 16 / 47.
 # The /cloud variant: plain images:ubuntu/24.04 has NO cloud-init, so the user,
 # key and packages in cloud-init.yaml.j2 are silently ignored and the VM is
 # unreachable (seen on homelab-1: `cloud-init: command not found`).
@@ -44,9 +44,9 @@ homelab_vm_image: images:ubuntu/24.04/cloud
 homelab_vm_user: lab
 homelab_vm_ssh_keys: []                # public keys allowed into the VMs
 homelab_vms:
-  - {name: rke2-s1, ip: 10.77.0.31, cpus: 4, memory: 8GiB, disk: 40GiB, distribution: rke2, role: server}
-  - {name: rke2-a1, ip: 10.77.0.32, cpus: 4, memory: 8GiB, disk: 40GiB, distribution: rke2, role: agent}
-  - {name: rke2-a2, ip: 10.77.0.33, cpus: 4, memory: 8GiB, disk: 40GiB, distribution: rke2, role: agent}
+  - {name: rke2-s1, ip: 10.77.0.31, cpus: 4, memory: 12GiB, disk: 40GiB, distribution: rke2, role: server}
+  - {name: rke2-a1, ip: 10.77.0.32, cpus: 4, memory: 12GiB, disk: 40GiB, distribution: rke2, role: agent}
+  - {name: rke2-a2, ip: 10.77.0.33, cpus: 4, memory: 12GiB, disk: 40GiB, distribution: rke2, role: agent}
 
 # Where the generated inventory lands ON THE CONTROLLER (the Mac).
 homelab_inventory_out: "{{ playbook_dir }}/../homelab/generated/k8s.ini"

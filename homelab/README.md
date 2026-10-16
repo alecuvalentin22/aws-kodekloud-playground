@@ -100,11 +100,22 @@ kubectl get nodes
 ```
 
 Three `images:ubuntu/24.04/cloud` VMs (the `/cloud` variant: the plain image
-has no cloud-init), 4 vCPU / 8 GiB / 40 GiB each, on fixed addresses on the
+has no cloud-init), 4 vCPU / 12 GiB / 40 GiB each, on fixed addresses on the
 Incus bridge: `rke2-s1` 10.77.0.31 (server), `rke2-a1` .32 and `rke2-a2` .33
 (agents). cloud-init sets user `lab`, your key, passwordless sudo, no password.
 Sizes and roles are `homelab_vms` in
 [`roles/homelab/defaults`](../roles/homelab/defaults/main.yml).
+
+The role only *launches missing* VMs; it does not resize existing ones, so
+changing `memory` in `homelab_vms` affects new builds only (re-running reports
+`changed=0` against running VMs). The three were resized 8 -> 12 GiB by hand,
+one node at a time (agents first, then the server) so the cluster stayed up:
+
+```bash
+kubectl drain <node> --ignore-daemonsets --delete-emptydir-data
+ssh homelab-1-wsl 'incus config set <vm> limits.memory=12GiB && incus restart <vm>'
+kubectl wait --for=condition=Ready node/<node> --timeout=300s && kubectl uncordon <node>
+```
 
 [`roles/rke2_cluster`](../roles/rke2_cluster) builds ONE cluster: the server
 first (token in its config before the first start), then agents that wait for
@@ -115,6 +126,15 @@ join a node, so it is a credential. The admin kubeconfig comes back to
 server, `https://127.0.0.1:6443`, is the Mac end of `kube-tunnel.sh` -- the
 bridge is not routable from outside the PC, which is also why nothing here is
 exposed to the LAN.
+
+**iptables:** Ubuntu's cloud image does not ship it, and RKE2's CNI portmap
+plugin needs it for hostPort pods (the bundled ingress-nginx). Without it
+each failed attempt leaked a pod IP until a node's /24 was full and no pod
+could start (seen 2026-10-16 while installing Argo CD). The VMs now get it from
+cloud-init and from `roles/rke2_cluster`; the three running ones were fixed by
+hand (`apt install iptables`, stop rke2, `rke2-killall.sh`, delete the leaked
+`/var/lib/cni/networks/k8s-pod-network/10.42.*` files, start rke2). The new
+role task has been syntax-checked, not re-run against the cluster.
 
 `homelab/generated/k8s.ini` also keeps `[k8s]` with a `k8s_distribution` per
 host, so the older single-node path (`playbooks/k8s.yml --limit <vm>`,
@@ -175,7 +195,7 @@ Do not also run Tailscale on Windows: in mirrored mode the two would share inter
 | Docs claims | Microsoft Learn (wsl-config, WSL networking, Hyper-V firewall, OpenSSH, ScheduledTasks), Incus docs, Zabbly README, Broadcom blog, fetched 2026-10-16 |
 
 **Not verified: the Windows-side scripts after their last edits.**
-- `wsl-setup.ps1` has never run.
+- `wsl-setup.ps1` itself was run on the real PC twice by `homelab/mac/wsl-up.sh` (2026-10-16) and installed Ubuntu; it is the edits made after those runs that are unconfirmed.
 - `wsl.exe` under an S4U task and over SSH.
 - The lid-close setting in `bootstrap.ps1` is parsed (PowerShell 7.4: 0 errors) but has not been run: it changes power settings, so run it yourself.
 - `playbooks/k8s.yml` (the older single-node path) against the VMs: not run, only the multi-node `rke2-cluster.yml` was.
@@ -199,7 +219,7 @@ Windows 11 Home 10.0.26200, Intel i9-10885H (8c/16t), 64 GB, fresh install.
 | boot without login | rebooted: WSL up 17 s after boot via the `Homelab-WSL` task, no desktop session |
 | `wsl-up.sh --ansible` | first run on the real box: `ok=47 changed=28 failed=0` -- Docker 29.8.2, kubectl 1.34.11, helm 3.20.0, terraform 1.14.4, Incus 6.0.6 with `incusbr0` 10.77.0.1/24 |
 | a real VM | `incus launch images:ubuntu/24.04 --vm`: up in 24 s, its own kernel 6.8.0-147, `systemd-detect-virt` = kvm, IP 10.77.0.125 |
-| 3 VMs | `homelab-vms.yml`: `rke2-s1` 10.77.0.31, `rke2-a1` .32, `rke2-a2` .33, 4 vCPU / 8 GiB each. Real-hardware faults fixed in the role: plain `images:ubuntu/24.04` has no cloud-init (now `/cloud`); Docker's iptables FORWARD DROP blocked VM egress (DOCKER-USER rules + `incus-docker-forward.service`); `lock_passwd: true` made sshd refuse `lab` (UsePAM no) -- now `hashed_passwd: "*"`; the vault `group_vars` symlink broke every playbook (now opt-in); ssh offered agent keys first (`IdentitiesOnly`). Re-run: `ok=8 changed=0` |
+| 3 VMs | `homelab-vms.yml`: `rke2-s1` 10.77.0.31, `rke2-a1` .32, `rke2-a2` .33, 4 vCPU / 8 GiB each (since resized to 12 GiB, see section 3). Real-hardware faults fixed in the role: plain `images:ubuntu/24.04` has no cloud-init (now `/cloud`); Docker's iptables FORWARD DROP blocked VM egress (DOCKER-USER rules + `incus-docker-forward.service`); `lock_passwd: true` made sshd refuse `lab` (UsePAM no) -- now `hashed_passwd: "*"`; the vault `group_vars` symlink broke every playbook (now opt-in); ssh offered agent keys first (`IdentitiesOnly`). Re-run: `ok=8 changed=0` |
 | RKE2 cluster | `rke2-cluster.yml` first run (cold, incl. RKE2 download): 3 min 57 s, `failed=0`; 3 nodes Ready, v1.33.13+rke2r1, containerd 2.2.5-k3s1, kernel 6.8.0-147. The server node registered ~2 min before the agents did (node ages 2m56s / 62s / 56s). First run restarts `rke2-server`/`rke2-agent` once through the handlers (config written, then service started, then handler); the **second run is `changed=0` on all three nodes** |
 | From the Mac | `kube-tunnel.sh` + `kubectl get nodes` with `homelab/generated/rke2.kubeconfig` (mode 600, context `homelab-rke2`): the same 3 nodes |
 | It is a real cluster | Deployment, 3 replicas, `topologySpreadConstraints` (maxSkew 1 on hostname, DoNotSchedule): one pod each on `rke2-s1`, `rke2-a1`, `rke2-a2`; all Running in ~5 s; deleted afterwards, none left |

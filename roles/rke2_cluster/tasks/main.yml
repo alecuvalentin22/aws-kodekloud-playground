@@ -14,6 +14,17 @@
   become: false
   run_once: true
 
+# Ubuntu's cloud image has no iptables. Without it the CNI portmap plugin
+# fails on every hostPort pod (rke2-ingress-nginx), and each failed attempt
+# leaks one pod IP until the node's /24 is exhausted and NO pod can start.
+- name: iptables for the CNI portmap plugin
+  ansible.builtin.apt:
+    name: iptables
+    state: present
+    update_cache: true
+    cache_valid_time: 3600
+  when: rke2_cluster_step in ['server', 'agent']
+
 - name: Control plane
   ansible.builtin.include_tasks: server.yml
   when: rke2_cluster_step == 'server'
