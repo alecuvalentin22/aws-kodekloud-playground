@@ -27,7 +27,9 @@ if [[ "$(kind version 2>/dev/null | awk '{print $2}')" != "$KIND_VERSION" ]]; th
   base="https://github.com/kubernetes-sigs/kind/releases/download/$KIND_VERSION/kind-$os-$arch"
   curl -fsSL -o "$STATE/bin/kind.tmp" "$base"
   want=$(curl -fsSL "$base.sha256sum" | awk '{print $1}')
-  got=$(shasum -a 256 "$STATE/bin/kind.tmp" | awk '{print $1}')
+  # sha256sum on Linux/WSL (coreutils); shasum on macOS.
+  if command -v sha256sum >/dev/null; then got=$(sha256sum "$STATE/bin/kind.tmp" | awk '{print $1}')
+  else got=$(shasum -a 256 "$STATE/bin/kind.tmp" | awk '{print $1}'); fi
   [[ $want == "$got" ]] || die "kind checksum mismatch ($got != $want)"
   chmod +x "$STATE/bin/kind.tmp" && mv "$STATE/bin/kind.tmp" "$STATE/bin/kind"
 fi
@@ -64,7 +66,8 @@ if [[ ! -f "$STATE/creds.env" ]]; then
   } > "$STATE/creds.env"
 fi
 load_creds
-c_ok "mode $(stat -f %Lp "$STATE/creds.env" 2>/dev/null || stat -c %a "$STATE/creds.env")"
+# GNU first: on Linux `stat -f` means --file-system and prints junk, not an error.
+c_ok "mode $(stat -c %a "$STATE/creds.env" 2>/dev/null || stat -f %Lp "$STATE/creds.env")"
 
 c_hdr "5/7 Gitea (the GitHub stand-in)"
 sed "s|IMAGE_PLACEHOLDER|$GITEA_IMAGE|" "$PG_ROOT/setup/gitea.yaml" | K apply -f - >/dev/null
