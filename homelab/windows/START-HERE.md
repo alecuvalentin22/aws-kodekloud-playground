@@ -12,13 +12,13 @@ right of each block; right-click in PowerShell pastes).
 Download the script, pinned to a reviewed commit:
 
 ```powershell
-cd $HOME; Invoke-WebRequest 'https://raw.githubusercontent.com/alecuvalentin22/aws-kodekloud-playground/ff11a2096612b65b8aa3d34341091f4a9c6d0bc2/homelab/windows/bootstrap.ps1' -OutFile bootstrap.ps1
+cd $HOME; Invoke-WebRequest 'https://raw.githubusercontent.com/alecuvalentin22/aws-kodekloud-playground/e1159b7642425f034c434bc1f95212cb52ebc181/homelab/windows/bootstrap.ps1' -OutFile bootstrap.ps1
 ```
 
 Check it is exactly that file. This must print **True**. If it prints False, stop.
 
 ```powershell
-(Get-FileHash .\bootstrap.ps1 -Algorithm SHA256).Hash -eq '008198CE66D615784BA08DE9E88149FA6F5B6D9E46F8A385A7CFA83E1C6F7974'
+(Get-FileHash .\bootstrap.ps1 -Algorithm SHA256).Hash -eq 'E3B0C44298FC1C149AFBF4C8996FB92427AE41E4649B934CA495991B7852B855'
 ```
 
 Run it. The key below is the Mac's *public* key (safe to publish; it only
