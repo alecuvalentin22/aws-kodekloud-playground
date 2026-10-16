@@ -289,6 +289,34 @@ Order that works: `lan-kube-api.sh` first (then `secrets.sh` needs no tunnel), `
 - **`wsl-self-heal.sh`** (normal mode) is safe while the lab runs. The repetition is verified by reading the task
   back (`Get-ScheduledTask`); that Windows behaviour is from Microsoft's documentation, not yet seen on the PC.
 
+## Backups
+
+What is backed up, and where. Check it any time with `homelab/mac/backup-status.sh`.
+
+| Layer | How | Where it lives | Why this way |
+|---|---|---|---|
+| Cluster state (every object, every Secret) | RKE2 etcd snapshots, `etcd-snapshot-schedule-cron: "0 */6 * * *"`, keep 12 (`roles/rke2_cluster` defaults) | on rke2-s1: `/var/lib/rancher/rke2/server/db/snapshots` | RKE2's own mechanism; a few MB each (12 MB on 2026-10-17) |
+| Off the VM | `homelab-backup-etcd.timer` in WSL (`roles/homelab` tasks/backups.yml, `--tags backups`): at 00/06/12/18:20 and 15 min after boot, `incus file pull` the new snapshots, keep 24 | WSL `~/backups/etcd` **and** `C:\homelab-backups\etcd` | a snapshot on the VM dies with the VM; the Windows copy survives a lost WSL disk |
+| Manifests, config | git (this repo) + Argo CD | GitHub | the platform rebuilds from git; only state is not in git |
+| PVC data (Artifactory files, Jenkins build history, Grafana edits) | **not scheduled** — take one by hand before risky changes: `incus snapshot create rke2-a2 before-<what>` | the same Incus pool | the pool's `dir` driver makes every VM snapshot a FULL disk copy (~15 GB per VM) and briefly freezes the VM, etcd included |
+
+**The etcd snapshots contain every cluster Secret in clear text** (the shared admin
+password, Argo CD's token, the RKE2 join token). On Windows the folder is
+therefore locked to SYSTEM, Administrators and the WSL user. For a new PC, once:
+
+```powershell
+icacls C:\homelab-backups /inheritance:r /grant:r "*S-1-5-32-544:(OI)(CI)F" "*S-1-5-18:(OI)(CI)F" "$env:USERNAME:(OI)(CI)F" /T
+```
+
+(The copy job uses `rsync -rt`, not `-a`: under that ACL Windows refuses
+Unix chmod, and NTFS permissions are what protect the copy.)
+
+An on-demand snapshot, e.g. before an upgrade:
+`ssh homelab-1-wsl 'incus exec rke2-s1 -- rke2 etcd-snapshot save --name before-<what>'`
+(it prints "Unknown flag --etcd-snapshot-schedule-cron … skipping": the
+`etcd-snapshot` subcommand reads the server's config file but ignores server-only
+keys — harmless).
+
 ## Staying up (human-only settings on the PC)
 
 - **Power**: `bootstrap.ps1` sets never-sleep on AC.

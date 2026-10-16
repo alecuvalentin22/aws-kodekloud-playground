@@ -5,7 +5,10 @@
 # Windows sshd, port 2222, the homelab key and the PINNED host key
 # (HostKeyAlias), so nothing about the tunnel is repeated here.
 [homelab]
-homelab-wsl ansible_host=homelab-1-wsl
+# homelab_rke2_extra_sans: the PC's LAN IP, so the RKE2 API certificate keeps it
+# on every rke2-cluster.yml run (kubectl over the Wi-Fi). On the host line: INI
+# host vars are parsed as lists, [group:vars] values are not.
+homelab-wsl ansible_host=homelab-1-wsl homelab_rke2_extra_sans='["192.168.1.153"]'
 
 [homelab:vars]
 ansible_python_interpreter=/usr/bin/python3

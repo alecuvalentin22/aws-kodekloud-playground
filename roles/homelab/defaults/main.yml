@@ -113,3 +113,16 @@ homelab_lan_tcp_forwards:
   - {name: jenkins,  port: 30094, bind: "{{ homelab_lan_ingress_lan_address }}", backends: [127.0.0.1], backend_port: 30094}
   - {name: demo_api, port: 30095, bind: "{{ homelab_lan_ingress_lan_address }}", backends: [127.0.0.1], backend_port: 30095}
   - {name: gitea,    port: 30300, bind: "{{ homelab_lan_ingress_lan_address }}", backends: [127.0.0.1], backend_port: 30300}
+
+# Extra SANs for the RKE2 API certificate, written into the generated inventory
+# (homelab/generated/k8s.ini) so every rke2-cluster.yml run keeps them. Set per
+# PC in homelab/inventory.ini, e.g. homelab_rke2_extra_sans='["192.168.1.153"]'.
+homelab_rke2_extra_sans: []
+
+# Off-VM copies of the RKE2 etcd snapshots (tasks/backups.yml).
+homelab_backups: true
+homelab_backup_server_vm: rke2-s1
+homelab_backup_dir: "/home/{{ homelab_user }}/backups/etcd"
+# On the Windows disk (C:\homelab-backups\etcd), so a lost WSL disk keeps them.
+homelab_backup_windows_dir: /mnt/c/homelab-backups/etcd
+homelab_backup_keep: 24

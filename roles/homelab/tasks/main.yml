@@ -198,3 +198,9 @@
   ansible.builtin.import_tasks: lan_ingress.yml
   when: homelab_lan_ingress | bool
   tags: [lan_ingress]
+
+# --- Off-VM copies of the etcd snapshots ------------------------------------------------
+- name: etcd snapshot backups
+  ansible.builtin.import_tasks: backups.yml
+  when: homelab_backups | bool
+  tags: [backups]

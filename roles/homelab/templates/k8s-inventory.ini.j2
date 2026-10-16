@@ -11,8 +11,12 @@
 {% endfor %}
 
 [rke2_servers]
+{# Extra API-cert SANs (e.g. the PC's LAN IP) as a HOST-line var: INI host vars
+   are parsed as Python literals, [group:vars] values stay strings. Persisting
+   it here means re-running rke2-cluster.yml cannot silently drop the SAN. #}
 {% for vm in homelab_vms if vm.role | default('') == 'server' %}
-{{ vm.name }}
+{{ vm.name }}{% if homelab_rke2_extra_sans | length > 0 %} rke2_cluster_extra_sans='{{ homelab_rke2_extra_sans | to_json }}'{% endif %}
+
 {% endfor %}
 
 [rke2_agents]

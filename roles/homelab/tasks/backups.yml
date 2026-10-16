@@ -1,0 +1,91 @@
+---
+# Off-VM copies of the RKE2 etcd snapshots.
+#
+# RKE2 writes them on rke2-s1's own disk (roles/rke2_cluster: every 6 h, keep 12),
+# where they die with the VM. A timer in WSL pulls them out with `incus file pull`
+# into {{ homelab_backup_dir }} and mirrors that onto the Windows disk
+# ({{ homelab_backup_windows_dir }}), so losing the WSL disk (ext4.vhdx) does not
+# take the backups with it. Snapshots are a few MB each.
+#
+# Not here, on purpose: scheduled Incus VM snapshots. The pool uses the `dir`
+# driver, so each one is a FULL copy of a VM disk (~15 GB each today), and a
+# snapshot of a running VM briefly freezes it -- etcd included. Before a risky
+# change, take one by hand: `incus snapshot create rke2-s1 before-<what>`.
+
+- name: Backup directories
+  ansible.builtin.file:
+    path: "{{ item }}"
+    state: directory
+    owner: "{{ homelab_user }}"
+    mode: "0750"
+  loop:
+    - "{{ homelab_backup_dir }}"
+    - "{{ homelab_backup_windows_dir }}"
+
+- name: homelab-backup-etcd (pull from the VM, prune, mirror to Windows)
+  ansible.builtin.copy:
+    dest: /usr/local/sbin/homelab-backup-etcd
+    mode: "0755"
+    content: |
+      #!/usr/bin/env bash
+      # Installed by roles/homelab (tasks/backups.yml). Runs as root from the timer.
+      set -euo pipefail
+      VM={{ homelab_backup_server_vm }}
+      SRC=/var/lib/rancher/rke2/server/db/snapshots
+      DST={{ homelab_backup_dir }}
+      WIN={{ homelab_backup_windows_dir }}
+      KEEP={{ homelab_backup_keep }}
+      tmp=$(mktemp -d); trap 'rm -rf "$tmp"' EXIT
+      # List on the VM, then pull each file: `incus file pull -r` of a directory
+      # also works, but per-file keeps names flat and skips what we already have.
+      for f in $(incus exec "$VM" -- ls -1 "$SRC" 2>/dev/null); do
+        [[ -e "$DST/$f" ]] && continue
+        incus file pull "$VM$SRC/$f" "$tmp/$f"
+        mv "$tmp/$f" "$DST/$f"
+        echo "pulled $f"
+      done
+      # Newest KEEP stay, here and on the Windows side.
+      ls -1t "$DST" | tail -n +$((KEEP + 1)) | while read -r old; do rm -f "$DST/$old"; echo "pruned $old"; done
+      # -rt, not -a: the Windows folder is locked by an NTFS ACL (SYSTEM,
+      # Administrators, the WSL user -- the snapshots hold every cluster Secret),
+      # and chmod/chown on /mnt/c then fails. NTFS permissions protect the copy.
+      rsync -rt --delete "$DST/" "$WIN/"
+      chown -R {{ homelab_user }}: "$DST"
+      echo "ok: $(ls -1 "$DST" | wc -l) snapshot(s) in $DST, mirrored to $WIN"
+
+- name: homelab-backup-etcd service + timer
+  ansible.builtin.copy:
+    dest: "/etc/systemd/system/{{ item.name }}"
+    mode: "0644"
+    content: "{{ item.content }}"
+  loop:
+    - name: homelab-backup-etcd.service
+      content: |
+        [Unit]
+        Description=Copy RKE2 etcd snapshots off the VM (and onto the Windows disk)
+        After=incus.service
+        [Service]
+        Type=oneshot
+        ExecStart=/usr/local/sbin/homelab-backup-etcd
+    - name: homelab-backup-etcd.timer
+      content: |
+        [Unit]
+        Description=Copy RKE2 etcd snapshots off the VM, 20 min after each RKE2 snapshot
+        [Timer]
+        # RKE2 snapshots at 00/06/12/18:00; copy at :20 so the newest one is done.
+        OnCalendar=*-*-* 00/6:20:00
+        # And once after boot, so a PC that was off at :20 catches up.
+        OnBootSec=15min
+        Persistent=true
+        [Install]
+        WantedBy=timers.target
+  loop_control:
+    label: "{{ item.name }}"
+  register: homelab_backup_units
+
+- name: Timer enabled and running
+  ansible.builtin.systemd:
+    name: homelab-backup-etcd.timer
+    enabled: true
+    state: started
+    daemon_reload: "{{ homelab_backup_units.changed }}"

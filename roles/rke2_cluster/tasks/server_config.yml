@@ -18,6 +18,10 @@
         - 127.0.0.1{{ rke2_cluster_extra_sans | map('regex_replace', '^', '\n  - ') | join('') }}
       # cluster-admin credentials: root-only, unlike roles/kubernetes' 0644.
       write-kubeconfig-mode: "0600"
+      # Scheduled etcd snapshots, set explicitly rather than relying on RKE2's
+      # defaults. Copies leave the VM via roles/homelab (homelab-backup-etcd).
+      etcd-snapshot-schedule-cron: "{{ rke2_cluster_etcd_snapshot_cron }}"
+      etcd-snapshot-retention: {{ rke2_cluster_etcd_snapshot_retention }}
   no_log: true
   register: rke2_cluster_config
   notify: restart rke2-server

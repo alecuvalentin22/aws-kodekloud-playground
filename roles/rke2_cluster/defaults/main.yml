@@ -47,3 +47,9 @@ rke2_cluster_extra_sans: []
 # step regenerates the cert if one of them is still there (RKE2 only ever adds
 # SANs to its stored cert; removing one needs the stored cert deleted).
 rke2_cluster_sans_absent: []
+
+# etcd snapshots on the server (in /var/lib/rancher/rke2/server/db/snapshots).
+# Every 6 h, keep 12 (= 3 days). They are a few MB each. A snapshot on the VM's
+# own disk dies with the VM, so roles/homelab copies them off it.
+rke2_cluster_etcd_snapshot_cron: "0 */6 * * *"
+rke2_cluster_etcd_snapshot_retention: 12
