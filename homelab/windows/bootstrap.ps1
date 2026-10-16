@@ -171,10 +171,19 @@ powercfg /change standby-timeout-ac 0
 powercfg /change hibernate-timeout-ac 0
 Ok 'done (battery settings untouched)'
 
-# --- 6. WSL2, no distribution yet -----------------------------------------------------------
-Step 'WSL2 (no distribution: the Mac installs Ubuntu over SSH)'
-wsl.exe --install --no-distribution
-Ok 'requested; a reboot finishes it if Windows asks for one'
+# --- 6. WSL2's Windows features, no distribution yet ------------------------------------------
+# NOT `wsl --install`: on a fresh Windows 11 the inbox wsl.exe stub answers
+# "WSL installation appears to be corrupted. Press any key to repair" and waits
+# 60 s (seen on homelab-1, 2026-10-16). DISM enables the same two features with
+# no prompt; the Mac installs the WSL package and Ubuntu over SSH afterwards
+# (homelab/mac/wsl-up.sh).
+Step 'WSL2 features (the Mac installs WSL itself and Ubuntu over SSH)'
+foreach ($f in 'Microsoft-Windows-Subsystem-Linux', 'VirtualMachinePlatform') {
+  dism.exe /online /enable-feature /featurename:$f /all /norestart | Out-Null
+  # 0 = done, 3010 = done, reboot required. Anything else is worth stopping for.
+  if ($LASTEXITCODE -notin 0, 3010) { throw "DISM could not enable $f (exit $LASTEXITCODE)." }
+}
+Ok 'enabled; the reboot at the end activates them'
 
 # --- 7. optional rename ---------------------------------------------------------------------------
 $name = $env:COMPUTERNAME
@@ -193,6 +202,17 @@ $ramGB   = [math]::Round((Get-CimInstance Win32_ComputerSystem).TotalPhysicalMem
 $os      = Get-CimInstance Win32_OperatingSystem
 $virt    = if ($cpu.VirtualizationFirmwareEnabled) { 'enabled in firmware' } else { 'NOT reported as enabled -- check BIOS/UEFI (Intel VT-x) before running VMs' }
 $alias   = $name.ToLower()
+# Native commands that write to stderr must not run under 'Stop': Windows
+# PowerShell 5.1 turns each stderr line into a terminating error. On a fresh
+# PC `wsl --status` prints "WSL installation appears to be corrupted" to
+# stderr -- that killed the first real run on homelab-1 right here, before
+# the handoff printed. wsl.exe also writes UTF-16, hence the NUL strip.
+$ErrorActionPreference = 'Continue'
+$wslStatus = try { ((& wsl.exe --status 2>&1 | Out-String) -replace "`0", '').Trim() -replace "\r?\n", ' | ' } catch { '' }
+if (-not $wslStatus -or $wslStatus -match 'corrupt|not installed|--install') {
+  $wslStatus = 'features enabled; WSL itself not installed yet -- the Mac installs it (homelab/mac/wsl-up.sh)'
+}
+$ErrorActionPreference = 'Stop'
 
 $handoff = @"
 ==================== HOMELAB HANDOFF: paste this to the Mac side ====================
@@ -206,7 +226,7 @@ windows       : $($os.Caption) $($os.Version) (build $($os.BuildNumber))
 cpu           : $($cpu.Name.Trim()), $($cpu.NumberOfCores) cores / $($cpu.NumberOfLogicalProcessors) threads
 ram           : $ramGB GB
 virtualization: $virt
-wsl           : $((wsl.exe --status 2>&1 | Out-String).Trim() -replace "`0", '' -replace "\r?\n", ' | ')
+wsl           : $wslStatus
 
 Mac side:
   homelab/mac/add-host.sh $alias $($ip.IPAddress) $env:USERNAME

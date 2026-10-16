@@ -37,7 +37,16 @@ $ErrorActionPreference = 'Stop'
 $env:WSL_UTF8 = '1'                 # wsl.exe prints UTF-16 otherwise
 function Step($m) { Write-Host "`n==> $m" -ForegroundColor Cyan }
 function Ok($m)   { Write-Host "    ok  $m" -ForegroundColor Green }
-function Wsl([string[]]$a) { $out = & wsl.exe @a 2>&1; if ($LASTEXITCODE -ne 0) { throw "wsl $($a -join ' ') failed: $out" }; ($out | Out-String) -replace "`0", '' }
+# wsl.exe writes progress to stderr even when it succeeds. Under 'Stop',
+# Windows PowerShell 5.1 turns that into a terminating error (it killed
+# bootstrap.ps1's first real run), so judge by the exit code instead.
+# The assignment is function-scoped; the rest of the script stays strict.
+function Wsl([string[]]$a) {
+  $ErrorActionPreference = 'Continue'
+  $out = & wsl.exe @a 2>&1
+  if ($LASTEXITCODE -ne 0) { throw "wsl $($a -join ' ') failed (exit $LASTEXITCODE): $out" }
+  ($out | Out-String) -replace "`0", ''
+}
 
 $AuthorizedKey = $AuthorizedKey.Trim()
 if ($AuthorizedKey -notmatch '^(ssh-ed25519|ecdsa-sha2-nistp(256|384|521)|ssh-rsa) [A-Za-z0-9+/=]+( .*)?$') { throw 'Pass ONE OpenSSH public key line.' }
@@ -72,6 +81,15 @@ if ($have -ne $want) {
   $wslconfigChanged = $true
   Ok "written ($MemoryGB GB, $Processors CPUs); previous copy kept as .bak-*"
 } else { Ok 'already as wanted' }
+
+# --- 1b. WSL itself ------------------------------------------------------------------
+# A fresh Windows 11 has only the inbox wsl.exe stub. Any `wsl --install` then
+# says "WSL installation appears to be corrupted. Press any key to repair" and
+# waits 60 s for a key nobody can press over SSH (seen on homelab-1,
+# 2026-10-16). Installing/updating the WSL package first avoids the prompt.
+Step 'WSL package (from GitHub, not the Store)'
+Wsl @('--update', '--web-download') | Out-Null
+Ok 'installed or already current'
 
 # --- 2. the distribution -------------------------------------------------------------
 Step "$Distro"
