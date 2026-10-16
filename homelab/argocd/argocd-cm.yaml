@@ -1,0 +1,32 @@
+# Restores the health assessment of argoproj.io/Application that Argo CD removed
+# in 1.8. Without it every child Application of the app-of-apps root reports
+# Healthy as soon as it exists, so a sync wave never waits for the previous wave
+# to actually be up and the sync-wave annotations on apps/*.yaml gate nothing.
+# Source: https://argo-cd.readthedocs.io/en/stable/operator-manual/health/
+# ("Argocd App"), verbatim.
+#
+# Only the keys this file lists are ours: apply it server-side under its own field
+# manager so the install.yaml reapply (--force-conflicts) never fights over
+# argocd-cm. See README.md.
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: argocd-cm
+  namespace: argocd
+  labels:
+    app.kubernetes.io/name: argocd-cm
+    app.kubernetes.io/part-of: argocd
+data:
+  resource.customizations.health.argoproj.io_Application: |
+    hs = {}
+    hs.status = "Progressing"
+    hs.message = ""
+    if obj.status ~= nil then
+      if obj.status.health ~= nil then
+        hs.status = obj.status.health.status
+        if obj.status.health.message ~= nil then
+          hs.message = obj.status.health.message
+        end
+      end
+    end
+    return hs

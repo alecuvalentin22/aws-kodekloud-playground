@@ -1,0 +1,7 @@
+# Everything in this directory that is applied on top of Argo CD's install.yaml.
+# kubectl apply --server-side --field-manager=homelab-argocd -k homelab/argocd
+apiVersion: kustomize.config.k8s.io/v1beta1
+kind: Kustomization
+resources:
+  - ingress.yaml
+  - argocd-cm.yaml
