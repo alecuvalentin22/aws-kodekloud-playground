@@ -187,9 +187,11 @@ Windows 11 Home 10.0.26200, Intel i9-10885H (8c/16t), 64 GB, fresh install.
 | `ssh homelab-1-wsl` | `lab@homelab-1`, 12 CPUs, 47 GB, systemd, passwordless sudo, sshd on 127.0.0.1:2222 only |
 | `/dev/kvm` in WSL | **present**: nested virtualization works on Win 11 Home + this i9, so Incus VMs are on |
 | boot without login | rebooted: WSL up 17 s after boot via the `Homelab-WSL` task, no desktop session |
+| `wsl-up.sh --ansible` | first run on the real box: `ok=47 changed=28 failed=0` -- Docker 29.8.2, kubectl 1.34.11, helm 3.20.0, terraform 1.14.4, Incus 6.0.6 with `incusbr0` 10.77.0.1/24 |
+| a real VM | `incus launch images:ubuntu/24.04 --vm`: up in 24 s, its own kernel 6.8.0-147, `systemd-detect-virt` = kvm, IP 10.77.0.125 |
 
-The Mac-side alias for the Ubuntu side (added by hand this time; `add-host.sh`
-does not write it yet):
+`add-host.sh` now writes both aliases per PC (`homelab-N` and
+`homelab-N-wsl`). For reference, the Ubuntu-side one:
 
 ```sshconfig
 Host homelab-1-wsl

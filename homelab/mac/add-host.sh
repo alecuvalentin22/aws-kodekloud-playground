@@ -23,8 +23,8 @@ if ! grep -qs '^Include config.d/\*' ~/.ssh/config; then
   { echo 'Include config.d/*'; echo; cat ~/.ssh/config 2>/dev/null || true; } > ~/.ssh/config.tmp
   mv ~/.ssh/config.tmp ~/.ssh/config && chmod 600 ~/.ssh/config
 fi
-# Replace this alias's block if it exists, keep the others.
-awk -v a="$ALIAS" '$1=="Host"{skip=($2==a)} !skip' "$CONF" > "$CONF.tmp" && mv "$CONF.tmp" "$CONF"
+# Replace this PC's two blocks if they exist, keep every other PC's.
+awk -v a="$ALIAS" -v w="$ALIAS-wsl" '$1=="Host"{skip=($2==a || $2==w)} !skip' "$CONF" > "$CONF.tmp" && mv "$CONF.tmp" "$CONF"
 cat >> "$CONF" <<EOF
 Host $ALIAS
   HostName $IP
@@ -32,7 +32,18 @@ Host $ALIAS
   IdentityFile $KEY
   IdentitiesOnly yes
   ServerAliveInterval 30
+Host $ALIAS-wsl
+  # Ubuntu inside WSL: sshd on 127.0.0.1:2222, reachable only THROUGH $ALIAS.
+  # HostKeyAlias keeps its key apart from every other 127.0.0.1:2222.
+  HostName 127.0.0.1
+  Port 2222
+  User lab
+  ProxyJump $ALIAS
+  HostKeyAlias $ALIAS-wsl
+  IdentityFile $KEY
+  IdentitiesOnly yes
+  ServerAliveInterval 30
 EOF
-echo "added $ALIAS to $CONF"
+echo "added $ALIAS and $ALIAS-wsl (the latter works once homelab/mac/wsl-up.sh has run) to $CONF"
 echo "connecting -- compare the host key with the handoff block before typing yes:"
 ssh -o StrictHostKeyChecking=ask "$ALIAS" 'hostname; whoami; (Get-CimInstance Win32_OperatingSystem).Caption'
