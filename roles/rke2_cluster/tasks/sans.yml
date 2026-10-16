@@ -1,0 +1,85 @@
+---
+# rke2_cluster_step == sans: make the API server's serving certificate carry
+# exactly default + rke2_cluster_extra_sans on a RUNNING server
+# (playbooks/rke2-sans.yml, serial: 1 so a future HA control plane is done one
+# server at a time). Workloads keep running while the control plane restarts;
+# only the API is unavailable for a minute or two.
+#
+# 1. Rewrite config.yaml (same task as a new cluster). Restart rke2-server only
+#    if that changed the file (flush_handlers), so a second run is changed=0.
+# 2. Wait for the API and for the node to be Ready.
+# 3. Read the certificate the server actually serves. RKE2 stores it in the
+#    kube-system secret rke2-serving and only ever ADDS SANs to it; if a wanted
+#    SAN is missing, or an unwanted one (rke2_cluster_sans_absent) is still
+#    there, delete that secret and /var/lib/rancher/rke2/server/tls/dynamic-cert.json
+#    and restart once more so the cert is rebuilt from config.yaml.
+- name: Server config (tls-san)
+  ansible.builtin.include_tasks: server_config.yml
+
+- name: Restart rke2-server now if config.yaml changed
+  ansible.builtin.meta: flush_handlers
+
+- name: API is back
+  ansible.builtin.include_tasks: wait_api.yml
+
+- name: SANs on the certificate rke2-server serves
+  ansible.builtin.shell: |
+    set -o pipefail
+    echo | openssl s_client -connect {{ ansible_host }}:6443 2>/dev/null \
+      | openssl x509 -noout -ext subjectAltName \
+      | grep -o -E '(IP Address|DNS):[^,[:space:]]+' | sed -E 's/^(IP Address|DNS)://'
+  args:
+    executable: /bin/bash
+  register: rke2_cluster_served_sans
+  changed_when: false
+  retries: 12
+  delay: 5
+  until: rke2_cluster_served_sans.rc == 0
+
+- name: Which wanted SANs are missing, which unwanted ones are still there
+  ansible.builtin.set_fact:
+    rke2_cluster_sans_missing: "{{ rke2_cluster_extra_sans | difference(rke2_cluster_served_sans.stdout_lines) }}"
+    rke2_cluster_sans_stale: "{{ rke2_cluster_sans_absent | intersect(rke2_cluster_served_sans.stdout_lines) }}"
+
+- name: Rebuild the serving certificate from config.yaml
+  when: (rke2_cluster_sans_missing | length > 0) or (rke2_cluster_sans_stale | length > 0)
+  block:
+    - name: Delete the stored serving certificate (secret rke2-serving)
+      ansible.builtin.command: >-
+        kubectl --kubeconfig /etc/rancher/rke2/rke2.yaml
+        -n kube-system delete secret rke2-serving --ignore-not-found
+      changed_when: true
+
+    - name: Delete the cached dynamic certificate
+      ansible.builtin.file:
+        path: /var/lib/rancher/rke2/server/tls/dynamic-cert.json
+        state: absent
+
+    - name: Restart rke2-server
+      ansible.builtin.systemd:
+        name: rke2-server
+        state: restarted
+
+    - name: API is back (second time)
+      ansible.builtin.include_tasks: wait_api.yml
+
+    - name: SANs on the rebuilt certificate
+      ansible.builtin.shell: |
+        set -o pipefail
+        echo | openssl s_client -connect {{ ansible_host }}:6443 2>/dev/null \
+          | openssl x509 -noout -ext subjectAltName \
+          | grep -o -E '(IP Address|DNS):[^,[:space:]]+' | sed -E 's/^(IP Address|DNS)://'
+      args:
+        executable: /bin/bash
+      register: rke2_cluster_served_sans2
+      changed_when: false
+      retries: 12
+      delay: 5
+      until: rke2_cluster_served_sans2.rc == 0
+
+    - name: The rebuilt certificate is right
+      ansible.builtin.assert:
+        that:
+          - rke2_cluster_extra_sans | difference(rke2_cluster_served_sans2.stdout_lines) | length == 0
+          - rke2_cluster_sans_absent | intersect(rke2_cluster_served_sans2.stdout_lines) | length == 0
+        fail_msg: "serving cert SANs are now {{ rke2_cluster_served_sans2.stdout_lines }}"

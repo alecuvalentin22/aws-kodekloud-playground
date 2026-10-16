@@ -1,0 +1,23 @@
+---
+# /etc/rancher/rke2/config.yaml of a server. Included by server.yml (new
+# cluster) and sans.yml (running cluster), so both render the SAME file.
+#
+# rke2_cluster_extra_sans is appended to tls-san. With the default (empty list)
+# the rendered file is byte-for-byte what it was before the variable existed,
+# so nobody who does not set it gets a changed file or a restart.
+- name: Server config
+  ansible.builtin.copy:
+    dest: /etc/rancher/rke2/config.yaml
+    mode: "0600"
+    content: |
+      token: {{ rke2_cluster_token }}
+      node-ip: {{ ansible_host }}
+      # 127.0.0.1 for the Mac's tunnel (homelab/mac/kube-tunnel.sh).
+      tls-san:
+        - {{ ansible_host }}
+        - 127.0.0.1{{ rke2_cluster_extra_sans | map('regex_replace', '^', '\n  - ') | join('') }}
+      # cluster-admin credentials: root-only, unlike roles/kubernetes' 0644.
+      write-kubeconfig-mode: "0600"
+  no_log: true
+  register: rke2_cluster_config
+  notify: restart rke2-server

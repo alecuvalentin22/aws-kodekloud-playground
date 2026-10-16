@@ -16,17 +16,32 @@
        prompt never fires): a Linux user, passwordless sudo for Ansible, your
        key, systemd on, and sshd on port 2222 (Windows' own sshd owns 22, and
        mirrored mode shares ports between Windows and WSL).
-    4. A scheduled task that starts WSL at boot, logged on or not.
+    4. A scheduled task that starts WSL at boot, logged on or not, and keeps
+       trying: it also fires every 5 minutes for ever (an instance that is
+       still running makes the new one a no-op), and a failed run is retried.
+       If WSL is stopped by anything -- `wsl --shutdown`, a WSL update, a crash --
+       the lab is back within ~5 minutes without anyone logging in.
 
   Every claim above that depends on Windows behaviour is from Microsoft's
   docs; none of it has been run on a real PC by the author. See README.md
   "What is verified".
 .PARAMETER AuthorizedKey
-  The Mac's PUBLIC key -- the same line you gave bootstrap.ps1.
+  The Mac's PUBLIC key -- the same line you gave bootstrap.ps1. Not needed with
+  -TaskOnly or -ProveRecovery.
+.PARAMETER TaskOnly
+  Only (re-)register the Homelab-WSL scheduled task and print its triggers and
+  settings. Skips .wslconfig, the WSL package, the distro and the restart of WSL,
+  so it is safe on a PC that is already set up (homelab/mac/wsl-self-heal.sh).
+.PARAMETER ProveRecovery
+  DISRUPTIVE: runs `wsl --shutdown` (every distro, VM and container in WSL stops),
+  then measures how long the scheduled task takes to bring the distro back to
+  Running and prints RECOVERY_SECONDS=<n>. Run by `wsl-self-heal.sh --prove`.
 #>
-[CmdletBinding()]
+[CmdletBinding(DefaultParameterSetName = 'Full')]
 param(
-  [Parameter(Mandatory)] [string]$AuthorizedKey,
+  [Parameter(Mandatory, ParameterSetName = 'Full')]     [string]$AuthorizedKey,
+  [Parameter(Mandatory, ParameterSetName = 'TaskOnly')] [switch]$TaskOnly,
+  [Parameter(Mandatory, ParameterSetName = 'Prove')]    [switch]$ProveRecovery,
   [string]$LinuxUser  = 'lab',
   [string]$Distro     = 'Ubuntu-24.04',
   [int]   $MemoryGB   = 48,
@@ -49,6 +64,106 @@ function Wsl([string[]]$a) {
   if ($LASTEXITCODE -ne 0) { throw "wsl $($a -join ' ') failed (exit $LASTEXITCODE): $out" }
   ($out | Out-String) -replace "`0", ''
 }
+
+$TaskName = 'Homelab-WSL'
+$RepeatMinutes = 5
+
+# The scheduled task that keeps WSL up. Two triggers on one task:
+#   - at startup (as before);
+#   - "Once", now, repeating every 5 minutes with NO end. Task Scheduler's own
+#     documentation: a repetition pattern with no Duration "is repeated
+#     indefinitely" (learn.microsoft.com/windows/win32/taskschd/repetitionpattern-duration).
+#     New-ScheduledTaskTrigger cannot put a repetition on an AtStartup trigger,
+#     hence the second trigger. When omitting -RepetitionDuration is not accepted
+#     (older Windows PowerShell builds), the widely used fallback is
+#     -RepetitionDuration ([TimeSpan]::MaxValue); the result is read back either way
+#     and the function throws unless the 5-minute repetition really is stored.
+# MultipleInstances IgnoreNew: while the long-running `sleep infinity` instance is
+# alive, every repeat is dropped, so nothing piles up. When WSL has been stopped,
+# that instance has ended and the next repeat starts WSL again. RestartCount /
+# RestartInterval (documented minimum 1 minute) retry a run that failed outright.
+function Register-HomelabWslTask {
+  $action   = New-ScheduledTaskAction -Execute 'wsl.exe' -Argument "-d $Distro --exec /bin/sh -c `"exec sleep infinity`""
+  $boot     = New-ScheduledTaskTrigger -AtStartup
+  $who      = [Security.Principal.WindowsIdentity]::GetCurrent().Name
+  $princ    = New-ScheduledTaskPrincipal -UserId $who -LogonType S4U -RunLevel Highest
+  $settings = New-ScheduledTaskSettingsSet -MultipleInstances IgnoreNew -ExecutionTimeLimit ([TimeSpan]::Zero) `
+                -RestartCount 3 -RestartInterval (New-TimeSpan -Minutes 1) -StartWhenAvailable `
+                -AllowStartIfOnBatteries -DontStopIfGoingOnBatteries
+  $applied = $false
+  foreach ($strategy in 'no-duration', 'max-duration') {
+    try {
+      $rep = @{ RepetitionInterval = (New-TimeSpan -Minutes $RepeatMinutes) }
+      if ($strategy -eq 'max-duration') { $rep.RepetitionDuration = [TimeSpan]::MaxValue }
+      $repeat = New-ScheduledTaskTrigger -Once -At (Get-Date) @rep
+      Register-ScheduledTask -TaskName $TaskName -Action $action -Trigger @($boot, $repeat) -Principal $princ `
+        -Settings $settings -Force | Out-Null
+      $r = (Get-ScheduledTask -TaskName $TaskName).Triggers | Where-Object { $_.Repetition -and $_.Repetition.Interval } | Select-Object -First 1
+      $isoInterval = [Xml.XmlConvert]::ToString((New-TimeSpan -Minutes $RepeatMinutes))
+      $forever = $r -and ((-not $r.Repetition.Duration) -or
+                          ([Xml.XmlConvert]::ToTimeSpan($r.Repetition.Duration).TotalDays -ge 3650))
+      if ($r -and $r.Repetition.Interval -eq $isoInterval -and $forever) { $applied = $true; break }
+      Write-Warning "strategy '$strategy': stored repetition is Interval='$($r.Repetition.Interval)' Duration='$($r.Repetition.Duration)'"
+    } catch {
+      Write-Warning "strategy '$strategy' failed: $($_.Exception.Message)"
+    }
+  }
+  if (-not $applied) { throw "Could not store a $RepeatMinutes-minute indefinite repetition on task $TaskName" }
+  # Do not poke a task that is already running (the usual case on a PC that is up).
+  if ((Get-ScheduledTask -TaskName $TaskName).State -ne 'Running') { Start-ScheduledTask -TaskName $TaskName }
+  Ok "$TaskName registered for ${who}: at startup + every $RepeatMinutes min for ever, IgnoreNew, 3 restarts 1 min apart"
+}
+
+function Show-HomelabWslTask {
+  $x = [xml](Export-ScheduledTask -TaskName $TaskName)
+  foreach ($part in $x.Task.Triggers, $x.Task.Settings) {
+    Write-Host (($part.OuterXml -replace ' xmlns="[^"]*"', '') -replace '><', ">`n<")
+  }
+  Get-ScheduledTaskInfo -TaskName $TaskName | Format-List TaskName, LastRunTime, LastTaskResult, NextRunTime, NumberOfMissedRuns | Out-String | Write-Host
+}
+
+function Get-DistroState {
+  $ErrorActionPreference = 'Continue'
+  $o = (& wsl.exe --list --verbose 2>&1 | Out-String) -replace "`0", ''
+  if ($o -match "(?m)^\s*\*?\s*$([regex]::Escape($Distro))\s+(\w+)") { $Matches[1] } else { 'Unknown' }
+}
+
+# DISRUPTIVE. Stops WSL and times the scheduled task bringing the distro back.
+# `wsl --list` does not start a distro, so polling does not influence the result.
+function Invoke-RecoveryProof {
+  $t = Get-ScheduledTask -TaskName $TaskName -ErrorAction SilentlyContinue
+  if (-not $t) { throw "Task $TaskName is not registered: run homelab/mac/wsl-self-heal.sh first" }
+  if (-not ($t.Triggers | Where-Object { $_.Repetition -and $_.Repetition.Interval })) {
+    throw "Task $TaskName has no repetition: run homelab/mac/wsl-self-heal.sh (without --prove) first"
+  }
+  Step "state before: $(Get-DistroState)"
+  Step 'wsl --shutdown (everything in WSL stops now)'
+  $sw = [Diagnostics.Stopwatch]::StartNew()
+  Wsl @('--shutdown') | Out-Null
+  $seenDown = $false
+  while ($sw.Elapsed.TotalSeconds -lt 900) {
+    $st = Get-DistroState
+    if ($st -ne 'Running') {
+      if (-not $seenDown) { Ok "down after $([int]$sw.Elapsed.TotalSeconds) s (state: $st)" }
+      $seenDown = $true
+    } elseif ($seenDown) { break }
+    Start-Sleep -Seconds 1
+  }
+  if (-not $seenDown -or (Get-DistroState) -ne 'Running') {
+    Write-Host "RECOVERY_SECONDS=FAILED (not Running again after $([int]$sw.Elapsed.TotalSeconds) s)"
+    exit 1
+  }
+  Write-Host "RECOVERY_SECONDS=$([int]$sw.Elapsed.TotalSeconds)"
+}
+
+if ($TaskOnly) {
+  Step "scheduled task $TaskName only (nothing else on this PC is touched)"
+  Register-HomelabWslTask
+  Step 'triggers and settings as Task Scheduler stores them'
+  Show-HomelabWslTask
+  exit 0
+}
+if ($ProveRecovery) { Invoke-RecoveryProof; exit 0 }
 
 $AuthorizedKey = $AuthorizedKey.Trim()
 if ($AuthorizedKey -notmatch '^(ssh-ed25519|ecdsa-sha2-nistp(256|384|521)|ssh-rsa) [A-Za-z0-9+/=]+( .*)?$') { throw 'Pass ONE OpenSSH public key line.' }
@@ -148,20 +263,10 @@ Start-Sleep -Seconds 3
 $state = Wsl @('-d', $Distro, '-u', 'root', '--', 'sh', '-c', 'sleep 5; systemctl is-system-running || true')
 Ok "systemd: $($state.Trim())"
 
-# --- 5. start at boot, logged on or not ---------------------------------------------------
+# --- 5. start at boot, logged on or not, and every 5 minutes ---------------------------------
 # S4U = "Run whether user is logged on or not" without storing a password.
-Step 'scheduled task: WSL at startup'
-$taskName = 'Homelab-WSL'
-$action   = New-ScheduledTaskAction -Execute 'wsl.exe' -Argument "-d $Distro --exec /bin/sh -c `"exec sleep infinity`""
-$trigger  = New-ScheduledTaskTrigger -AtStartup
-$who      = [Security.Principal.WindowsIdentity]::GetCurrent().Name
-$princ    = New-ScheduledTaskPrincipal -UserId $who -LogonType S4U -RunLevel Highest
-$settings = New-ScheduledTaskSettingsSet -ExecutionTimeLimit ([TimeSpan]::Zero) -RestartCount 3 `
-              -RestartInterval (New-TimeSpan -Minutes 1) -AllowStartIfOnBatteries -DontStopIfGoingOnBatteries
-Register-ScheduledTask -TaskName $taskName -Action $action -Trigger $trigger -Principal $princ `
-  -Settings $settings -Force | Out-Null
-Start-ScheduledTask -TaskName $taskName
-Ok "$taskName registered for $who and started"
+Step 'scheduled task: WSL at startup and every 5 minutes'
+Register-HomelabWslTask
 
 # --- 6. report ------------------------------------------------------------------------------
 Step 'checks'

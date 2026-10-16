@@ -1,0 +1,25 @@
+---
+# Wait until this server's API answers and the node is Ready again.
+# systemctl restart returns long before either is true.
+- name: Supervisor port is up
+  ansible.builtin.wait_for:
+    host: "{{ ansible_host }}"
+    port: "{{ rke2_cluster_supervisor_port }}"
+    delay: 5
+    timeout: 600
+
+- name: API server port is up
+  ansible.builtin.wait_for:
+    host: "{{ ansible_host }}"
+    port: 6443
+    timeout: 600
+
+- name: Server node Ready
+  ansible.builtin.command: >-
+    kubectl --kubeconfig /etc/rancher/rke2/rke2.yaml
+    wait --for=condition=Ready node/{{ inventory_hostname }} --timeout=10s
+  register: rke2_cluster_api_ready
+  retries: 60
+  delay: 10
+  until: rke2_cluster_api_ready.rc == 0
+  changed_when: false

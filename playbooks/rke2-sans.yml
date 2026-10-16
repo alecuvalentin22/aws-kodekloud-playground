@@ -1,0 +1,21 @@
+---
+# Change the SANs of the RKE2 API server's serving certificate on a RUNNING
+# cluster, e.g. to let kubectl reach the API at the PC's LAN address (HAProxy
+# already forwards 192.168.1.153:6443 -> 10.77.0.31:6443, but the certificate
+# only names 10.77.0.31 and 127.0.0.1 until this is run).
+#
+#   ansible-playbook -i homelab/generated/k8s.ini playbooks/rke2-sans.yml \
+#     -e '{"rke2_cluster_extra_sans": ["192.168.1.153"]}'                 # add
+#   ansible-playbook -i homelab/generated/k8s.ini playbooks/rke2-sans.yml \
+#     -e '{"rke2_cluster_sans_absent": ["192.168.1.153"]}'                # remove
+#
+# Normally driven by homelab/mac/lan-kube-api.sh (which confirms first).
+# Only config.yaml changes; rke2-server restarts once, only if the file changed
+# (agents are untouched). With neither variable set it is a no-op against a
+# cluster built by rke2-cluster.yml (changed=0).
+- name: SANs of the API serving certificate
+  hosts: rke2_servers
+  become: true
+  serial: 1
+  vars: {rke2_cluster_step: sans}
+  roles: [rke2_cluster]

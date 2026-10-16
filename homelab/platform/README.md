@@ -204,6 +204,11 @@ kubectl -n artifactory create secret generic artifactory-postgresql \
 | `artifactory-admin` | artifactory | `password` | `artifactory.admin.secret` (+ `dataKey`) |
 | `artifactory-postgresql` | artifactory | `password`, `postgres-password` | PostgreSQL subchart `auth.existingSecret`; the name is `<release>-postgresql`, which is where Artifactory reads the DB password |
 
+**Or let a script do it with one password for every tool:** `HOMELAB_ADMIN_PASSWORD='...' homelab/platform/secrets.sh --apply`
+(see [Run these yourself](../README.md#run-these-yourself)). It also sets `artifactory-admin`'s `bootstrap.creds` key
+(`admin@*=<password>`), which is what `values/artifactory.yaml` reads (`dataKey: bootstrap.creds`); the manual
+`password` literal above is no longer enough for Artifactory on its own.
+
 Back these up somewhere outside the cluster if you care about the data: losing
 `artifactory-keys` makes Artifactory's encrypted data unreadable. Read one back with e.g.
 `kubectl -n jenkins get secret jenkins-admin -o jsonpath='{.data.jenkins-admin-password}' | base64 -d`.

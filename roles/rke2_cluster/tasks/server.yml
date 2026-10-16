@@ -7,22 +7,10 @@
 
 # Written BEFORE the install so the first start already has the token: an
 # rke2-server that started once without it has generated its own, and agents
-# carrying ours are refused.
+# carrying ours are refused. (The task is in server_config.yml because
+# playbooks/rke2-sans.yml re-runs exactly this on a running server.)
 - name: Server config
-  ansible.builtin.copy:
-    dest: /etc/rancher/rke2/config.yaml
-    mode: "0600"
-    content: |
-      token: {{ rke2_cluster_token }}
-      node-ip: {{ ansible_host }}
-      # 127.0.0.1 for the Mac's tunnel (homelab/mac/kube-tunnel.sh).
-      tls-san:
-        - {{ ansible_host }}
-        - 127.0.0.1
-      # cluster-admin credentials: root-only, unlike roles/kubernetes' 0644.
-      write-kubeconfig-mode: "0600"
-  no_log: true
-  notify: restart rke2-server
+  ansible.builtin.include_tasks: server_config.yml
 
 # Written before the first start, like the token, so RKE2 already has it.
 - name: registries.yaml (containerd mirrors for plain-http registries)

@@ -49,7 +49,8 @@ Copies [`windows/wsl-setup.ps1`](windows/wsl-setup.ps1) over and runs it. It:
     plain Linux host, set `playground_ssh_listen: 0.0.0.0` or you lock yourself out.)
 - **Registers the scheduled task `Homelab-WSL`**:
   - runs at startup, whether or not anyone is logged on (`-LogonType S4U`, no stored password);
-  - command: `wsl.exe -d Ubuntu-24.04 --exec /bin/sh -c "exec sleep infinity"`.
+  - command: `wsl.exe -d Ubuntu-24.04 --exec /bin/sh -c "exec sleep infinity"`;
+  - **also every 5 minutes for ever** (a second, repeating trigger), `MultipleInstances IgnoreNew`, 3 restarts 1 minute apart: if WSL is stopped later, the next repeat starts it again. On a PC set up before this existed, apply it with `homelab/mac/wsl-self-heal.sh` (see "Run these yourself").
 - **Prints `/dev/kvm: present | ABSENT`.**
 
 ## 2. Ansible: Docker, tools, KVM gate, Incus
@@ -260,10 +261,38 @@ keep these ports free; the role refuses to start on top of another listener in W
 script warns if Windows itself listens on them. To drop only some ports, edit
 `homelab_lan_tcp_forwards` and re-run with `-Ports` (without them) for the firewall.
 
+## Run these yourself
+
+Three scripts that change the running lab. They are written and statically checked
+(`bash -n`, shellcheck, `ansible-playbook --syntax-check`, the PowerShell 7.4 parser) but
+**not run by their author**; each one asks or refuses before it does anything that matters.
+
+| Script | What it changes | Run |
+|---|---|---|
+| [`mac/lan-kube-api.sh`](mac/lan-kube-api.sh) | Adds `192.168.1.153` to `tls-san` on the RKE2 **server VM** (variable `rke2_cluster_extra_sans`, [`playbooks/rke2-sans.yml`](../playbooks/rke2-sans.yml)); `rke2-server` restarts once (API down ~1-2 min, pods keep running). Writes `generated/rke2-lan.kubeconfig` (mode 600, context `homelab-rke2-lan`) and runs `kubectl get nodes` with it: kubectl from the LAN, no tunnel. | `homelab/mac/lan-kube-api.sh` (asks y/N; `--yes` skips it; `--undo` removes the name and the file) |
+| [`platform/secrets.sh`](platform/secrets.sh) | One password for user `admin` in Grafana, Jenkins, Argo CD and Artifactory: the chart Secrets, Grafana's and Artifactory's databases, Argo CD's bcrypt hash; restarts Grafana, Jenkins and `argocd-server`; deletes `argocd-initial-admin-secret`. Verifies each login over the LAN ingress and prints only HTTP codes. | `homelab/platform/secrets.sh` (`--check`, read-only, is the default)<br>`HOMELAB_ADMIN_PASSWORD='<your password>' homelab/platform/secrets.sh --apply` |
+| [`mac/wsl-self-heal.sh`](mac/wsl-self-heal.sh) | Re-registers only the `Homelab-WSL` task on the PC (`wsl-setup.ps1 -TaskOnly`): boot trigger **plus** a repeat every 5 minutes. WSL itself is not touched. `--prove` does one deliberate `wsl --shutdown` (everything in WSL, including the cluster, stops) and prints the seconds until the task has WSL back. | `homelab/mac/wsl-self-heal.sh`<br>`homelab/mac/wsl-self-heal.sh --prove` (asks y/N) |
+
+Order that works: `lan-kube-api.sh` first (then `secrets.sh` needs no tunnel), `secrets.sh --check`,
+`secrets.sh --apply`, `wsl-self-heal.sh`; `--prove` last and only when you can spare the lab for a few minutes.
+
+- **`lan-kube-api.sh`** needs the Mac on the PC's Wi-Fi/LAN and HAProxy up (`lan-ingress.sh`). Anyone on
+  the LAN can reach 6443 already; the kubeconfig's client certificate is the credential, so keep the file private.
+  Re-running `playbooks/rke2-cluster.yml` without the variable drops the name again; run the script again after it.
+  RKE2 only adds SANs to its stored certificate; if the new name is not served after the restart, the playbook
+  deletes the `rke2-serving` secret and rebuilds it (a second restart). This path has not been exercised.
+- **`secrets.sh`** takes the password from the environment only (never an argument, never printed, no `set -x`;
+  it reaches curl and kubectl through mode-600 temp files). Kubernetes access: `$KUBECONFIG`, else
+  `generated/rke2-lan.kubeconfig` (after `lan-kube-api.sh`), else `generated/rke2.kubeconfig` with
+  `homelab/mac/kube-tunnel.sh` running. Artifactory is skipped (Secret only) while it is not answering.
+  `secrets.sh --selftest` checks the local parts with a dummy password and contacts nothing.
+- **`wsl-self-heal.sh`** (normal mode) is safe while the lab runs. The repetition is verified by reading the task
+  back (`Get-ScheduledTask`); that Windows behaviour is from Microsoft's documentation, not yet seen on the PC.
+
 ## Staying up (human-only settings on the PC)
 
 - **Power**: `bootstrap.ps1` sets never-sleep on AC.
-- **Windows Update**: Home can postpone restarts but not refuse them. Set Settings → Windows Update → Advanced options → Active hours to cover the hours you use the lab. After any restart, the `Homelab-WSL` task brings WSL back without a login. That's what the checklist below proves.
+- **Windows Update**: Home can postpone restarts but not refuse them. Set Settings → Windows Update → Advanced options → Active hours to cover the hours you use the lab. After any restart, the `Homelab-WSL` task brings WSL back without a login, and since the 5-minute repeat it also does so after a `wsl --shutdown` or crash. That's what the checklist below proves.
 - **Idle shutdown**: `instanceIdleTimeout=-1` keeps the distro up. `vmIdleTimeout` (default 60 s) only acts once no distro is running, which the task prevents.
 
 ## Optional: Tailscale (away from home)
