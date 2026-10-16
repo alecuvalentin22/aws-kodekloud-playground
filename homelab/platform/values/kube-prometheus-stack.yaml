@@ -3,7 +3,7 @@
 # Derived from gitops/platform/apps/11-observability.yaml (EKS), changed for a
 # cluster that has real disks and real reachability:
 #   - retention days instead of 2h, on a PVC (local-path, node-local)
-#   - Ingress instead of NodePort
+#   - Ingress for Grafana only (Prometheus/Alertmanager have no auth: no Ingress)
 #   - control-plane scrapes OFF, because RKE2 differs from kubeadm (below)
 fullnameOverride: ""
 
@@ -32,17 +32,14 @@ prometheusOperator:
     requests: {cpu: 25m, memory: 64Mi}
     limits: {memory: 256Mi}
 
+# Prometheus and Alertmanager have NO Ingress on purpose: neither has any
+# authentication, and the Ingress is reachable from the whole LAN through the
+# HAProxy forwarder (80/443 -> ingress-nginx). Grafana (login) is the UI; reach
+# the raw APIs with `kubectl -n observability port-forward
+# svc/kube-prometheus-stack-prometheus 9090` (alertmanager: ... 9093).
 prometheus:
-  ingress:
-    enabled: true
-    ingressClassName: nginx
-    hosts: [prometheus.127.0.0.1.nip.io]
-    paths: [/]
-    pathType: Prefix
-    tls:
-      - hosts: [prometheus.127.0.0.1.nip.io]
+  ingress: {enabled: false}
   prometheusSpec:
-    externalUrl: https://prometheus.127.0.0.1.nip.io:8443
     retention: 7d
     # Whichever hits first. The PVC is 8Gi and Prometheus needs headroom for
     # compaction, so cap data at 6GB.
@@ -70,6 +67,7 @@ prometheus:
       limits: {memory: 1536Mi}
 
 alertmanager:
+  ingress: {enabled: false}
   alertmanagerSpec:
     resources:
       requests: {cpu: 25m, memory: 64Mi}
