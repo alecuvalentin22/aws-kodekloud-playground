@@ -1,0 +1,46 @@
+---
+# rke2_cluster_step == registries: apply registries.yaml to a RUNNING node and
+# restart it, then wait until the cluster reports it Ready again. The playbook
+# (playbooks/rke2-registries.yml) runs this serial:1, agents before the server.
+- name: registries.yaml (containerd mirrors for plain-http registries)
+  ansible.builtin.template:
+    src: registries.yaml.j2
+    dest: /etc/rancher/rke2/registries.yaml
+    mode: "0600"
+  register: rke2_cluster_registries
+  when: rke2_cluster_registry_mirrors | length > 0
+
+- name: No registries.yaml when no mirrors are configured
+  ansible.builtin.file:
+    path: /etc/rancher/rke2/registries.yaml
+    state: absent
+  register: rke2_cluster_registries_removed
+  when: rke2_cluster_registry_mirrors | length == 0
+
+- name: Restart RKE2 on this node (only if registries.yaml changed)
+  ansible.builtin.systemd:
+    name: "rke2-{{ 'server' if inventory_hostname in groups['rke2_servers'] else 'agent' }}"
+    state: restarted
+  when: rke2_cluster_registries.changed | default(false) or rke2_cluster_registries_removed.changed | default(false)
+
+# systemctl restart returns before the kubelet is back, and a Ready condition is
+# only stale-true for the first seconds, so wait for the kubelet port first.
+- name: Kubelet is listening again
+  ansible.builtin.wait_for:
+    host: "{{ ansible_host }}"
+    port: 10250
+    delay: 10
+    timeout: 300
+  when: rke2_cluster_registries.changed | default(false) or rke2_cluster_registries_removed.changed | default(false)
+
+- name: Node Ready again
+  ansible.builtin.command: >-
+    kubectl --kubeconfig /etc/rancher/rke2/rke2.yaml
+    wait --for=condition=Ready node/{{ inventory_hostname }} --timeout=10s
+  delegate_to: "{{ groups['rke2_servers'][0] }}"
+  register: rke2_cluster_registries_ready
+  retries: 60
+  delay: 10
+  until: rke2_cluster_registries_ready.rc == 0
+  changed_when: false
+  when: rke2_cluster_registries.changed | default(false) or rke2_cluster_registries_removed.changed | default(false)

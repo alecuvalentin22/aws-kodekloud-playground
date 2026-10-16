@@ -1,0 +1,8 @@
+# Managed by roles/rke2_cluster (rke2_cluster_registry_mirrors). RKE2 turns this
+# into containerd's registry config on every start; edit the variable, not this.
+mirrors:
+{% for m in rke2_cluster_registry_mirrors %}
+  "{{ m.host }}":
+    endpoint:
+      - "{{ m.endpoint }}"
+{% endfor %}

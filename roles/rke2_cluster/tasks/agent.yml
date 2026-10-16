@@ -16,6 +16,24 @@
   no_log: true
   notify: restart rke2-agent
 
+# Written before the first start, like the token, so RKE2 already has it.
+- name: registries.yaml (containerd mirrors for plain-http registries)
+  ansible.builtin.template:
+    src: registries.yaml.j2
+    dest: /etc/rancher/rke2/registries.yaml
+    mode: "0600"
+  register: rke2_cluster_registries
+  notify: restart rke2-agent
+  when: rke2_cluster_registry_mirrors | length > 0
+
+- name: No registries.yaml when no mirrors are configured
+  ansible.builtin.file:
+    path: /etc/rancher/rke2/registries.yaml
+    state: absent
+  register: rke2_cluster_registries_removed
+  notify: restart rke2-agent
+  when: rke2_cluster_registry_mirrors | length == 0
+
 - name: Server reachable from this agent
   ansible.builtin.wait_for:
     host: "{{ rke2_cluster_server_ip }}"

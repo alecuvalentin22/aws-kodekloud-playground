@@ -1,5 +1,5 @@
 ---
-# Called with rke2_cluster_step: server | agent | verify (playbooks/rke2-cluster.yml).
+# Called with rke2_cluster_step: server | agent | verify | registries (playbooks/rke2-cluster.yml).
 - name: Join token (created on the controller on first use)
   ansible.builtin.set_fact:
     rke2_cluster_token: "{{ lookup('ansible.builtin.password', rke2_cluster_token_file ~ ' chars=ascii_letters,digits length=48') }}"
@@ -36,3 +36,7 @@
 - name: Verify and hand the kubeconfig to the controller
   ansible.builtin.include_tasks: verify.yml
   when: rke2_cluster_step == 'verify'
+
+- name: Apply registries.yaml to a running node and restart it
+  ansible.builtin.include_tasks: registries.yml
+  when: rke2_cluster_step == 'registries'

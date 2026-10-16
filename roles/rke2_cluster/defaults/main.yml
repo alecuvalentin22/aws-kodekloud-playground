@@ -19,3 +19,15 @@ rke2_cluster_context: homelab-rke2
 # The first server; agents register against it on the supervisor port.
 rke2_cluster_server_ip: "{{ hostvars[groups['rke2_servers'][0]].ansible_host }}"
 rke2_cluster_supervisor_port: 9345
+
+# Registries containerd may pull from over plain http. Written to
+# /etc/rancher/rke2/registries.yaml on EVERY node (server and agents): image
+# pulls are done by each node's own containerd, which cannot resolve cluster DNS
+# and refuses http by default. The default is the in-cluster registry
+# (homelab/platform/manifests/registry: NodePort 30500, reachable on any node
+# IP). An empty list removes the file. Changing it needs an RKE2 restart; for a
+# live cluster use playbooks/rke2-registries.yml, which does it one node at a
+# time, agents first.
+rke2_cluster_registry_mirrors:
+  - host: "{{ rke2_cluster_server_ip }}:30500"
+    endpoint: "http://{{ rke2_cluster_server_ip }}:30500"

@@ -1,0 +1,24 @@
+---
+# Apply roles/rke2_cluster's registries.yaml (rke2_cluster_registry_mirrors) to a
+# RUNNING cluster. RKE2 reads it only at start, so each node is restarted, one
+# at a time, agents first and the server last, and the next node waits until the
+# cluster reports the previous one Ready. A node whose file is already correct
+# is left alone (no restart), so a re-run is changed=0.
+#
+#   ansible-playbook -i homelab/generated/k8s.ini playbooks/rke2-registries.yml
+#
+# On a NEW cluster you do not need this: playbooks/rke2-cluster.yml writes the
+# file before the first start.
+- name: Mirrors on the agents, one at a time
+  hosts: rke2_agents
+  become: true
+  serial: 1
+  vars: {rke2_cluster_step: registries}
+  roles: [rke2_cluster]
+
+- name: Mirrors on the server, last
+  hosts: rke2_servers
+  become: true
+  serial: 1
+  vars: {rke2_cluster_step: registries}
+  roles: [rke2_cluster]
