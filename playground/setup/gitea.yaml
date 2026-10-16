@@ -39,6 +39,8 @@ spec:
           env:
             - {name: GITEA__database__DB_TYPE, value: sqlite3}
             - {name: GITEA__security__INSTALL_LOCK, value: "true"}
+            # Lets a short, chosen PLAYGROUND_ADMIN_PASSWORD through (default minimum is 8).
+            - {name: GITEA__security__MIN_PASSWORD_LENGTH, value: "1"}
             - {name: GITEA__server__ROOT_URL, value: "http://localhost:30300/"}
             - {name: GITEA__server__HTTP_PORT, value: "3000"}
             - {name: GITEA__server__DISABLE_SSH, value: "true"}
