@@ -33,6 +33,19 @@ spec:
     - repoURL: https://github.com/alecuvalentin22/aws-kodekloud-playground.git
       targetRevision: feat/playground
       ref: values
+  # The chart writes `apiVersion: v1` / `kind: PersistentVolumeClaim` inside the
+  # StatefulSet's volumeClaimTemplates; the API server stores them, but the
+  # server-side-apply dry-run Argo compares against omits them, so the app sat
+  # OutOfSync forever on exactly those two fields (seen 2026-10-16, StatefulSet
+  # artifactory). volumeClaimTemplates are immutable, so there is nothing to
+  # sync; ignore the two fields, and RespectIgnoreDifferences so a sync does not
+  # write them either (the point of the trap in AGENTS.md section 4e).
+  ignoreDifferences:
+    - group: apps
+      kind: StatefulSet
+      jqPathExpressions:
+        - .spec.volumeClaimTemplates[]?.apiVersion
+        - .spec.volumeClaimTemplates[]?.kind
   syncPolicy:
     automated: {prune: true, selfHeal: true}
     syncOptions:
@@ -40,3 +53,4 @@ spec:
       - ServerSideApply=true
       - ServerSideDiff=true
       - FailOnSharedResource=true
+      - RespectIgnoreDifferences=true
