@@ -13,6 +13,10 @@ spec:
   project: homelab
   destination:
     server: https://kubernetes.default.svc
+    # Required by project homelab (an empty namespace matches no destination:
+    # InvalidSpecError). Each Ingress sets its own namespace, and every one of
+    # them is checked against the project's destinations too.
+    namespace: observability
   source:
     repoURL: https://github.com/alecuvalentin22/aws-kodekloud-playground.git
     targetRevision: feat/playground
