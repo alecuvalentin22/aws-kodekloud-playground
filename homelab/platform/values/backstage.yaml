@@ -27,6 +27,19 @@ backstage:
   resources:
     requests: {cpu: 100m, memory: 512Mi}
     limits: {memory: 1Gi}
+  # The chart's startupProbe allows 3 x 10s with a 1s timeout. A cold Backstage
+  # start on these VMs takes 35-60s when the cluster is busy, so the container was
+  # killed by its own startup probe (4 restarts in 4 minutes right after the
+  # 2026-10-16 config change; exit 0 "Completed", events "failed startup probe").
+  # Allow 5 minutes to start; give the steady-state probes a 3s timeout.
+  startupProbe:
+    failureThreshold: 30
+    periodSeconds: 10
+    timeoutSeconds: 3
+  livenessProbe:
+    timeoutSeconds: 3
+  readinessProbe:
+    timeoutSeconds: 3
   appConfig:
     app:
       title: Platform Lab
