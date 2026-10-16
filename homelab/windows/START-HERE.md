@@ -31,6 +31,16 @@ powershell -ExecutionPolicy Bypass -File .\bootstrap.ps1 -AuthorizedKey 'ssh-ed2
 **3. Send the yellow HANDOFF block to the Mac side.** It is also saved on the
 Desktop as `homelab-handoff-homelab-1.txt`. Then reboot the PC once.
 
+### No yellow block? (red "WSL installation appears to be corrupted" at the end)
+
+That was a bug in the first version of the script, at the very last step:
+the SSH setup itself had already finished. Paste this in the same admin
+PowerShell and send the output to the Mac side instead, then reboot:
+
+```powershell
+$r=Get-NetRoute -DestinationPrefix '0.0.0.0/0'|Sort-Object RouteMetric|Select-Object -First 1; $ip=Get-NetIPAddress -InterfaceIndex $r.InterfaceIndex -AddressFamily IPv4|Select-Object -First 1; "user=$env:USERNAME ip=$($ip.IPAddress)/$($ip.PrefixLength) mac=$((Get-NetAdapter -InterfaceIndex $r.InterfaceIndex).MacAddress)"; & "$env:SystemRoot\System32\OpenSSH\ssh-keygen.exe" -lf "$env:ProgramData\ssh\ssh_host_ed25519_key.pub"; Get-Service sshd|Select-Object Status,StartType; Get-NetFirewallRule -Name Homelab-SSH-LAN-In|Select-Object Enabled,Profile
+```
+
 ## What that did
 
 - Windows' built-in OpenSSH Server: on at boot, **key-only** (passwords off).
