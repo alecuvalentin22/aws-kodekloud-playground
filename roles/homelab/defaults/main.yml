@@ -1,0 +1,51 @@
+---
+# Who runs Incus. Same resolution as roles/playground.
+homelab_user: "{{ ansible_user | default(ansible_env.SUDO_USER) | default(ansible_user_id) }}"
+
+# --- KVM -----------------------------------------------------------------------
+# VMs need /dev/kvm. Inside WSL2 that is nested virtualization (Windows 11,
+# `nestedVirtualization`, default true). If it is absent the role FAILS with
+# the fallback, rather than installing a hypervisor that cannot run a VM.
+homelab_require_kvm: true
+
+# --- Incus, from Zabbly's 6.0 LTS repository -------------------------------------
+# Why Zabbly and not Ubuntu's archive: noble ships incus 6.0.0-1ubuntu0.3;
+# Zabbly's lts-6.0 is the same LTS line with six point releases of fixes, and
+# bundles the QEMU that VMs need. Pinned to the RELEASE and held: Zabbly's
+# version strings end in a per-architecture build stamp (amd64 ...272003,
+# arm64 ...272249 for the same 6.0.6), so the stamp is a wildcard.
+homelab_incus_version: "1:6.0.6-ubuntu24.04-*"
+homelab_zabbly_fingerprint: 4EFC590696CB15B87C73A3AD82CC8797C838DCFD
+
+# Listen on every address, port 8443. Clients still need a trusted TLS
+# certificate (token flow below) -- an open port is not an open API.
+homelab_incus_https_address: ":8443"
+# Storage: `dir` is the one driver that needs nothing else inside WSL (no ZFS
+# module, no loop devices). Slower clones than zfs/btrfs; fine for a lab.
+homelab_incus_pool_driver: dir
+# The VM network. A fixed /24 so VM addresses are predictable and the
+# generated Ansible inventory never changes between rebuilds.
+homelab_incus_bridge: incusbr0
+homelab_incus_subnet: 10.77.0.1/24
+
+# Issue a one-time trust token for this client name (printed at the end).
+homelab_incus_trust_client: ""        # e.g. "mac"
+
+# --- VMs for Kubernetes ----------------------------------------------------------
+# Used by playbooks/homelab-vms.yml. Static DHCP reservations on the bridge.
+# The repo's roles/kubernetes builds ONE single-node cluster per host, with
+# k8s_distribution per host: these three give a k3s cluster, an RKE2 cluster,
+# and a spare to break things on.
+homelab_vm_image: images:ubuntu/24.04
+homelab_vm_user: lab
+homelab_vm_ssh_keys: []                # public keys allowed into the VMs
+homelab_vms:
+  - {name: k3s-01, ip: 10.77.0.21, cpus: 4, memory: 8GiB, disk: 40GiB, distribution: k3s}
+  - {name: rke2-01, ip: 10.77.0.22, cpus: 4, memory: 8GiB, disk: 40GiB, distribution: rke2}
+  - {name: spare-01, ip: 10.77.0.23, cpus: 2, memory: 4GiB, disk: 20GiB, distribution: k3s}
+
+# Where the generated inventory lands ON THE CONTROLLER (the Mac).
+homelab_inventory_out: "{{ playbook_dir }}/../homelab/generated/k8s.ini"
+# How the controller reaches the VMs: through the Windows SSH server, then
+# the WSL sshd, then the VM. Hosts are as named in the controller's ~/.ssh/config.
+homelab_proxy_jump: "homelab-1,{{ homelab_user }}@127.0.0.1:2222"

@@ -1,0 +1,217 @@
+---
+# Everything the local playground needs on an Ubuntu box -- WSL2 on a Windows
+# PC, a VM, or a cloud instance. Then the playground itself is unchanged:
+# playground/setup/up.sh builds kind + Gitea + Jenkins inside Docker.
+#
+# Idempotent: a second run reports changed=0, apart from the optional up.sh.
+
+- name: Refuse anything but Ubuntu
+  ansible.builtin.assert:
+    that: ansible_distribution == 'Ubuntu'
+    fail_msg: "roles/playground targets Ubuntu (24.04 tested by design); this is {{ ansible_distribution }}."
+
+- name: Work out the architecture and whether this is WSL
+  ansible.builtin.set_fact:
+    playground_arch: "{{ {'x86_64': 'amd64', 'aarch64': 'arm64'}[ansible_architecture] }}"
+    # WSL2 kernels are named like 5.15.153.1-microsoft-standard-WSL2.
+    playground_is_wsl: "{{ ansible_kernel is search('(?i)microsoft') }}"
+    playground_has_systemd: "{{ ansible_service_mgr == 'systemd' }}"
+
+# --- WSL: systemd, so dockerd is a normal service ----------------------------
+# Merged into /etc/wsl.conf rather than templated over it: a user's own
+# [network] or [interop] settings survive.
+- name: Enable systemd and set the default user in /etc/wsl.conf
+  community.general.ini_file:
+    path: /etc/wsl.conf
+    section: "{{ item.section }}"
+    option: "{{ item.option }}"
+    value: "{{ item.value }}"
+    no_extra_spaces: true
+    owner: root
+    group: root
+    mode: "0644"
+  loop:
+    - {section: boot, option: systemd, value: "true"}
+    - {section: user, option: default, value: "{{ playground_user }}"}
+  when: playground_is_wsl | bool
+  notify: wsl restart needed
+
+# --- base packages -------------------------------------------------------------
+# Same rule as roles/common: no recommends, never an interactive prompt.
+- name: Install base packages
+  ansible.builtin.apt:
+    name: "{{ playground_packages }}"
+    state: present
+    install_recommends: false
+    update_cache: true
+    cache_valid_time: 3600
+
+# --- Docker Engine, from Docker's repo, pinned and held ------------------------
+- name: Docker apt key
+  ansible.builtin.get_url:
+    url: https://download.docker.com/linux/ubuntu/gpg
+    dest: /etc/apt/keyrings/docker.asc
+    owner: root
+    group: root
+    mode: "0644"
+
+- name: Docker apt repository
+  ansible.builtin.deb822_repository:
+    name: docker
+    types: [deb]
+    uris: https://download.docker.com/linux/ubuntu
+    suites: ["{{ ansible_distribution_release }}"]
+    components: [stable]
+    architectures: ["{{ playground_arch }}"]
+    signed_by: /etc/apt/keyrings/docker.asc
+  register: playground_docker_repo
+
+- name: Refresh apt after adding the Docker repository
+  ansible.builtin.apt:
+    update_cache: true
+  when: playground_docker_repo is changed
+
+- name: Install Docker Engine {{ playground_docker_version }}
+  ansible.builtin.apt:
+    name:
+      - "docker-ce={{ playground_docker_version }}"
+      - "docker-ce-cli={{ playground_docker_version }}"
+      - containerd.io
+    state: present
+    install_recommends: false
+
+- name: Hold Docker at the pinned version
+  ansible.builtin.dpkg_selections:
+    name: "{{ item }}"
+    selection: hold
+  loop: [docker-ce, docker-ce-cli]
+
+- name: Let {{ playground_user }} use Docker without sudo
+  ansible.builtin.user:
+    name: "{{ playground_user }}"
+    groups: docker
+    append: true
+
+- name: Docker running and enabled
+  ansible.builtin.systemd_service:
+    name: docker
+    state: started
+    enabled: true
+  when: playground_has_systemd | bool
+
+# --- kubectl, helm, terraform: pinned, checksum-verified ------------------------
+- name: Download cache
+  ansible.builtin.file:
+    path: "{{ playground_cache }}"
+    state: directory
+    owner: root
+    group: root
+    mode: "0755"
+
+- name: kubectl {{ playground_kubectl_version }}
+  ansible.builtin.get_url:
+    url: "https://dl.k8s.io/release/{{ playground_kubectl_version }}/bin/linux/{{ playground_arch }}/kubectl"
+    checksum: "sha256:https://dl.k8s.io/release/{{ playground_kubectl_version }}/bin/linux/{{ playground_arch }}/kubectl.sha256"
+    dest: /usr/local/bin/kubectl
+    owner: root
+    group: root
+    mode: "0755"
+
+- name: helm {{ playground_helm_version }} (archive)
+  ansible.builtin.get_url:
+    url: "https://get.helm.sh/helm-{{ playground_helm_version }}-linux-{{ playground_arch }}.tar.gz"
+    checksum: "sha256:https://get.helm.sh/helm-{{ playground_helm_version }}-linux-{{ playground_arch }}.tar.gz.sha256sum"
+    dest: "{{ playground_cache }}/helm-{{ playground_helm_version }}.tar.gz"
+    mode: "0644"
+
+- name: helm {{ playground_helm_version }} (unpack)
+  ansible.builtin.unarchive:
+    src: "{{ playground_cache }}/helm-{{ playground_helm_version }}.tar.gz"
+    dest: "{{ playground_cache }}"
+    remote_src: true
+    creates: "{{ playground_cache }}/linux-{{ playground_arch }}/helm"
+
+- name: helm {{ playground_helm_version }} (install)
+  ansible.builtin.copy:
+    src: "{{ playground_cache }}/linux-{{ playground_arch }}/helm"
+    dest: /usr/local/bin/helm
+    remote_src: true
+    owner: root
+    group: root
+    mode: "0755"
+
+- name: terraform {{ playground_terraform_version }} (archive)
+  ansible.builtin.get_url:
+    url: "https://releases.hashicorp.com/terraform/{{ playground_terraform_version }}/terraform_{{ playground_terraform_version }}_linux_{{ playground_arch }}.zip"
+    checksum: "sha256:https://releases.hashicorp.com/terraform/{{ playground_terraform_version }}/terraform_{{ playground_terraform_version }}_SHA256SUMS"
+    dest: "{{ playground_cache }}/terraform-{{ playground_terraform_version }}.zip"
+    mode: "0644"
+
+- name: terraform {{ playground_terraform_version }} (unpack)
+  ansible.builtin.unarchive:
+    src: "{{ playground_cache }}/terraform-{{ playground_terraform_version }}.zip"
+    dest: "{{ playground_cache }}"
+    remote_src: true
+    creates: "{{ playground_cache }}/terraform"
+
+- name: terraform {{ playground_terraform_version }} (install)
+  ansible.builtin.copy:
+    src: "{{ playground_cache }}/terraform"
+    dest: /usr/local/bin/terraform
+    remote_src: true
+    owner: root
+    group: root
+    mode: "0755"
+
+# Never assume a download is what its name says.
+- name: Read back tool versions
+  ansible.builtin.command: "{{ item }}"
+  loop:
+    - kubectl version --client -o json
+    - helm version --template {{ '{{' }}.Version{{ '}}' }}
+    - terraform version -json
+  register: playground_versions
+  changed_when: false
+
+- name: Tools are the pinned versions
+  ansible.builtin.assert:
+    that:
+      - (playground_versions.results[0].stdout | from_json).clientVersion.gitVersion == playground_kubectl_version
+      - playground_versions.results[1].stdout == playground_helm_version
+      - (playground_versions.results[2].stdout | from_json).terraform_version == playground_terraform_version
+    quiet: true
+
+# --- the repo --------------------------------------------------------------------
+- name: Clone platform-lab ({{ playground_repo_version }})
+  ansible.builtin.git:
+    repo: "{{ playground_repo_url }}"
+    dest: "{{ playground_repo_dest }}"
+    version: "{{ playground_repo_version }}"
+    update: "{{ playground_repo_update }}"
+  become: true
+  become_user: "{{ playground_user }}"
+
+- name: Remote access (SSH keys only, Tailscale), when enabled
+  ansible.builtin.import_tasks: remote-access.yml
+
+# --- stop here if WSL has not been restarted with systemd ----------------------
+- name: Docker cannot run until WSL restarts with systemd
+  ansible.builtin.fail:
+    msg: >-
+      Everything is installed, but systemd is not running yet, so dockerd is
+      not. In PowerShell: `wsl --shutdown`, open Ubuntu again, re-run this
+      playbook. (Expected exactly once, on the first run.)
+  when: not (playground_has_systemd | bool)
+
+# --- optional: build the playground ---------------------------------------------
+# sudo starts a fresh session, so the docker group added above applies here.
+- name: Build the playground (playground/setup/up.sh, ~25 min the first time)
+  ansible.builtin.command: "{{ playground_repo_dest }}/playground/setup/up.sh"
+  args:
+    chdir: "{{ playground_repo_dest }}"
+  become: true
+  become_user: "{{ playground_user }}"
+  async: 3600
+  poll: 30
+  changed_when: true
+  when: playground_run_setup | bool

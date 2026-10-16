@@ -1,0 +1,73 @@
+---
+# The account that plays. With `-c local` + become, SUDO_USER is whoever ran
+# ansible-playbook; over SSH it is ansible_user.
+playground_user: "{{ ansible_user | default(ansible_env.SUDO_USER) | default(ansible_user_id) }}"
+playground_home: "/home/{{ playground_user }}"
+
+# --- the repo -----------------------------------------------------------------
+# REPO_URL comes from versions.env, the one place this repo pins it.
+playground_repo_url: >-
+  {{ lookup('ansible.builtin.file', playbook_dir ~ '/../versions.env')
+     | regex_search('(?m)^REPO_URL=(\S+)', '\1') | first }}
+playground_repo_version: feat/playground
+playground_repo_dest: "{{ playground_home }}/platform-lab"
+# Pull new drills on every run. A run that pulls new commits reports changed,
+# which is correct; nothing new means changed=0.
+playground_repo_update: true
+
+# Run playground/setup/up.sh at the end. Off by default: ~25 min the first time
+# (images + Jenkins plugins), and it is the step that is NOT idempotent-cheap.
+playground_run_setup: false
+
+# --- pins ---------------------------------------------------------------------
+# Docker Engine from Docker's own apt repo. 29.8.2 is what the playground was
+# verified on (Docker Desktop, 2026-10-16). Held with dpkg so `apt upgrade`
+# cannot move it under a running kind cluster.
+playground_docker_version: "5:29.8.2-1~ubuntu.24.04~noble"
+
+# kubectl matches the kind node image, read from playground/versions.env, so
+# the two cannot drift apart.
+playground_kubectl_version: >-
+  {{ lookup('ansible.builtin.file', playbook_dir ~ '/../playground/versions.env')
+     | regex_search('kindest/node:(v[0-9.]+)', '\1') | first }}
+# The laptop's helm when the playground was verified.
+playground_helm_version: v3.20.0
+# MUST equal the terraform that writes drill 08's state anywhere else (the
+# Semaphore image pins the same, see playground/semaphore/ENGINE-CHANGES.md):
+# terraform refuses state written by a newer version.
+playground_terraform_version: 1.14.4
+
+playground_packages:
+  - ca-certificates
+  - curl
+  - gnupg
+  - jq
+  - git
+  - rsync
+  - python3
+  - openssl
+  - unzip
+  - python3-debian   # deb822_repository needs it
+  - sudo
+
+playground_cache: /var/cache/playground
+
+# --- reaching it from another machine (home-lab use) -------------------------
+# Key-only openssh-server. Needs at least one key, or the run refuses.
+playground_ssh_enable: false
+# 22 on a plain VM. On a WSL box in mirrored networking mode the Windows
+# OpenSSH server already owns 22 (Windows and WSL share ports), so the home
+# lab uses 2222 -- see homelab/README.md.
+playground_ssh_port: 22
+# Loopback by default: in WSL the only way in is ProxyJump through the Windows
+# sshd (LAN-only, key-only), and with mirrored networking a 0.0.0.0 listener
+# would be reachable from the LAN directly. Set 0.0.0.0 on a plain Linux host.
+playground_ssh_listen: 127.0.0.1
+playground_ssh_authorized_keys: []
+#   - "ssh-ed25519 AAAA... you@mac"
+
+# Tailscale INSIDE WSL (see playground/docs/windows.md for why not on Windows).
+# 1.102.5 was the newest of the 1.102 line in pkgs.tailscale.com on 2026-10-16.
+playground_tailscale_enable: false
+playground_tailscale_version: "1.102.5"
+playground_tailscale_hostname: playground-pc

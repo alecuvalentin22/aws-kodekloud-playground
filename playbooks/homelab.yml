@@ -1,0 +1,12 @@
+---
+# The home-lab box: everything roles/playground installs (Docker, kind
+# playground tools, key-only SSH on 2222, optional Tailscale) plus a KVM/Incus
+# VM host. Run from the Mac over SSH -- see homelab/README.md.
+#
+#   ansible-playbook -i homelab/inventory.ini playbooks/homelab.yml
+- name: Home-lab host (WSL2 on Windows 11)
+  hosts: homelab
+  become: true
+  roles:
+    - playground
+    - homelab

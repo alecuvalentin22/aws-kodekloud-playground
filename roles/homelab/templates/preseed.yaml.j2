@@ -1,0 +1,24 @@
+# Managed by Ansible (roles/homelab). Applied once, by `incus admin init --preseed`.
+config:
+  core.https_address: "{{ homelab_incus_https_address }}"
+storage_pools:
+  - name: default
+    driver: {{ homelab_incus_pool_driver }}
+networks:
+  - name: {{ homelab_incus_bridge }}
+    type: bridge
+    config:
+      ipv4.address: {{ homelab_incus_subnet }}
+      ipv4.nat: "true"
+      ipv6.address: none
+profiles:
+  - name: default
+    devices:
+      root:
+        path: /
+        pool: default
+        type: disk
+      eth0:
+        name: eth0
+        network: {{ homelab_incus_bridge }}
+        type: nic

@@ -1,0 +1,17 @@
+---
+- name: wsl restart needed
+  ansible.builtin.debug:
+    msg: >-
+      /etc/wsl.conf changed. WSL reads it only at boot: run `wsl --shutdown`
+      in PowerShell, open Ubuntu again, and re-run this playbook.
+
+# Validate the whole config before restarting, so a bad drop-in cannot take
+# down the only way in.
+# Ubuntu 24.04 socket-activates sshd and generates ssh.socket's port from
+# sshd_config, so a Port change needs daemon-reload + a socket restart too.
+- name: restart ssh
+  ansible.builtin.shell: >-
+    mkdir -p /run/sshd && sshd -t && systemctl daemon-reload &&
+    { systemctl restart ssh.socket 2>/dev/null || true; } && systemctl restart ssh
+  changed_when: true
+  when: playground_has_systemd | bool

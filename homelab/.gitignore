@@ -1,0 +1,4 @@
+# Written by playbooks/homelab-vms.yml; machine-specific.
+generated/
+# Your real host list (copy of inventory.ini.example).
+inventory.ini

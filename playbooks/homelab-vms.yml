@@ -1,0 +1,13 @@
+---
+# Kubernetes node VMs on the home-lab Incus, and an inventory for them:
+#
+#   ansible-playbook -i homelab/inventory.ini playbooks/homelab-vms.yml
+#   ansible-playbook -i homelab/generated/k8s.ini playbooks/k8s.yml --ask-vault-pass
+- name: VMs for Kubernetes
+  hosts: homelab
+  become: true
+  tasks:
+    - name: VMs and the generated inventory
+      ansible.builtin.include_role:
+        name: homelab
+        tasks_from: vms

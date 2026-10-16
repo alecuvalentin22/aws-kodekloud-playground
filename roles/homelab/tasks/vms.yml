@@ -1,0 +1,79 @@
+---
+# Kubernetes node VMs, then an Ansible inventory for them on the controller,
+# in the shape of inventory/hosts.ini.example, so playbooks/k8s.yml runs as is.
+# Incus CLI rather than a Terraform provider: Incus is already the source of
+# truth, there is no state file to lose, and it is three commands.
+
+- name: Need at least one public key for the VMs
+  ansible.builtin.assert:
+    that: homelab_vm_ssh_keys | length > 0
+    fail_msg: "Set homelab_vm_ssh_keys: VMs get no password, so without a key nobody can log in."
+
+- name: Which VMs exist
+  ansible.builtin.command: incus list --format json
+  register: homelab_list
+  changed_when: false
+
+- name: Launch missing VMs
+  ansible.builtin.command:
+    argv:
+      - incus
+      - launch
+      - "{{ homelab_vm_image }}"
+      - "{{ item.name }}"
+      - --vm
+      - -c
+      - "limits.cpu={{ item.cpus }}"
+      - -c
+      - "limits.memory={{ item.memory }}"
+      - -c
+      - "cloud-init.user-data={{ lookup('ansible.builtin.template', 'cloud-init.yaml.j2') }}"
+      - -d
+      - "root,size={{ item.disk }}"
+      - -d
+      - "eth0,ipv4.address={{ item.ip }}"
+  loop: "{{ homelab_vms }}"
+  loop_control:
+    label: "{{ item.name }}"
+  when: item.name not in (homelab_list.stdout | from_json | map(attribute='name') | list)
+  changed_when: true
+
+# The incus-agent inside the VM answers exec once the guest has booted;
+# cloud-init then finishes the user + key.
+- name: Wait for cloud-init in every VM
+  ansible.builtin.command: "incus exec {{ item.name }} -- cloud-init status --wait"
+  register: homelab_ci
+  retries: 30
+  delay: 10
+  until: homelab_ci.rc == 0
+  changed_when: false
+  loop: "{{ homelab_vms }}"
+  loop_control:
+    label: "{{ item.name }}"
+
+# A separate inventory file would not load inventory/group_vars/all, which
+# holds what roles/kubernetes needs (vault: rancher/keycloak passwords). A
+# symlink keeps one copy of those vars.
+- name: Generated-inventory directory
+  ansible.builtin.file:
+    path: "{{ homelab_inventory_out | dirname }}"
+    state: directory
+    mode: "0755"
+  delegate_to: localhost
+  become: false
+
+- name: Generated inventory shares inventory/group_vars
+  ansible.builtin.file:
+    path: "{{ homelab_inventory_out | dirname }}/group_vars"
+    src: "{{ playbook_dir }}/../inventory/group_vars"
+    state: link
+  delegate_to: localhost
+  become: false
+
+- name: Inventory for playbooks/k8s.yml (on the controller)
+  ansible.builtin.template:
+    src: k8s-inventory.ini.j2
+    dest: "{{ homelab_inventory_out }}"
+    mode: "0644"
+  delegate_to: localhost
+  become: false

@@ -1,0 +1,16 @@
+---
+# Prepare an Ubuntu box for the local interview playground (playground/).
+# Built for WSL2 on a Windows PC; works on any Ubuntu 24.04 VM. See
+# playground/docs/windows.md.
+#
+# Inside WSL, against itself:
+#   ansible-playbook -i 'localhost,' -c local -K playbooks/playground.yml
+# From another machine over SSH:
+#   ansible-playbook -i 'wsl-pc,' -e ansible_host=<ip> -e ansible_user=<user> -K playbooks/playground.yml
+# Also build the playground at the end (~25 min the first time):
+#   ... -e playground_run_setup=true
+- name: Interview playground host
+  hosts: all
+  become: true
+  roles:
+    - playground

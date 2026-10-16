@@ -1,0 +1,110 @@
+---
+# Reaching the box from another machine: key-only SSH, and Tailscale so the
+# address survives WSL's NAT IP changing on every boot. Both off by default.
+
+# --- SSH, keys only ---------------------------------------------------------------
+- name: Refuse to turn off passwords with no key to log in with
+  ansible.builtin.assert:
+    that: playground_ssh_authorized_keys | length > 0
+    fail_msg: >-
+      playground_ssh_enable=true needs at least one public key in
+      playground_ssh_authorized_keys, or this run would lock you out.
+  when: playground_ssh_enable | bool
+
+- name: openssh-server
+  ansible.builtin.apt:
+    name: openssh-server
+    state: present
+    install_recommends: false
+  when: playground_ssh_enable | bool
+
+- name: Authorised keys for {{ playground_user }}
+  ansible.posix.authorized_key:
+    user: "{{ playground_user }}"
+    key: "{{ item }}"
+    state: present
+  loop: "{{ playground_ssh_authorized_keys }}"
+  when: playground_ssh_enable | bool
+
+# A drop-in, so Ubuntu's own sshd_config stays untouched and upgradable.
+- name: sshd -- keys only, no root
+  ansible.builtin.copy:
+    dest: /etc/ssh/sshd_config.d/10-playground.conf
+    content: |
+      # Managed by Ansible (roles/playground). Keys only.
+      Port {{ playground_ssh_port }}
+      ListenAddress {{ playground_ssh_listen }}
+      PubkeyAuthentication yes
+      PasswordAuthentication no
+      KbdInteractiveAuthentication no
+      PermitRootLogin no
+    owner: root
+    group: root
+    mode: "0644"
+  when: playground_ssh_enable | bool
+  notify: restart ssh
+
+- name: sshd enabled
+  ansible.builtin.systemd_service:
+    name: ssh
+    enabled: true
+    state: started
+  when: (playground_ssh_enable | bool) and (playground_has_systemd | bool)
+
+# --- Tailscale, inside WSL ----------------------------------------------------------
+- name: Tailscale apt key
+  ansible.builtin.get_url:
+    url: "https://pkgs.tailscale.com/stable/ubuntu/{{ ansible_distribution_release }}.noarmor.gpg"
+    dest: /usr/share/keyrings/tailscale-archive-keyring.gpg
+    owner: root
+    group: root
+    mode: "0644"
+  when: playground_tailscale_enable | bool
+
+- name: Tailscale apt repository
+  ansible.builtin.deb822_repository:
+    name: tailscale
+    types: [deb]
+    uris: https://pkgs.tailscale.com/stable/ubuntu
+    suites: ["{{ ansible_distribution_release }}"]
+    components: [main]
+    signed_by: /usr/share/keyrings/tailscale-archive-keyring.gpg
+  register: playground_tailscale_repo
+  when: playground_tailscale_enable | bool
+
+- name: Refresh apt after adding the Tailscale repository
+  ansible.builtin.apt:
+    update_cache: true
+  when: (playground_tailscale_enable | bool) and (playground_tailscale_repo is changed)
+
+- name: Tailscale {{ playground_tailscale_version }}
+  ansible.builtin.apt:
+    name: "tailscale={{ playground_tailscale_version }}"
+    state: present
+    install_recommends: false
+  when: playground_tailscale_enable | bool
+
+- name: tailscaled running
+  ansible.builtin.systemd_service:
+    name: tailscaled
+    enabled: true
+    state: started
+  when: (playground_tailscale_enable | bool) and (playground_has_systemd | bool)
+
+# Joining the tailnet needs a browser login: the one step Ansible cannot do.
+- name: Is this node on the tailnet yet?
+  ansible.builtin.command: tailscale status --json
+  register: playground_ts_status
+  changed_when: false
+  failed_when: false
+  when: (playground_tailscale_enable | bool) and (playground_has_systemd | bool)
+
+- name: Join the tailnet (once, by hand)
+  ansible.builtin.debug:
+    msg: >-
+      Run `sudo tailscale up --hostname={{ playground_tailscale_hostname }}` in
+      this Ubuntu shell and open the URL it prints. Then, from the Mac:
+      ssh {{ playground_user }}@{{ playground_tailscale_hostname }}
+  when: >-
+    (playground_tailscale_enable | bool) and (playground_has_systemd | bool) and
+    ((playground_ts_status.stdout | default('{}') | from_json).BackendState | default('') != 'Running')

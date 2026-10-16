@@ -1,0 +1,13 @@
+# Copy to homelab/inventory.ini (gitignored). The Ubuntu inside WSL on the
+# Windows PC, reached from the Mac THROUGH the Windows OpenSSH server
+# ("homelab-1" in ~/.ssh/config, from mac/add-host.sh):
+# Mac -> Windows :22 -> 127.0.0.1:2222 (WSL sshd; mirrored networking shares
+# loopback). Nothing but Windows' sshd is exposed to the LAN.
+[homelab]
+homelab-wsl ansible_host=127.0.0.1 ansible_port=2222 ansible_user=lab
+
+[homelab:vars]
+ansible_ssh_common_args='-o ProxyJump=homelab-1'
+ansible_python_interpreter=/usr/bin/python3
+playground_ssh_enable=true
+playground_ssh_port=2222

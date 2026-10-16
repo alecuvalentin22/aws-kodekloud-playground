@@ -1,0 +1,158 @@
+---
+# A VM host inside WSL2: KVM check first, then Incus, initialised from a
+# preseed. Runs after roles/playground (Docker + tools), which it does not
+# replace: the kind playground stays available beside the VMs.
+
+# --- make-or-break: can this box run a VM at all? -------------------------------
+- name: Is /dev/kvm present?
+  ansible.builtin.stat:
+    path: /dev/kvm
+  register: homelab_kvm
+
+- name: cpu-checker (kvm-ok)
+  ansible.builtin.apt:
+    name: cpu-checker
+    state: present
+    install_recommends: false
+
+- name: Ask kvm-ok
+  ansible.builtin.command: kvm-ok
+  register: homelab_kvm_ok
+  changed_when: false
+  failed_when: false
+
+- name: Refuse to build a VM host without KVM
+  ansible.builtin.fail:
+    msg: |
+      No usable KVM here: /dev/kvm {{ 'exists' if homelab_kvm.stat.exists else 'is absent' }}; kvm-ok says:
+        {{ homelab_kvm_ok.stdout | default('') | trim }}
+      Inside WSL2 this needs nested virtualization: Windows 11, VT-x on in the
+      BIOS/UEFI, and `nestedVirtualization=true` under [wsl2] in
+      %UserProfile%\.wslconfig, then `wsl --shutdown`.
+      If it still fails, nested virtualization is not available on this
+      hardware/edition: use the fallback in homelab/README.md ("No KVM in WSL")
+      -- VMware Workstation (free) + Vagrant on Windows, or Proxmox VE instead
+      of Windows. The kind playground (roles/playground) does not need KVM.
+  when: (homelab_require_kvm | bool) and not (homelab_kvm.stat.exists and homelab_kvm_ok.rc == 0)
+
+# --- Incus 6.0 LTS from Zabbly, key verified by fingerprint ----------------------
+- name: Zabbly signing key
+  ansible.builtin.get_url:
+    url: https://pkgs.zabbly.com/key.asc
+    dest: /etc/apt/keyrings/zabbly.asc
+    owner: root
+    group: root
+    mode: "0644"
+
+# The README publishes this fingerprint; a key that does not match it is not
+# the key we meant to trust, whatever the download said.
+- name: Zabbly key fingerprint
+  ansible.builtin.shell: >-
+    set -o pipefail &&
+    gpg --show-keys --with-colons /etc/apt/keyrings/zabbly.asc | awk -F: '/^fpr:/{print $10; exit}'
+  args:
+    executable: /bin/bash
+  register: homelab_zabbly_fpr
+  changed_when: false
+
+- name: Key is the published one
+  ansible.builtin.assert:
+    that: homelab_zabbly_fpr.stdout == homelab_zabbly_fingerprint
+    fail_msg: "Zabbly key fingerprint {{ homelab_zabbly_fpr.stdout }} != {{ homelab_zabbly_fingerprint }}"
+    quiet: true
+
+- name: Zabbly Incus 6.0 LTS repository
+  ansible.builtin.deb822_repository:
+    name: zabbly-incus-lts-6.0
+    types: [deb]
+    uris: https://pkgs.zabbly.com/incus/lts-6.0
+    suites: ["{{ ansible_distribution_release }}"]
+    components: [main]
+    architectures: ["{{ {'x86_64': 'amd64', 'aarch64': 'arm64'}[ansible_architecture] }}"]
+    signed_by: /etc/apt/keyrings/zabbly.asc
+  register: homelab_zabbly_repo
+
+- name: Refresh apt after adding the Zabbly repository
+  ansible.builtin.apt:
+    update_cache: true
+  when: homelab_zabbly_repo is changed
+
+- name: Incus {{ homelab_incus_version }}
+  ansible.builtin.apt:
+    name:
+      - "incus={{ homelab_incus_version }}"
+      - "incus-base={{ homelab_incus_version }}"
+      - "incus-client={{ homelab_incus_version }}"
+    state: present
+    install_recommends: false
+
+- name: Hold Incus at the pinned version
+  ansible.builtin.dpkg_selections:
+    name: "{{ item }}"
+    selection: hold
+  loop: [incus, incus-base, incus-client]
+
+# Normally made by systemd-sysusers; make sure, so the next task cannot fail.
+- name: kvm group
+  ansible.builtin.group:
+    name: kvm
+    system: true
+
+- name: Let {{ homelab_user }} drive Incus and KVM
+  ansible.builtin.user:
+    name: "{{ homelab_user }}"
+    groups: [incus-admin, kvm]
+    append: true
+
+- name: Incus daemon running
+  ansible.builtin.systemd_service:
+    name: incus
+    state: started
+    enabled: true
+
+# --- initialise once, from a preseed ----------------------------------------------
+# `incus admin init` is not idempotent, so ask first: a storage pool named
+# `default` exists only after a successful init.
+- name: Already initialised?
+  ansible.builtin.command: incus storage show default
+  register: homelab_incus_pool
+  changed_when: false
+  failed_when: false
+
+- name: Preseed
+  ansible.builtin.template:
+    src: preseed.yaml.j2
+    dest: /etc/incus-preseed.yaml
+    owner: root
+    group: root
+    mode: "0600"
+
+- name: incus admin init --preseed
+  ansible.builtin.shell: incus admin init --preseed < /etc/incus-preseed.yaml
+  changed_when: true
+  when: homelab_incus_pool.rc != 0
+
+# --- one-time trust token for a remote client (the Mac) ----------------------------
+- name: Trusted clients
+  ansible.builtin.command: incus config trust list --format csv
+  register: homelab_trust
+  changed_when: false
+  when: homelab_incus_trust_client | length > 0
+
+- name: Issue a trust token for {{ homelab_incus_trust_client }}
+  ansible.builtin.command: "incus config trust add {{ homelab_incus_trust_client }}"
+  register: homelab_trust_token
+  changed_when: true
+  when:
+    - homelab_incus_trust_client | length > 0
+    - homelab_incus_trust_client not in homelab_trust.stdout
+
+- name: Use the token from the Mac (single use, expires)
+  ansible.builtin.debug:
+    msg: >-
+      On the Mac: incus remote add homelab <TOKEN>   (token below; if the
+      addresses inside it are not reachable from the Mac, give the address
+      explicitly: incus remote add homelab https://<windows-lan-ip>:8443
+      and paste the token when asked)
+      TOKEN: {{ homelab_trust_token.stdout_lines | last }}
+  when: homelab_trust_token is changed
