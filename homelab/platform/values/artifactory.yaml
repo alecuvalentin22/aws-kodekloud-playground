@@ -125,7 +125,24 @@ artifactory:
         timeoutSeconds: {{ .Values.probes.timeoutSeconds }}
 
   # --- the other containers of the StatefulSet (subchart root keys) ---------
+  # STARTUP PROBES of router and access. The chart gives both 30 x 5s = 150s.
+  # On a cold start the Access JVM needs longer than that (measured 2026-10-16:
+  # ~15s to Tomcat, then minutes of initialisation while Jenkins, Prometheus and
+  # Backstage started on the same nodes), kubelet kills it with SIGTERM (exit
+  # 143), and the router -- which waits for the join key Access writes on first
+  # start -- exits too. Both then restart forever, each time under the same
+  # budget. 120 x 5s = 10 minutes, the same as the artifactory container's own.
   router:
+    startupProbe:
+      config: |
+        httpGet:
+          path: /router/api/v1/system/readiness
+          port: {{ .Values.router.externalPort }}
+          scheme: {{ include "artifactory.scheme" . | upper }}
+        timeoutSeconds: {{ .Values.probes.timeoutSeconds }}
+        initialDelaySeconds: 10
+        periodSeconds: 5
+        failureThreshold: 120
     resources:
       requests: {cpu: 50m, memory: 128Mi}
       limits: {memory: 256Mi}
@@ -134,6 +151,17 @@ artifactory:
       requests: {cpu: 25m, memory: 64Mi}
       limits: {memory: 128Mi}
   access:
+    startupProbe:
+      config: |
+        exec:
+          command:
+            - sh
+            - -c
+            - curl --fail --max-time {{ .Values.probes.timeoutSeconds }} http://localhost:8040/access/api/v1/system/readiness
+        initialDelaySeconds: 5
+        failureThreshold: 120
+        periodSeconds: 5
+        timeoutSeconds: {{ .Values.probes.timeoutSeconds }}
     resources:
       requests: {cpu: 200m, memory: 512Mi}
       limits: {memory: 1Gi}
