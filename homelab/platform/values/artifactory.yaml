@@ -185,10 +185,13 @@ artifactory:
     resources:
       requests: {cpu: 50m, memory: 256Mi}
       limits: {memory: 512Mi}
+  # jfconfig was OOMKilled (exit 137) at 512Mi during its first start on this
+  # cluster and then ran at 440-445Mi (measured 2026-10-16): a JVM at
+  # MaxRAMPercentage=50 plus metaspace and native memory does not fit 512Mi.
   jfconfig:
     resources:
-      requests: {cpu: 50m, memory: 256Mi}
-      limits: {memory: 512Mi}
+      requests: {cpu: 50m, memory: 384Mi}
+      limits: {memory: 768Mi}
   # --- the two services this chart version runs as their own Deployments ----
   frontend:
     resources:
