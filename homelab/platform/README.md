@@ -37,6 +37,9 @@ Docker"); the job description itself is not in the repo.
 | 3 | `34-backstage-rbac` | read-only SA for Backstage's Kubernetes tab | n/a | developer portal |
 | 4 | `40-backstage` | Backstage, catalog from this repo | chart 2.10.2 (`BACKSTAGE_CHART`), image 1.55.2 (`BACKSTAGE_IMAGE`) | developer portal / service catalog |
 | 5 | `50-artifactory` | Artifactory OSS | chart 107.161.26 (`ARTIFACTORY_CHART`) | Artifact management |
+| 3 | `70-blackbox-exporter` | prober for the uptime dashboards | chart 11.19.1 (**2026-09-24**), image v0.28.0 (**2025-12-06**) | Monitoring / observability |
+| 4 | `72-monitoring` | uptime Probes, Argo CD ServiceMonitors, Grafana dashboards (folder "Home lab") | n/a (kustomize) | Monitoring / observability |
+| 7 | `74-homepage` | start page at `http://192.168.1.153/` | Homepage v2.4.0 (**2026-09-17**) | developer portal / front door |
 
 Every chart version is the one in `versions.env`. The two pins that
 `versions.env` does not have were looked up on 2026-10-16:
@@ -125,14 +128,16 @@ reserves nothing, so this is also the ceiling the kernel will OOM against).
 | RKE2 itself (apiserver 792, canal 589, ingress-nginx x3 379, coredns 150, metrics-server, etcd, kube-proxy x3, controllers) | 2430 Mi | 3174 Mi | 320 Mi | - |
 | Argo CD (controller 305, repo-server 135, server 123, dex 114, redis 30, notifications 26, applicationset 23: **7 pods, none declares requests or limits**) | 764 Mi | 0 | none | - |
 | local-path-provisioner | 50 Mi | 32 Mi | 128 Mi | - |
-| kube-prometheus-stack (Grafana 3 containers 510, Prometheus 357, operator 75, node-exporter x3 72, Alertmanager 56, KSM 18) | 1114 Mi | 1336 Mi | 2880 Mi | 8 + 1 + 1 Gi |
+| kube-prometheus-stack (Grafana 3 containers 510 (399 when re-measured after its restart for the dashboards), Prometheus 357 (399 with the 21 probes and Argo CD scraped), operator 75, node-exporter x3 72, Alertmanager 56, KSM 18) | 1114 Mi | 1336 Mi | 2880 Mi | 8 + 1 + 1 Gi |
 | registry | 52 Mi | 64 Mi | 256 Mi | 8 Gi |
 | registry-ui (joxit nginx, static page + `/v2` proxy; `kubectl top`, 2026-10-16) | 4 Mi | 16 Mi | 64 Mi | - |
+| Homepage (`kubectl top`, 2026-10-16, ~10 min after start) | 102 Mi | 128 Mi | 512 Mi | - |
+| blackbox-exporter | 15 Mi | 24 Mi | 64 Mi | - |
 | Jenkins controller + config-reload (idle) | 625 Mi | 1056 Mi | 2176 Mi | 8 Gi |
 | Backstage | 293 Mi | 512 Mi | 1024 Mi | - |
 | Artifactory OSS (artifactory-0 2916, frontend 196, jfbus 431, PostgreSQL 159) | 3707 Mi | 4672 Mi | 9472 Mi | 10 + 4 Gi |
 | demo-api x2 (the deployed sample app) | 152 Mi | 128 Mi | 512 Mi | - |
-| **Total** | **9191 Mi (9.0 GiB)** | 10990 Mi | 16832 Mi (+ unlimited Argo CD) | 40 Gi |
+| **Total** | **9350 Mi (9.1 GiB)** | 11142 Mi | 17408 Mi (+ unlimited Argo CD) | 40 Gi |
 
 Nodes at the same moment (`kubectl top nodes`, working set, includes page cache the
 pod numbers leave out): rke2-s1 3408 Mi (28%), rke2-a1 3944 Mi (33%), rke2-a2 5351 Mi
@@ -177,6 +182,84 @@ to be cut. Two honest caveats remain:
   were later raised to 60 GiB; disk use was not measured here.)
 - **Memory is spread unevenly.** a2 holds 5.3 GiB, s1 3.4 GiB, because the scheduler
   places by request and Argo CD declares none.
+
+## Start page and dashboards
+
+| What | URL |
+|---|---|
+| Start page | http://192.168.1.153/ or http://home.192.168.1.153.nip.io (Homepage v2.4.0, released 2026-09-17; v2.5.0 of 2026-10-10 is under two weeks old) |
+| Dashboards | Grafana, folder **Home lab**: [Home lab overview](http://grafana.192.168.1.153.nip.io/d/homelab-overview) and [Uptime](http://grafana.192.168.1.153.nip.io/d/homelab-uptime) |
+
+**The start page** (`manifests/homepage/`, Application `74-homepage`, wave 7) is plain manifests from
+Homepage's own Kubernetes docs: namespace, read-only ServiceAccount/ClusterRole (nodes, pods, namespaces,
+ingresses, metrics.k8s.io), Deployment (non-root, 128 Mi request / 512 Mi limit), Service, Ingress. Tiles, in four groups:
+Platform (Argo CD, Grafana, Backstage), CI (Jenkins, Artifactory, Registry), Playground (the kind playground's
+Jenkins :30094, Gitea :30300, demo-api :30095) and Cluster (Kubernetes API, Prometheus). Each tile has the Wi-Fi URL as its link and a
+`siteMonitor` status dot (green = answered with a status <= 403, so a login wall is "up"; red = no answer or >= 404), checked by
+the Homepage pod against the in-cluster Service where there is one. Header widgets: Kubernetes cluster and per-node CPU/memory, a clock.
+In-cluster tiles also show their pod's status and CPU/memory (`namespace` + `podSelector`).
+
+- **Why the bare IP works, and why it does not swallow the tools:** the Ingress has a host-less rule next to the named
+  host. ingress-nginx makes one nginx server block per named host and puts a host-less rule in the default server, which only
+  receives requests whose `Host` matches no block, so `argocd.`, `grafana.`, `jenkins.`, `artifactory.`, `backstage.` and
+  `registry.192.168.1.153.nip.io` still reach their apps (checked, below). An unknown host (`typo.192.168.1.153.nip.io`)
+  reaches Homepage, which answers 400 because `HOMEPAGE_ALLOWED_HOSTS` (pod IP, `home.192.168.1.153.nip.io`,
+  `192.168.1.153`, the Service name) does not list it. Homepage 2.x enforces that variable.
+- **Widgets that need credentials** read `{{HOMEPAGE_VAR_*}}` from the Secret `homepage-widgets` (optional: Homepage starts
+  without it). Create it from the Mac, values never in git (this copies the Grafana login from the existing Secret):
+
+  ```bash
+  GU=$(kubectl -n observability get secret grafana-admin -o jsonpath='{.data.admin-user}' | base64 -d)
+  GP=$(kubectl -n observability get secret grafana-admin -o jsonpath='{.data.admin-password}' | base64 -d)
+  kubectl create namespace homepage --dry-run=client -o yaml | kubectl apply -f -
+  kubectl -n homepage create secret generic homepage-widgets \
+    --from-literal=HOMEPAGE_VAR_GRAFANA_USER="$GU" --from-literal=HOMEPAGE_VAR_GRAFANA_PASSWORD="$GP" \
+    --dry-run=client -o yaml | kubectl apply -f -
+  kubectl -n homepage rollout restart deploy/homepage   # env is read at start
+  ```
+- **Widgets, honestly:** working: Kubernetes (cluster + nodes), Grafana (`version: 2`, admin login: dashboards,
+  datasources, alerts). Not done: **Argo CD** (its widget needs an API token, i.e. a new local account `homepage` with the
+  `apiKey` capability and a read-only role in `argocd-cm`/`argocd-rbac-cm`; creating an account and a token was left for
+  the owner to approve, so Argo CD has a tile and a dot, not a widget); **Gitea** (token in the playground Gitea, which this
+  work does not touch); **Jenkins** (Homepage 2.4.0 has no Jenkins widget).
+- **No Homepage login** (`HOMEPAGE_AUTH_*` is off): anyone on the Wi-Fi sees the tiles, the Kubernetes numbers and the
+  Grafana counters. Nothing on it can change anything.
+
+**Add a tile:** add an entry to `manifests/homepage/config/services.yaml`, commit, push. The ConfigMap name carries a content hash
+(kustomize), so the Deployment rolls by itself; Argo CD applies it in about a minute. Add the same URL as a Probe in
+`manifests/monitoring/probes.yaml` to get history in Grafana.
+
+**Why tiles and not iframes:** Grafana, Argo CD and Jenkins answer with `X-Frame-Options` / `Content-Security-Policy: frame-ancestors`
+that forbid embedding on another origin, and the Wi-Fi names are different origins. Turning those headers off on three
+logins would trade their clickjacking protection for a prettier page, so the page links out.
+
+**Uptime** (`70-blackbox-exporter`, `72-monitoring`): the exporter probes every target every 30 s from inside the cluster,
+twice where it can: `layer=in-cluster` (the Service URL: the app answers) and `layer=front-door` (the Wi-Fi name, out through
+HAProxy and ingress-nginx and back: people can reach it). They fail separately. 21 targets, `probe_success{job="blackbox-http"}`,
+one `Probe` object each in `manifests/monitoring/probes.yaml`; modules `http_up` (2xx, 3xx and 401/403 count as up) and
+`http_up_insecure` (the Kubernetes API's own CA) in `values/blackbox-exporter.yaml`. The Argo CD ServiceMonitors
+(`argocd-metrics`, `argocd-server-metrics`, `argocd-repo-server`) provide `argocd_app_info`.
+
+**Dashboards as code:** `manifests/monitoring/dashboards/*.json`; a kustomize `configMapGenerator` makes ConfigMaps with the
+label `grafana_dashboard: "1"` (what the sidecar watches, any namespace) and the annotation `grafana_folder: Home lab`. The folder
+needs `sidecar.dashboards.folderAnnotation` and `provider.foldersFromFilesStructure` in `values/kube-prometheus-stack.yaml`
+(without them every dashboard lands in "General"). Datasource: the provisioned Prometheus, uid `prometheus`.
+Edit the JSON in git (or build it in Grafana, export, paste); the UI copy is read-only on purpose (`allowUiUpdates: false`).
+
+- *Home lab overview:* app-up and front-door-up stat tiles (green/red), probe latency, Argo CD applications (count, health, sync, table), node CPU / memory /
+  disk / network, pods per node.
+- *Uptime:* `probe_success` state timeline, availability over the range, latency, HTTP status, TLS expiry (only the Kubernetes API is https).
+
+Verified 2026-10-16 from the Mac over the Wi-Fi: `http://192.168.1.153/` and `http://home.192.168.1.153.nip.io/` -> 200 (Homepage);
+`argocd.`, `grafana.`, `jenkins.`, `artifactory.`, `backstage.192.168.1.153.nip.io` -> 200 with their own pages (titles Argo CD, Grafana, Sign in - Jenkins,
+JFrog, Platform Lab); `typo.192.168.1.153.nip.io` -> 400 from Homepage. A headless Chromium (Playwright image v1.63.0-noble, container removed after)
+rendered all 11 tiles with a green status dot (HTTP 200 or 401, 81-874 ms), the Kubernetes widget (cluster + 3 nodes) and the Grafana widget (27 dashboards,
+2 data sources). Prometheus: `probe_success{job="blackbox-http"}` 21 series, all 1; `argocd_app_info` 13 series. Every dashboard query returns data
+against the live Prometheus. Not measured: how the pages look on a phone, or the Homepage page after the WSL restart.
+
+**Gotcha found on the way:** Homepage v2.4.0 wants a `proxmox.yaml` in `/app/config` and, if it is missing, tries to copy a skeleton there on
+restart; with single-file `subPath` mounts the directory is read-only, so the pod exited 1 (EACCES). `config/proxmox.yaml` (all comments) is in the
+ConfigMap for that reason.
 
 ## Deploy
 
@@ -288,6 +371,7 @@ Verified 2026-10-16 from the Mac over the Wi-Fi, real nip.io DNS, real logins:
 | Artifactory | http://artifactory.192.168.1.153.nip.io | 200 | `/api/repositories` 200 |
 | Backstage | http://backstage.192.168.1.153.nip.io | 200 | guest (read-only) |
 | Registry UI | http://registry.192.168.1.153.nip.io | 200 | admin / shared password (basic auth; no credentials: 401) |
+| Homepage (start page) | http://192.168.1.153/ and http://home.192.168.1.153.nip.io | 200 | none (see [Start page and dashboards](#start-page-and-dashboards)) |
 | Kubernetes API | https://192.168.1.153:6443 | — | `homelab/generated/rke2-lan.kubeconfig` (`homelab/mac/lan-kube-api.sh`) |
 
 The Wi-Fi names are `manifests/lan-ingress/` (Argo CD app `lan-ingress`) and,

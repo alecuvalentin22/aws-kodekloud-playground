@@ -8,7 +8,7 @@
 
 - Platform:
     - Argo CD:
-        icon: argocd.png
+        icon: argo-cd.png
         href: http://argocd.192.168.1.153.nip.io
         description: "GitOps controller (app-of-apps)"
         siteMonitor: http://argocd-server.argocd.svc.cluster.local/healthz
