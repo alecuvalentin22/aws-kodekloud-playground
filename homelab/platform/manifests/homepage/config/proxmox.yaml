@@ -1,0 +1,5 @@
+# Intentionally empty: Homepage v2.4.0 requires this file to exist and tries to
+# copy a skeleton into /app/config on start, which is read-only here (single-file
+# subPath mounts); without it the pod crash-loops with EACCES on proxmox.yaml.
+# pve:
+#   url: https://proxmox.host.or.ip:8006
