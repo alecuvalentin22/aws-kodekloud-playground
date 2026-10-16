@@ -1,0 +1,54 @@
+# Argo CD itself. Used by the deploy step (README step 1):
+#
+#   helm install argocd argo/argo-cd --version 10.9.0 -n argocd --create-namespace \
+#     -f homelab/platform/values/argocd.yaml
+#
+# Chart 10.9.0 is the newest chart release whose app version is v3.5.2 =
+# ARGOCD_VERSION in versions.env (chart 10.10.x moved to v3.5.4/v3.5.5).
+# Argo CD is NOT in the app-of-apps by default: see optional/argocd-self.yaml
+# for why, and for how to opt in.
+global:
+  domain: argocd.127.0.0.1.nip.io
+
+configs:
+  params:
+    # TLS is terminated by ingress-nginx; the server speaks plain http behind it.
+    # Without this the Ingress talks http to a server that redirects to https,
+    # i.e. an infinite redirect loop.
+    server.insecure: true
+  cm:
+    # Used in links/redirects. The browser reaches Argo CD through the SSH
+    # tunnel on :8443.
+    url: https://argocd.127.0.0.1.nip.io:8443
+
+server:
+  ingress:
+    enabled: true
+    ingressClassName: nginx
+    tls: true
+  resources:
+    requests: {cpu: 50m, memory: 128Mi}
+    limits: {memory: 256Mi}
+
+controller:
+  resources:
+    requests: {cpu: 250m, memory: 384Mi}
+    limits: {memory: 1Gi}
+
+repoServer:
+  resources:
+    requests: {cpu: 50m, memory: 128Mi}
+    limits: {memory: 512Mi}
+
+redis:
+  resources:
+    requests: {cpu: 25m, memory: 64Mi}
+    limits: {memory: 128Mi}
+
+# Not used by an app-of-apps with a plain Application root.
+dex: {enabled: false}
+notifications: {enabled: false}
+# This chart version has no applicationSet.enabled switch; zero replicas does
+# the same job. (The CRD is still installed; nothing uses it.)
+applicationSet:
+  replicas: 0

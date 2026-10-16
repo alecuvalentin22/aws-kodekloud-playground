@@ -1,0 +1,54 @@
+# Wave 0. RKE2 ships NO default StorageClass, so every PVC below would sit
+# Pending forever without this.
+#
+# Pin: rancher/local-path-provisioner v0.0.37, released 2026-08-05 (latest
+# non-prerelease at least two weeks old on 2026-10-16; v0.0.36 was 2026-05-08).
+# versions.env has no pin for it, so this is the pin. The project publishes its
+# Helm chart in git (deploy/chart/local-path-provisioner), not in a chart
+# repository, so Argo pulls it from the release TAG, which is immutable enough.
+#
+# WHAT "DEFAULT, NODE-LOCAL" MEANS
+# Each PVC becomes a directory under /opt/local-path-provisioner on ONE node,
+# and the PV carries a nodeAffinity for that node. The pod that uses it can
+# only ever run there:
+#   - if that node is drained, cordoned or down, the pod stays Pending until
+#     the node is back; nothing moves the data, and the scheduler cannot
+#     "reschedule it elsewhere";
+#   - deleting a PVC deletes the directory (reclaimPolicy Delete, below);
+#   - there is no replication, snapshot, or expansion.
+# That is acceptable for a lab (Prometheus, Jenkins home and Artifactory are
+# all re-creatable) and exactly what you would NOT accept in production, where
+# the answer is a replicated or network-backed class (Longhorn, Ceph, EBS/CSI).
+apiVersion: argoproj.io/v1alpha1
+kind: Application
+metadata:
+  name: local-path-storage
+  namespace: argocd
+  annotations:
+    argocd.argoproj.io/sync-wave: "0"
+spec:
+  project: homelab
+  destination:
+    server: https://kubernetes.default.svc
+    namespace: local-path-storage
+  source:
+    repoURL: https://github.com/rancher/local-path-provisioner.git
+    targetRevision: v0.0.37
+    path: deploy/chart/local-path-provisioner
+    helm:
+      releaseName: local-path-provisioner
+      valuesObject:
+        storageClass:
+          name: local-path
+          defaultClass: true
+          reclaimPolicy: Delete
+        resources:
+          requests: {cpu: 10m, memory: 32Mi}
+          limits: {memory: 128Mi}
+  syncPolicy:
+    automated: {prune: true, selfHeal: true}
+    syncOptions:
+      - CreateNamespace=true
+      - ServerSideApply=true
+      - ServerSideDiff=true
+      - FailOnSharedResource=true

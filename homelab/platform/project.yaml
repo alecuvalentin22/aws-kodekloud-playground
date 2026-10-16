@@ -1,0 +1,48 @@
+# AppProject for the home-lab platform. Applied BY HAND together with root.yaml
+# (an Application cannot reference a project that does not exist yet, so the
+# project cannot be one of the things root.yaml creates).
+#
+#   kubectl apply -f homelab/platform/project.yaml -f homelab/platform/root.yaml
+#
+# Looser than gitops/platform/project.yaml on purpose. That one enumerates every
+# cluster-scoped kind and was worth it on a cluster where it could be iterated
+# against. This cluster is single-user, throwaway, and not yet verified, and
+# five unrelated charts (CRDs, ClusterRoles, a HelmChartConfig, webhooks) would
+# each cost a failed-sync round trip to whitelist. So: sources and destinations
+# are enumerated (that is where "which repos may feed this cluster" is
+# decided), and kinds are not. Tighten the two whitelists below once the stack
+# has synced cleanly once and `argocd app resources` shows what is really used.
+apiVersion: argoproj.io/v1alpha1
+kind: AppProject
+metadata:
+  name: homelab
+  namespace: argocd
+spec:
+  description: Home-lab RKE2 platform -- storage, observability, CI, portal
+
+  sourceRepos:
+    - https://github.com/alecuvalentin22/aws-kodekloud-playground.git
+    # local-path-provisioner publishes its chart in git, not in a Helm repo.
+    - https://github.com/rancher/local-path-provisioner.git
+    - https://prometheus-community.github.io/helm-charts
+    - https://charts.jenkins.io
+    - https://charts.jfrog.io
+    - https://backstage.github.io/charts
+    # Only used by optional/argocd-self.yaml.
+    - https://argoproj.github.io/argo-helm
+
+  destinations:
+    - {server: https://kubernetes.default.svc, namespace: argocd}
+    - {server: https://kubernetes.default.svc, namespace: kube-system}
+    - {server: https://kubernetes.default.svc, namespace: local-path-storage}
+    - {server: https://kubernetes.default.svc, namespace: observability}
+    - {server: https://kubernetes.default.svc, namespace: registry}
+    - {server: https://kubernetes.default.svc, namespace: jenkins}
+    - {server: https://kubernetes.default.svc, namespace: demo-ci}
+    - {server: https://kubernetes.default.svc, namespace: artifactory}
+    - {server: https://kubernetes.default.svc, namespace: backstage}
+
+  clusterResourceWhitelist:
+    - {group: "*", kind: "*"}
+  namespaceResourceWhitelist:
+    - {group: "*", kind: "*"}

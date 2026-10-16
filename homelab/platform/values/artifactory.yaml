@@ -1,0 +1,163 @@
+# Artifactory OSS on the home-lab cluster. Chart: jfrog/artifactory-oss
+# (ARTIFACTORY_CHART=107.161.26, app 7.161.26). Derived from
+# ci/artifactory/artifactory.yaml, the hand-written EKS Deployment that was
+# OOMKilled on a t3.medium and, as an ECS task, violated the KodeKloud AWS cap
+# (docs/kodekloud-limits.md). Nothing here is bound by those caps: this is
+# three 12 GiB VMs on one PC.
+#
+# WHAT OSS CAN AND CANNOT DO (matters for what this is used for)
+#   - NO Docker/OCI repositories. Those need Artifactory Pro or JFrog Container
+#     Registry (JCR). That is why Jenkins pushes images to the plain registry:3
+#     in the `registry` namespace and not here.
+#   - Generic repositories: yes (verified on the GCP VM: generic-local upload
+#     and download). Maven-family remote/local/virtual repos: documented for OSS
+#     and what Jenkins builds would use as a proxy cache.
+#   - PyPI: NOT confirmed for OSS and I believe it is Pro-only. Check Admin >
+#     Repositories > Create > Remote in the UI before building anything on it.
+#   - Single node (one StatefulSet replica, one PostgreSQL), no HA, no SSO.
+#
+# Everything is nested under `artifactory:` because artifactory-oss is a thin
+# wrapper chart whose only dependency is the full `artifactory` chart; the
+# application's own settings are therefore `artifactory.artifactory.*`.
+artifactory:
+  # PostgreSQL: the chart's bundled one, ON. The EKS manifest ran embedded Derby
+  # (JF_SHARED_DATABASE_ALLOWNONPOSTGRESQL=true). This chart version runs
+  # Artifactory as a seven-container pod where several containers open the
+  # database, and Derby is in-process, so I did not carry Derby over -- that is
+  # my reading of the architecture, NOT something tested. PostgreSQL is the
+  # path the chart is built for. Its image comes from
+  # releases-docker.jfrog.io/echohq, not Bitnami, so the Bitnami-went-
+  # subscription problem noted in versions.env does not apply.
+  #
+  # THE PASSWORD: left alone, the subchart generates a random one at TEMPLATE
+  # time. Argo re-renders on every refresh, so it would (a) show the
+  # Secret as permanently OutOfSync and (b) once applied, replace the password
+  # while the database was initialised with the old one -- Artifactory could
+  # then no longer connect. So: an existing Secret named <release>-postgresql
+  # (the name the Artifactory container reads `password` from), created by the
+  # deploy step -- README step 3. Keys: password, postgres-password.
+  postgresql:
+    enabled: true
+    auth:
+      existingSecret: artifactory-postgresql
+    primary:
+      persistence:
+        # The jfrog default is 200Gi, which local-path would happily try to
+        # carve out of a 40 GiB VM.
+        size: 4Gi
+      resources:
+        requests: {cpu: 250m, memory: 384Mi}
+        limits: {memory: 768Mi}
+
+  # Chart default is a LoadBalancer nginx in front of the router. RKE2 has no
+  # LoadBalancer implementation and already has an ingress controller.
+  nginx:
+    enabled: false
+
+  ingress:
+    enabled: true
+    className: nginx
+    hosts:
+      - artifactory.127.0.0.1.nip.io
+    annotations:
+      # Also set cluster-wide by apps/10-ingress-nginx-config; repeated here so
+      # this Ingress works on a cluster that skipped that app.
+      nginx.ingress.kubernetes.io/proxy-body-size: "0"
+    tls:
+      - hosts:
+          - artifactory.127.0.0.1.nip.io
+
+  artifactory:
+    # Keys and admin password come from Secrets the deploy step creates
+    # (README step 3). The chart would otherwise generate master/join keys at
+    # template time -- different on every Argo render -- and a master key that
+    # changes after first start makes encrypted data unreadable.
+    masterKeySecretName: artifactory-keys   # key: master-key
+    joinKeySecretName: artifactory-keys     # key: join-key
+    admin:
+      username: admin
+      secret: artifactory-admin             # Secret name
+      dataKey: password                     # key inside it
+
+    # Memory. The original failure (OOMKilled on a t3.medium, exit 137) was five
+    # JVMs in ONE container each sizing its heap at 25% of one shared limit. In
+    # the split layout every service is its own container with its own limit, so
+    # that arithmetic no longer applies -- but the opposite trap does: with NO
+    # limit a JVM sizes itself from the NODE's memory (25% of 12 GiB = 3 GiB
+    # each). So every container below has a limit, and the JVM derives its heap
+    # from it; only the core service gets an explicit heap.
+    #
+    # THESE NUMBERS ARE ESTIMATES. They came from the EKS experience (core
+    # needed ~2.5 GiB; the whole single container was fine at 3.1 GiB) divided
+    # across containers, not from measurement of the split layout. First thing
+    # to do after the first successful start: `kubectl top pod --containers -n
+    # artifactory` and adjust.
+    resources:
+      # CPU: it needs ~2 vCPU to START (on 1 vCPU the router times out waiting
+      # for the access service) but is near idle afterwards, so request 1 and
+      # set no CPU limit.
+      requests: {cpu: "1", memory: 1536Mi}
+      limits: {memory: 3Gi}
+    # Percentage, NOT absolute -Xms/-Xmx: javaOpts is written into system.yaml
+    # `shared.extraJavaOpts`, which EVERY Java container of the pod reads, so
+    # `-Xms512m -Xmx1g` would also be applied to the 512Mi-limit event/topology/
+    # jfconfig containers (initial heap == limit -> OOMKill at start). 50% of
+    # each container's own limit scales correctly: ~1.5Gi heap for the core
+    # service, ~256Mi for the small ones.
+    javaOpts:
+      other: "-XX:MaxRAMPercentage=50"
+    persistence:
+      enabled: true
+      storageClassName: local-path   # node-local, see apps/00-local-path-storage
+      size: 10Gi
+    # A cold start is eight services coming up at once; on a shared VM that is
+    # slow. 30 * 20s = 10 minutes before kubelet gives up and restarts it.
+    startupProbe:
+      enabled: true
+      config: |
+        httpGet:
+          path: /artifactory/api/v1/system/readiness
+          port: {{ .Values.artifactory.tomcat.maintenanceConnector.port }}
+        initialDelaySeconds: 30
+        failureThreshold: 30
+        periodSeconds: 20
+        timeoutSeconds: {{ .Values.probes.timeoutSeconds }}
+
+  # --- the other containers of the StatefulSet (subchart root keys) ---------
+  router:
+    resources:
+      requests: {cpu: 50m, memory: 128Mi}
+      limits: {memory: 256Mi}
+  observability:
+    resources:
+      requests: {cpu: 25m, memory: 64Mi}
+      limits: {memory: 128Mi}
+  access:
+    resources:
+      requests: {cpu: 200m, memory: 512Mi}
+      limits: {memory: 1Gi}
+  metadata:
+    resources:
+      requests: {cpu: 100m, memory: 384Mi}
+      limits: {memory: 768Mi}
+  event:
+    resources:
+      requests: {cpu: 50m, memory: 256Mi}
+      limits: {memory: 512Mi}
+  topology:
+    resources:
+      requests: {cpu: 50m, memory: 256Mi}
+      limits: {memory: 512Mi}
+  jfconfig:
+    resources:
+      requests: {cpu: 50m, memory: 256Mi}
+      limits: {memory: 512Mi}
+  # --- the two services this chart version runs as their own Deployments ----
+  frontend:
+    resources:
+      requests: {cpu: 50m, memory: 128Mi}
+      limits: {memory: 384Mi}
+  jfbus:
+    resources:
+      requests: {cpu: 100m, memory: 256Mi}
+      limits: {memory: 512Mi}

@@ -1,0 +1,125 @@
+# kube-prometheus-stack for the home lab. Sizing is in README.md.
+#
+# Derived from gitops/platform/apps/11-observability.yaml (EKS), changed for a
+# cluster that has real disks and real reachability:
+#   - retention days instead of 2h, on a PVC (local-path, node-local)
+#   - Ingress instead of NodePort
+#   - control-plane scrapes OFF, because RKE2 differs from kubeadm (below)
+fullnameOverride: ""
+
+# RKE2 runs etcd, kube-scheduler, kube-controller-manager and kube-proxy as
+# static pods / in-process and, by default, binds their metrics to 127.0.0.1.
+# The chart's ServiceMonitors for them therefore scrape nothing, and the
+# bundled rules (KubeSchedulerDown, etcdMembersDown, ...) fire permanently.
+# Turning them off is cheaper than a permanently red Alertmanager. Fixing it
+# properly means setting `*-arg: bind-address=0.0.0.0` in RKE2's config.yaml.
+kubeEtcd: {enabled: false}
+kubeScheduler: {enabled: false}
+kubeControllerManager: {enabled: false}
+kubeProxy: {enabled: false}
+defaultRules:
+  rules:
+    etcd: false
+    kubeSchedulerAlerting: false
+    kubeSchedulerRecording: false
+    kubeControllerManager: false
+    kubeProxy: false
+
+prometheusOperator:
+  admissionWebhooks: {enabled: false, patch: {enabled: false}}
+  tls: {enabled: false}
+  resources:
+    requests: {cpu: 25m, memory: 64Mi}
+    limits: {memory: 256Mi}
+
+prometheus:
+  ingress:
+    enabled: true
+    ingressClassName: nginx
+    hosts: [prometheus.127.0.0.1.nip.io]
+    paths: [/]
+    pathType: Prefix
+    tls:
+      - hosts: [prometheus.127.0.0.1.nip.io]
+  prometheusSpec:
+    externalUrl: https://prometheus.127.0.0.1.nip.io:8443
+    retention: 7d
+    # Whichever hits first. The PVC is 8Gi and Prometheus needs headroom for
+    # compaction, so cap data at 6GB.
+    retentionSize: 6GB
+    scrapeInterval: 30s
+    # Pick up ServiceMonitors from any chart, not only ones labelled with this
+    # release (the same trap gitops/platform/apps/11-observability.yaml records:
+    # a `--set-string` made this the string "false"; typed YAML cannot).
+    serviceMonitorSelectorNilUsesHelmValues: false
+    podMonitorSelectorNilUsesHelmValues: false
+    ruleSelectorNilUsesHelmValues: false
+    probeSelectorNilUsesHelmValues: false
+    storageSpec:
+      volumeClaimTemplate:
+        spec:
+          # storageClassName omitted on purpose: the default class is
+          # local-path (wave 0). Node-local: Prometheus is pinned to the node
+          # that first scheduled it.
+          accessModes: [ReadWriteOnce]
+          resources:
+            requests:
+              storage: 8Gi
+    resources:
+      requests: {cpu: 200m, memory: 768Mi}
+      limits: {memory: 1536Mi}
+
+alertmanager:
+  alertmanagerSpec:
+    resources:
+      requests: {cpu: 25m, memory: 64Mi}
+      limits: {memory: 128Mi}
+    storage:
+      volumeClaimTemplate:
+        spec:
+          accessModes: [ReadWriteOnce]
+          resources:
+            requests:
+              storage: 1Gi
+
+grafana:
+  # Admin credentials come from a Secret the deploy step creates; nothing in git.
+  # Without existingSecret the chart generates a random password at TEMPLATE
+  # time, so Argo would see a different Secret on every render.
+  admin:
+    existingSecret: grafana-admin
+    userKey: admin-user
+    passwordKey: admin-password
+  persistence:
+    enabled: true
+    size: 1Gi
+  ingress:
+    enabled: true
+    ingressClassName: nginx
+    hosts: [grafana.127.0.0.1.nip.io]
+    path: /
+    tls:
+      - hosts: [grafana.127.0.0.1.nip.io]
+  grafana.ini:
+    server:
+      # The browser reaches Grafana through the SSH tunnel on :8443; without
+      # this, Grafana builds redirects and links to https://grafana.127.0.0.1.nip.io
+      # (port 443 on the Mac), which goes nowhere.
+      root_url: https://grafana.127.0.0.1.nip.io:8443
+  resources:
+    requests: {cpu: 50m, memory: 192Mi}
+    limits: {memory: 384Mi}
+  sidecar:
+    resources:
+      requests: {cpu: 10m, memory: 64Mi}
+      limits: {memory: 128Mi}
+
+kube-state-metrics:
+  resources:
+    requests: {cpu: 10m, memory: 48Mi}
+    limits: {memory: 128Mi}
+
+prometheus-node-exporter:
+  resources:
+    requests: {cpu: 10m, memory: 24Mi}
+    limits: {memory: 64Mi}

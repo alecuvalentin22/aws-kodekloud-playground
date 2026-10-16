@@ -1,0 +1,73 @@
+# In-cluster registry:3 (distribution/distribution), pinned to 3.1.1 (Docker Hub
+# library/registry, pushed 2026-09-21; 3.1.2 exists from 2026-09-29 but is under
+# the two-week bar). versions.env has no pin for it.
+#
+# Reachable as:
+#   in-cluster   registry.registry.svc.cluster.local:5000
+#   from nodes   <any node IP>:30500   <- what PLATFORM_REGISTRY uses
+# See values/jenkins.yaml for why the NODE address is the one used, and
+# README.md step 2 for the registries.yaml every node needs to pull from it.
+apiVersion: v1
+kind: PersistentVolumeClaim
+metadata:
+  name: registry-data
+  namespace: registry
+spec:
+  accessModes: [ReadWriteOnce]
+  # storageClassName omitted: default class (local-path, node-local).
+  resources:
+    requests:
+      storage: 8Gi
+---
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: registry
+  namespace: registry
+  labels: {app: registry}
+spec:
+  replicas: 1
+  # Recreate: one ReadWriteOnce node-local volume; a RollingUpdate would try to
+  # start the new pod on another node while the old one still holds the data.
+  strategy: {type: Recreate}
+  selector:
+    matchLabels: {app: registry}
+  template:
+    metadata:
+      labels: {app: registry}
+    spec:
+      containers:
+        - name: registry
+          image: registry:3.1.1
+          ports:
+            - {name: http, containerPort: 5000}
+          env:
+            # Lets a pipeline (or a human) delete old tags; without it the
+            # 8Gi volume only ever fills.
+            - {name: REGISTRY_STORAGE_DELETE_ENABLED, value: "true"}
+          readinessProbe:
+            httpGet: {path: /v2/, port: http}
+            periodSeconds: 10
+          livenessProbe:
+            httpGet: {path: /v2/, port: http}
+            initialDelaySeconds: 10
+            periodSeconds: 20
+          resources:
+            requests: {cpu: 25m, memory: 64Mi}
+            limits: {memory: 256Mi}
+          volumeMounts:
+            - {name: data, mountPath: /var/lib/registry}
+      volumes:
+        - name: data
+          persistentVolumeClaim: {claimName: registry-data}
+---
+apiVersion: v1
+kind: Service
+metadata:
+  name: registry
+  namespace: registry
+spec:
+  type: NodePort
+  selector: {app: registry}
+  ports:
+    - {name: http, port: 5000, targetPort: http, nodePort: 30500}

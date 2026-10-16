@@ -1,0 +1,27 @@
+# Wave 3. What a Jenkins AGENT may do: deploy into demo-ci and nothing else.
+# Copied from ci/jenkins/rbac.yaml; the controller's own rights come from the
+# Jenkins chart. Kept separate from the chart so the narrow agent rights are a
+# reviewable file of their own rather than a value buried in the chart's config.
+apiVersion: argoproj.io/v1alpha1
+kind: Application
+metadata:
+  name: jenkins-rbac
+  namespace: argocd
+  annotations:
+    argocd.argoproj.io/sync-wave: "3"
+spec:
+  project: homelab
+  destination:
+    server: https://kubernetes.default.svc
+    namespace: jenkins
+  source:
+    repoURL: https://github.com/alecuvalentin22/aws-kodekloud-playground.git
+    targetRevision: feat/playground
+    path: homelab/platform/manifests/jenkins
+  syncPolicy:
+    automated: {prune: true, selfHeal: true}
+    syncOptions:
+      - CreateNamespace=true
+      - ServerSideApply=true
+      - ServerSideDiff=true
+      - FailOnSharedResource=true

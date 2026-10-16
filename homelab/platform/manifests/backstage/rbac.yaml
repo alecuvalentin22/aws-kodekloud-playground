@@ -1,0 +1,55 @@
+# Copied from ci/backstage/rbac.yaml (EKS) unchanged apart from this line.
+# Read-only access for Backstage's Kubernetes plugin.
+#
+# Backstage never changes the cluster: it lists the objects belonging to a
+# catalog entity and shows them on that entity's page (Kubernetes tab). So the
+# role is get/list/watch only, and deliberately NOT on Secrets.
+#
+# customResources: Backstage only shows CRD objects it is told about AND
+# allowed to read. Argo Rollouts is listed so a service deployed as a Rollout
+# (the GitOps track) shows its canary state here too.
+apiVersion: v1
+kind: ServiceAccount
+metadata:
+  name: backstage
+  namespace: backstage
+---
+apiVersion: rbac.authorization.k8s.io/v1
+kind: ClusterRole
+metadata:
+  name: backstage-read
+rules:
+  - apiGroups: [""]
+    resources: [pods, pods/log, services, configmaps, limitranges, resourcequotas, events]
+    verbs: [get, list, watch]
+  - apiGroups: [apps]
+    resources: [deployments, replicasets, statefulsets, daemonsets]
+    verbs: [get, list, watch]
+  - apiGroups: [autoscaling]
+    resources: [horizontalpodautoscalers]
+    verbs: [get, list, watch]
+  - apiGroups: [networking.k8s.io]
+    resources: [ingresses]
+    verbs: [get, list, watch]
+  - apiGroups: [batch]
+    resources: [jobs, cronjobs]
+    verbs: [get, list, watch]
+  - apiGroups: [metrics.k8s.io]
+    resources: [pods]
+    verbs: [get, list]
+  - apiGroups: [argoproj.io]
+    resources: [rollouts]
+    verbs: [get, list, watch]
+---
+apiVersion: rbac.authorization.k8s.io/v1
+kind: ClusterRoleBinding
+metadata:
+  name: backstage-read
+roleRef:
+  apiGroup: rbac.authorization.k8s.io
+  kind: ClusterRole
+  name: backstage-read
+subjects:
+  - kind: ServiceAccount
+    name: backstage
+    namespace: backstage

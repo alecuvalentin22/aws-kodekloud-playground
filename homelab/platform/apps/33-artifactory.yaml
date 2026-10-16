@@ -1,0 +1,43 @@
+# Wave 3. Artifactory OSS. Chart pin = ARTIFACTORY_CHART in versions.env
+# (jfrog/artifactory-oss, app 7.161.26). See values/artifactory.yaml for what OSS
+# can and cannot host, and for the memory sizing it was OOMKilled on before.
+#
+# Prerequisites (README step 3): Secrets artifactory/artifactory-keys,
+# artifactory/artifactory-admin, artifactory/artifactory-postgresql.
+#
+# It is the slowest thing in the stack to start (minutes, several containers).
+# Because Argo waits for every wave-3 Application to be Healthy before starting
+# wave 4, Backstage is held back until Artifactory is up -- and if Artifactory
+# never gets there (the most likely first-run failure), Backstage never syncs.
+# Move this file's wave annotation to "4" if you would rather have the portal
+# regardless.
+apiVersion: argoproj.io/v1alpha1
+kind: Application
+metadata:
+  name: artifactory
+  namespace: argocd
+  annotations:
+    argocd.argoproj.io/sync-wave: "3"
+spec:
+  project: homelab
+  destination:
+    server: https://kubernetes.default.svc
+    namespace: artifactory
+  sources:
+    - repoURL: https://charts.jfrog.io
+      chart: artifactory-oss
+      targetRevision: 107.161.26
+      helm:
+        releaseName: artifactory
+        valueFiles:
+          - $values/homelab/platform/values/artifactory.yaml
+    - repoURL: https://github.com/alecuvalentin22/aws-kodekloud-playground.git
+      targetRevision: feat/playground
+      ref: values
+  syncPolicy:
+    automated: {prune: true, selfHeal: true}
+    syncOptions:
+      - CreateNamespace=true
+      - ServerSideApply=true
+      - ServerSideDiff=true
+      - FailOnSharedResource=true

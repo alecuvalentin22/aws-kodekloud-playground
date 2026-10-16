@@ -1,0 +1,33 @@
+# Wave 4. Backstage portal. Chart pin = BACKSTAGE_CHART in versions.env, image
+# pin = BACKSTAGE_IMAGE (the chart's own default is :latest). Catalog is read
+# from catalog-info.yaml on feat/playground of this repository.
+apiVersion: argoproj.io/v1alpha1
+kind: Application
+metadata:
+  name: backstage
+  namespace: argocd
+  annotations:
+    argocd.argoproj.io/sync-wave: "4"
+spec:
+  project: homelab
+  destination:
+    server: https://kubernetes.default.svc
+    namespace: backstage
+  sources:
+    - repoURL: https://backstage.github.io/charts
+      chart: backstage
+      targetRevision: 2.10.2
+      helm:
+        releaseName: backstage
+        valueFiles:
+          - $values/homelab/platform/values/backstage.yaml
+    - repoURL: https://github.com/alecuvalentin22/aws-kodekloud-playground.git
+      targetRevision: feat/playground
+      ref: values
+  syncPolicy:
+    automated: {prune: true, selfHeal: true}
+    syncOptions:
+      - CreateNamespace=true
+      - ServerSideApply=true
+      - ServerSideDiff=true
+      - FailOnSharedResource=true

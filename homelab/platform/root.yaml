@@ -1,0 +1,50 @@
+# App-of-apps. Applied by hand, after Argo CD is installed and the secrets exist
+# (see README.md):
+#
+#   kubectl apply -f homelab/platform/project.yaml -f homelab/platform/root.yaml
+#
+# It watches homelab/platform/apps/ on feat/playground and creates one child
+# Application per file there. Child ordering is the sync-wave annotation on each
+# child (Argo orders Applications inside this one like any other resource, and
+# waits for a wave to be Healthy before starting the next):
+#
+#   0  local-path-provisioner (default StorageClass; every PVC below needs it)
+#   1  rke2-ingress-nginx tweaks (HelmChartConfig: body size, timeouts)
+#   2  kube-prometheus-stack (Prometheus, Grafana, Alertmanager, CRDs)
+#   3  CI tools: registry, Jenkins (+ agent RBAC), Artifactory OSS, Backstage RBAC
+#   4  Backstage
+#
+# selfHeal re-creates any child somebody deletes; prune removes children whose
+# file is deleted from git.
+apiVersion: argoproj.io/v1alpha1
+kind: Application
+metadata:
+  name: homelab-platform
+  namespace: argocd
+  finalizers:
+    - resources-finalizer.argocd.argoproj.io
+spec:
+  project: homelab
+  destination:
+    server: https://kubernetes.default.svc
+    namespace: argocd
+  source:
+    repoURL: https://github.com/alecuvalentin22/aws-kodekloud-playground.git
+    targetRevision: feat/playground
+    path: homelab/platform/apps
+    directory:
+      recurse: false
+  syncPolicy:
+    automated:
+      prune: true
+      selfHeal: true
+    syncOptions:
+      # Same trio as gitops/platform/root.yaml, for the same reasons (see the
+      # comments there): SSA because kube-prometheus-stack's CRDs exceed the
+      # client-side annotation limit; ServerSideDiff because SSA alone selects
+      # a diff strategy that sees server-side defaults as drift; and
+      # FailOnSharedResource so two Applications fighting over one object
+      # fail loudly instead of silently last-writer-wins.
+      - ServerSideApply=true
+      - ServerSideDiff=true
+      - FailOnSharedResource=true

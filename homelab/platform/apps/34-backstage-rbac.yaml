@@ -1,0 +1,26 @@
+# Wave 3 (before Backstage in wave 4). The read-only ServiceAccount the
+# Kubernetes tab uses; copied from ci/backstage/rbac.yaml. The Backstage chart
+# is told not to create it (values/backstage.yaml), so it must exist first.
+apiVersion: argoproj.io/v1alpha1
+kind: Application
+metadata:
+  name: backstage-rbac
+  namespace: argocd
+  annotations:
+    argocd.argoproj.io/sync-wave: "3"
+spec:
+  project: homelab
+  destination:
+    server: https://kubernetes.default.svc
+    namespace: backstage
+  source:
+    repoURL: https://github.com/alecuvalentin22/aws-kodekloud-playground.git
+    targetRevision: feat/playground
+    path: homelab/platform/manifests/backstage
+  syncPolicy:
+    automated: {prune: true, selfHeal: true}
+    syncOptions:
+      - CreateNamespace=true
+      - ServerSideApply=true
+      - ServerSideDiff=true
+      - FailOnSharedResource=true

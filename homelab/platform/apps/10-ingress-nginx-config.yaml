@@ -1,0 +1,42 @@
+# Wave 1. NOT a second ingress controller: RKE2 already runs rke2-ingress-nginx
+# (a DaemonSet with hostPorts 80/443 on every node). This only adjusts it,
+# through RKE2's own HelmChartConfig CRD, which the RKE2 helm-controller merges
+# over the chart's values and then re-rolls the DaemonSet.
+#
+# What is changed and why (manifests/ingress-nginx/helmchartconfig.yaml):
+#   proxy-body-size 0   nginx's default 1m limit would reject every Artifactory
+#                       upload and every registry layer push with 413.
+#   proxy timeouts      Artifactory and Jenkins have slow first responses.
+#
+# TLS: deliberately no cert-manager. ingress-nginx serves its built-in
+# self-signed "Kubernetes Ingress Controller Fake Certificate" on 443 for every
+# host. The browser warns once per host and then treats the page as a SECURE
+# context, which is all Backstage needs (crypto.randomUUID). Adding cert-manager
+# would add three more pods to fix a warning the SSH tunnel makes irrelevant.
+#
+# If whoever built the cluster already ships a HelmChartConfig for
+# rke2-ingress-nginx (e.g. a file in /var/lib/rancher/rke2/server/manifests/),
+# delete this Application: two owners of one object is the FailOnSharedResource
+# case.
+apiVersion: argoproj.io/v1alpha1
+kind: Application
+metadata:
+  name: ingress-nginx-config
+  namespace: argocd
+  annotations:
+    argocd.argoproj.io/sync-wave: "1"
+spec:
+  project: homelab
+  destination:
+    server: https://kubernetes.default.svc
+    namespace: kube-system
+  source:
+    repoURL: https://github.com/alecuvalentin22/aws-kodekloud-playground.git
+    targetRevision: feat/playground
+    path: homelab/platform/manifests/ingress-nginx
+  syncPolicy:
+    automated: {prune: true, selfHeal: true}
+    syncOptions:
+      - ServerSideApply=true
+      - ServerSideDiff=true
+      - FailOnSharedResource=true

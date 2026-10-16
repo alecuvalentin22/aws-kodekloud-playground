@@ -1,0 +1,32 @@
+# Wave 3. A plain in-cluster container registry for CI-built images.
+#
+# WHY NOT ARTIFACTORY: Artifactory OSS has no Docker/OCI repository type (that
+# is JFrog Container Registry or Artifactory Pro). So Jenkins pushes images
+# here and uses Artifactory for generic/Maven artifacts. This is the home-lab
+# equivalent of the playground's kind-registry.
+#
+# Anonymous and plain http, on purpose: it is reachable only from inside the
+# VM bridge. Do not expose it through an Ingress.
+apiVersion: argoproj.io/v1alpha1
+kind: Application
+metadata:
+  name: registry
+  namespace: argocd
+  annotations:
+    argocd.argoproj.io/sync-wave: "3"
+spec:
+  project: homelab
+  destination:
+    server: https://kubernetes.default.svc
+    namespace: registry
+  source:
+    repoURL: https://github.com/alecuvalentin22/aws-kodekloud-playground.git
+    targetRevision: feat/playground
+    path: homelab/platform/manifests/registry
+  syncPolicy:
+    automated: {prune: true, selfHeal: true}
+    syncOptions:
+      - CreateNamespace=true
+      - ServerSideApply=true
+      - ServerSideDiff=true
+      - FailOnSharedResource=true

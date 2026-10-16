@@ -1,0 +1,52 @@
+# OPTIONAL, NOT APPLIED BY DEFAULT and not under apps/, so root.yaml ignores it.
+# Makes Argo CD manage its own installation from git:
+#
+#   kubectl apply -f homelab/platform/optional/argocd-self.yaml
+#
+# Left out of the default stack because a self-managing Argo CD is the one app
+# whose failure mode removes the tool that would repair it (a bad values change
+# restarts the controller that is applying it). For a lab that is an acceptable
+# thing to try ONCE the rest is working, not something to start with.
+#
+# It must use the SAME release name and values as the helm install in README
+# step 1, or Argo will "fix" the install into something different.
+#
+# ignoreDifferences covers what the chart generates at runtime rather than from
+# values: the initial admin Secret and the server's own TLS/session secrets.
+apiVersion: argoproj.io/v1alpha1
+kind: Application
+metadata:
+  name: argocd
+  namespace: argocd
+spec:
+  project: homelab
+  destination:
+    server: https://kubernetes.default.svc
+    namespace: argocd
+  sources:
+    - repoURL: https://argoproj.github.io/argo-helm
+      chart: argo-cd
+      targetRevision: 10.9.0
+      helm:
+        releaseName: argocd
+        valueFiles:
+          - $values/homelab/platform/values/argocd.yaml
+    - repoURL: https://github.com/alecuvalentin22/aws-kodekloud-playground.git
+      targetRevision: feat/playground
+      ref: values
+  ignoreDifferences:
+    - group: ""
+      kind: Secret
+      name: argocd-secret
+      jsonPointers: [/data, /stringData]
+    - group: ""
+      kind: Secret
+      name: argocd-initial-admin-secret
+      jsonPointers: [/data, /stringData]
+  syncPolicy:
+    # No prune: if this Application is ever wrong, it must not delete Argo CD.
+    automated: {prune: false, selfHeal: true}
+    syncOptions:
+      - ServerSideApply=true
+      - ServerSideDiff=true
+      - RespectIgnoreDifferences=true
