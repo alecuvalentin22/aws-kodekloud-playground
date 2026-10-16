@@ -119,8 +119,10 @@ cat <<EOF
   Ready.  Next:   playground/play list
                   playground/play start
 
-  Jenkins   $JENKINS_URL        admin / $(grep JENKINS_PASSWORD "$STATE/creds.env" | cut -d= -f2)
-  Gitea     $GITEA_URL        dev   / $(grep GITEA_PASSWORD "$STATE/creds.env" | cut -d= -f2)
+  Jenkins   $JENKINS_URL        admin
+  Gitea     $GITEA_URL        dev
+  Passwords: $STATE/creds.env (mode 600), not printed here so logs stay clean.
+  Copy one:  grep JENKINS_PASSWORD $STATE/creds.env | cut -d= -f2 | pbcopy   # Linux: xclip -sel clip / wl-copy
   demo-api  http://localhost:30095
   kubectl   --context $CTX
 EOF
