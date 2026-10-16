@@ -18,7 +18,7 @@ cd $HOME; Invoke-WebRequest 'https://raw.githubusercontent.com/alecuvalentin22/a
 Check it is exactly that file. This must print **True**. If it prints False, stop.
 
 ```powershell
-(Get-FileHash .\bootstrap.ps1 -Algorithm SHA256).Hash -eq 'E3B0C44298FC1C149AFBF4C8996FB92427AE41E4649B934CA495991B7852B855'
+(Get-FileHash .\bootstrap.ps1 -Algorithm SHA256).Hash -eq '75C1ADF3BDC7CDA5ED9D06982381CBA37E16A6C8971A3C12340AC1637AD596C2'
 ```
 
 Run it. The key below is the Mac's *public* key (safe to publish; it only
