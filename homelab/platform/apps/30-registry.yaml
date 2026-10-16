@@ -6,7 +6,8 @@
 # equivalent of the playground's kind-registry.
 #
 # Anonymous and plain http, on purpose: it is reachable only from inside the
-# VM bridge. Do not expose it through an Ingress.
+# VM bridge. Do not expose it through an Ingress. (Its read-only web UI,
+# manifests/registry/registry-ui.yaml, is exposed instead, behind basic auth.)
 apiVersion: argoproj.io/v1alpha1
 kind: Application
 metadata:

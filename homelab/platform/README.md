@@ -127,11 +127,12 @@ reserves nothing, so this is also the ceiling the kernel will OOM against).
 | local-path-provisioner | 50 Mi | 32 Mi | 128 Mi | - |
 | kube-prometheus-stack (Grafana 3 containers 510, Prometheus 357, operator 75, node-exporter x3 72, Alertmanager 56, KSM 18) | 1114 Mi | 1336 Mi | 2880 Mi | 8 + 1 + 1 Gi |
 | registry | 52 Mi | 64 Mi | 256 Mi | 8 Gi |
+| registry-ui (joxit nginx, static page + `/v2` proxy; `kubectl top`, 2026-10-16) | 4 Mi | 16 Mi | 64 Mi | - |
 | Jenkins controller + config-reload (idle) | 625 Mi | 1056 Mi | 2176 Mi | 8 Gi |
 | Backstage | 293 Mi | 512 Mi | 1024 Mi | - |
 | Artifactory OSS (artifactory-0 2916, frontend 196, jfbus 431, PostgreSQL 159) | 3707 Mi | 4672 Mi | 9472 Mi | 10 + 4 Gi |
 | demo-api x2 (the deployed sample app) | 152 Mi | 128 Mi | 512 Mi | - |
-| **Total** | **9187 Mi (9.0 GiB)** | 10974 Mi | 16768 Mi (+ unlimited Argo CD) | 40 Gi |
+| **Total** | **9191 Mi (9.0 GiB)** | 10990 Mi | 16832 Mi (+ unlimited Argo CD) | 40 Gi |
 
 Nodes at the same moment (`kubectl top nodes`, working set, includes page cache the
 pod numbers leave out): rke2-s1 3408 Mi (28%), rke2-a1 3944 Mi (33%), rke2-a2 5351 Mi
@@ -286,6 +287,7 @@ Verified 2026-10-16 from the Mac over the Wi-Fi, real nip.io DNS, real logins:
 | Jenkins | http://jenkins.192.168.1.153.nip.io | 200 | `/whoAmI` 200 (wrong password: 401) |
 | Artifactory | http://artifactory.192.168.1.153.nip.io | 200 | `/api/repositories` 200 |
 | Backstage | http://backstage.192.168.1.153.nip.io | 200 | guest (read-only) |
+| Registry UI | http://registry.192.168.1.153.nip.io | 200 | admin / shared password (basic auth; no credentials: 401) |
 | Kubernetes API | https://192.168.1.153:6443 | — | `homelab/generated/rke2-lan.kubeconfig` (`homelab/mac/lan-kube-api.sh`) |
 
 The Wi-Fi names are `manifests/lan-ingress/` (Argo CD app `lan-ingress`) and,
@@ -294,6 +296,31 @@ files only; the tools' browser-facing URLs (Grafana `root_url`, Backstage
 `baseUrl`, Jenkins `jenkinsUrl`) follow the Wi-Fi names. Argo CD runs with
 `server.insecure=true` (`homelab/argocd/argocd-cmd-params-cm.yaml`): without
 it the login cookie is `Secure` and a plain-http browser loops on the login.
+
+**Registry UI** (`manifests/registry/registry-ui.yaml`, joxit/docker-registry-ui 2.6.0)
+is read-only: it lists `platform-lab/demo-api` and its tags through its own nginx,
+which proxies only GET/HEAD on `/v2` to the registry Service (a push or delete
+through the UI host is 403). The registry itself stays off the Ingress; Jenkins and
+containerd keep using NodePort 30500. RKE2's ingress-nginx has snippet annotations
+disabled, so the method restriction lives in the UI's nginx config, not the Ingress.
+Its Ingress (`registry-ui-lan`, in `manifests/lan-ingress/`) uses ingress-nginx basic
+auth from Secret `registry-ui-auth`, which is **not in git**. Create it once from the
+Mac (the password is read from the environment, never typed into a command line):
+
+```sh
+export KUBECONFIG=$PWD/homelab/generated/rke2-lan.kubeconfig
+printf 'admin:%s' "$(printf '%s' "$HOMELAB_ADMIN_PASSWORD" | htpasswd -niBC 10 '' | tr -d ':\n')" > "$TMPDIR/registry-ui.auth"
+kubectl -n registry create secret generic registry-ui-auth --from-file=auth="$TMPDIR/registry-ui.auth"
+rm -f "$TMPDIR/registry-ui.auth"
+```
+
+Without the Secret the Ingress answers 503 (it fails closed, not open). To change the
+password, delete the Secret and run the commands again. Verified 2026-10-16 over the
+Wi-Fi: no credentials 401, wrong password 401, admin 200; `/v2/_catalog` lists
+`platform-lab/demo-api` with tags `main-488bac7e-1`, `-2`, `-3`; `POST`, `PUT`,
+`PATCH` and `DELETE` on `/v2/platform-lab/x/blobs/uploads/` and a manifest `DELETE`
+are 403; `HEAD` on a manifest 200; `http://10.77.0.31:30500/v2/_catalog` from WSL
+still answers.
 
 Prometheus and Alertmanager have **no Ingress** (neither authenticates):
 `kubectl -n observability port-forward svc/kube-prometheus-stack-prometheus 9090`

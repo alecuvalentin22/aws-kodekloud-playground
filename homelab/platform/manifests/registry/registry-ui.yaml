@@ -1,0 +1,99 @@
+# Web UI for the registry: joxit/docker-registry-ui 2.6.0 (Docker Hub, pushed
+# 2026-01-19; the newer tags are `main`/`master` moving builds from 2026-08-10,
+# not releases, so 2.6.0 is the pin). Checked 2026-10-16.
+#
+# PROXY MODE: the browser only ever talks to this pod's nginx; nginx forwards
+# /v2 to the registry Service. So the registry itself needs no CORS settings and
+# stays off the Ingress (NodePort 30500 is untouched and still what Jenkins and
+# containerd use).
+#
+# READ-ONLY: the UI image's generated nginx config proxies /v2 with every method,
+# which would let anyone with the UI login PUSH or DELETE through it. The
+# Ingress cannot restrict that (RKE2's ingress-nginx has snippet annotations
+# disabled: the admission webhook rejects configuration-snippet), so the UI's own
+# nginx config is replaced here, via the image's /etc/nginx/templates mechanism
+# (envsubst output lands in conf.d/default.conf), with one that allows only
+# GET and HEAD on /v2.
+#
+# The Ingress with basic auth is in ../lan-ingress/ingresses.yaml (registry-ui).
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: registry-ui-nginx
+  namespace: registry
+data:
+  default.conf.template: |
+    server {
+        listen 80;
+        server_name _;
+        client_max_body_size 1m;
+
+        location / {
+            root  /usr/share/nginx/html;
+            index index.html;
+        }
+
+        location /v2 {
+            # GET/HEAD only (GET implies HEAD in limit_except). Everything else,
+            # including the POST that starts a push, is a 403 from this nginx.
+            limit_except GET {
+                deny all;
+            }
+            proxy_http_version 1.1;
+            proxy_set_header Host $http_host;
+            proxy_pass http://registry.registry.svc.cluster.local:5000;
+        }
+    }
+---
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: registry-ui
+  namespace: registry
+  labels: {app: registry-ui}
+spec:
+  replicas: 1
+  selector:
+    matchLabels: {app: registry-ui}
+  template:
+    metadata:
+      labels: {app: registry-ui}
+    spec:
+      containers:
+        - name: registry-ui
+          image: joxit/docker-registry-ui:2.6.0
+          ports:
+            - {name: http, containerPort: 80}
+          env:
+            - {name: SINGLE_REGISTRY, value: "true"}
+            - {name: REGISTRY_TITLE, value: "Home lab registry"}
+            - {name: DELETE_IMAGES, value: "false"}
+            - {name: SHOW_CONTENT_DIGEST, value: "true"}
+            # No REGISTRY_URL: with a single registry the page calls its own
+            # origin, and /v2 there is the proxy above.
+          volumeMounts:
+            - {name: nginx, mountPath: /etc/nginx/templates, readOnly: true}
+          readinessProbe:
+            httpGet: {path: /, port: http}
+            periodSeconds: 10
+          livenessProbe:
+            httpGet: {path: /, port: http}
+            initialDelaySeconds: 10
+            periodSeconds: 20
+          resources:
+            requests: {cpu: 10m, memory: 16Mi}
+            limits: {memory: 64Mi}
+      volumes:
+        - name: nginx
+          configMap: {name: registry-ui-nginx}
+---
+apiVersion: v1
+kind: Service
+metadata:
+  name: registry-ui
+  namespace: registry
+spec:
+  type: ClusterIP
+  selector: {app: registry-ui}
+  ports:
+    - {name: http, port: 80, targetPort: http}

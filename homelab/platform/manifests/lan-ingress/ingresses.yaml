@@ -80,3 +80,28 @@ spec:
             pathType: Prefix
             backend:
               service: {name: backstage, port: {number: 7007}}
+---
+# Registry UI (read-only, see manifests/registry/registry-ui.yaml). The registry
+# itself is NOT exposed. Basic auth here, from Secret registry-ui-auth in the
+# registry namespace (htpasswd, bcrypt, key `auth`), created by hand from the Mac,
+# never in git: command in homelab/platform/README.md. Until that Secret exists
+# ingress-nginx answers 503 rather than serving the page unauthenticated.
+apiVersion: networking.k8s.io/v1
+kind: Ingress
+metadata:
+  name: registry-ui-lan
+  namespace: registry
+  annotations:
+    nginx.ingress.kubernetes.io/auth-type: basic
+    nginx.ingress.kubernetes.io/auth-secret: registry-ui-auth
+    nginx.ingress.kubernetes.io/auth-realm: "Home lab registry"
+spec:
+  ingressClassName: nginx
+  rules:
+    - host: registry.192.168.1.153.nip.io
+      http:
+        paths:
+          - path: /
+            pathType: Prefix
+            backend:
+              service: {name: registry-ui, port: {number: 80}}
