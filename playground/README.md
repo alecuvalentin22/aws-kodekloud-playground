@@ -85,17 +85,36 @@ Suggested first pass: 01 → 02 → 08 → 03 → 05 → 04 → 07 → 06, then
 3. `play close` on both. Re-read yesterday's journal entries.
 4. `play reveal` on the one you found hardest, and compare.
 
-## AWS tier (needs a playground session)
+## AWS tier: drills 11–14 (needs a KodeKloud session)
 
-Some things only exist on AWS. These run against the EKS lab
-(`make eks && make jenkins`, see `docs/ci-track.md`) and are written up in
-`drills/18-jenkins-pipeline-failures.md`; they are not yet `play` drills:
+Same game, same Gitea-and-Jenkins mechanics, but on the EKS lab with real
+**ECR** and real **IAM**. Its state and clones are separate
+(`~/.local/state/platform-lab-playground/aws`, `~/platform-playground-aws`),
+so the two tiers never touch each other.
 
-- ECR push **401 vs 403**, and the token that leaked into the console (§1, §1b, §2)
-- **IRSA / Pod Identity** for the agent instead of the node role
-- the **17-pods-per-node** ENI ceiling (`STORY-AWS.md`)
-- Terraform **state lock** in S3 (`drills/10-terraform-state.md`)
-- Artifactory as a pip/maven remote (Artifactory runs on GCP: `terraform/gcp-artifactory`)
+```bash
+make eks                                  # the EKS lab (scripts/eks-up.sh)
+playground/setup/up-aws.sh                # Gitea + Jenkins on EKS, ECR, baseline build
+playground/play start 11                  # or: play start --tier aws
+playground/play reset                     # an AWS drill resets via up-aws.sh --reset
+```
+
+| ID | Ticket | What it trains |
+|---|---|---|
+| 11 | "401 from ECR, and IAM is fine" | 401 = no credentials arrived; a file-permission bug that reads as IAM |
+| 12 | "Security found a token in a build log" | `set -x` leaks, what you can and cannot revoke, cleaning history |
+| 13 | "denied: not authorized to perform" | 403 = credentials arrived and were refused; least privilege on the node role |
+| 14 | "Pentest: any pod can push to ECR" | node role vs IRSA / Pod Identity, and proving what a locked-down account allows |
+
+`preflight-aws.sh` refuses to start a drill with expired creds or under 20
+minutes left in the 3-hour IAM window. These drills are `VERIFIED=no` until
+they have been played live — see each `drill.env`. `up-aws.sh` takes over the
+lab's `jenkins` Helm release; `make jenkins` puts the GitHub-sourced one back.
+
+Not a drill, because it cannot be broken safely: the 17-pods-per-node ENI
+ceiling (a node that joins wrong must be terminated). Talk it through from
+`STORY-AWS.md` instead. Artifactory as a pip/maven remote runs on GCP
+(`terraform/gcp-artifactory`) and is not wired into a drill yet.
 
 ## When the playground itself breaks
 

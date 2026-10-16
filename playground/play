@@ -29,6 +29,8 @@ JOURNAL="$WORK/journal"
 drill_dir() { local d; d=$(find "$DRILLS" -maxdepth 1 -type d -name "$1-*" | head -1); [[ -n $d ]] && echo "$d"; }
 drill_meta() { ( # shellcheck disable=SC1091
   source "$1/drill.env"; printf '%s\t%s\t%s\t%s\t%s\n' "$TITLE" "$TRACK" "$LEVEL" "$PAR_MIN" "$NEEDS" ); }
+drill_needs() { ( # shellcheck disable=SC1091
+  source "$(drill_dir "$1")/drill.env"; echo "$NEEDS" ); }
 all_ids() { find "$DRILLS" -maxdepth 1 -mindepth 1 -type d -exec basename {} \; | cut -d- -f1 | sort; }
 best_score() { [[ -f $SCORES ]] && awk -F'\t' -v id="$1" '$2==id && $6=="solved"{ if($5>b) b=$5 } END{ if(b!="") print b }' "$SCORES"; }
 mmss() { printf '%d:%02d' $(( $1 / 60 )) $(( $1 % 60 )); }
@@ -55,7 +57,6 @@ cmd_start() {
     # shellcheck disable=SC1090
     source "$CUR"; die "Drill $ID is still running. Finish it (play check), give up (play reveal), or play reset."
   fi
-  load_creds
   if [[ -z $id ]]; then
     hidden=true
     local pool=()
@@ -71,6 +72,7 @@ cmd_start() {
   fi
   DIR=$(drill_dir "$id") || die "No drill $id (play list)"
   IFS=$'\t' read -r title track level par needs < <(drill_meta "$DIR")
+  [[ $needs == local ]] && load_creds
   c_hdr "Setting the scene..."
   # Each tier has its own preflight: lib/preflight-<needs>.sh (local = play doctor).
   if [[ $needs == local ]]; then
@@ -117,7 +119,8 @@ cmd_hint() {
 }
 
 cmd_check() {
-  load_current; load_creds
+  load_current
+  [[ "$(drill_needs "$ID")" == local ]] && load_creds
   c_hdr "Checking..."
   local out rc
   out=$(DRILL_STARTED=$STARTED bash "$DIR/check.sh" 2>&1); rc=$?
@@ -195,15 +198,21 @@ EOF
 }
 
 cmd_reset() {
-  load_creds
-  c_hdr "Resetting to baseline"
   local id=""
   [[ -f $CUR ]] && { # shellcheck disable=SC1090
     source "$CUR"; id=$ID; }
   [[ -z $id && -f "$STATE/last.env" ]] && { # shellcheck disable=SC1091
     source "$STATE/last.env"; id=$ID; }
+  # AWS-tier drills reset on EKS, through their own installer.
+  if [[ -n $id && "$(drill_needs "$id")" == aws ]]; then
+    "$PG_ROOT/setup/up-aws.sh" --reset && rm -f "$CUR"
+    return
+  fi
+  load_creds
+  c_hdr "Resetting to baseline"
   for d in "$DRILLS"/*/; do
-    [[ -f "$d/reset.sh" ]] && bash "$d/reset.sh" >>"$STATE/logs/reset.log" 2>&1
+    [[ -f "$d/reset.sh" && "$(drill_needs "$(basename "$d" | cut -d- -f1)")" == local ]] \
+      && bash "$d/reset.sh" >>"$STATE/logs/reset.log" 2>&1
   done
   for repo in platform/platform-lib payments/demo-api; do
     local dir="$STATE/scratch/reset"

@@ -1,0 +1,63 @@
+# Layered ON TOP of ../../ci/jenkins/values.yaml for the AWS tier of the
+# playground: the lab's Jenkins on EKS, but reading git from the Gitea that
+# setup/up-aws.sh puts in the cluster, so drills can push breaks the way a
+# teammate would. Same shape as jenkins-values-local.yaml, minus two things:
+#
+#   - NO PLATFORM_REGISTRY. The library then resolves the registry the EKS
+#     way -- ECR in the account the agent runs as -- and mints the ECR token
+#     from the node role. That path is what drills 11-14 break.
+#   - storage stays the base file's gp3 (the EBS CSI driver eks-up.sh installs).
+#
+# Sizing against docs/kodekloud-limits.md: the playground publishes a cap of
+# 512 MiB memory and 256m CPU PER POD. The base file requests 1 Gi, which the
+# lab has run before without a recorded violation, but "do not assume they are
+# not enforced". The request is brought down to the cap; the limit stays above
+# it because a 512 MiB Jenkins JVM is not a Jenkins. Whether the cap reads
+# requests or limits is not published -- this is the less exposed choice, not
+# a proven-safe one. The agent pod is the library's (resources/podtemplates/)
+# and is NOT resized here: BuildKit alone requests 512 Mi.
+controller:
+  resources:
+    requests: {cpu: 250m, memory: 512Mi}
+    limits: {memory: 1Gi}
+  javaOpts: "-XX:MaxRAMPercentage=60"
+  JCasC:
+    configScripts:
+      shared-library: |
+        unclassified:
+          globalLibraries:
+            libraries:
+              - name: platform-lib
+                defaultVersion: main
+                implicit: false
+                allowVersionOverride: true
+                includeInChangesets: false
+                retriever:
+                  modernSCM:
+                    scm:
+                      git:
+                        remote: http://gitea.git.svc.cluster.local:3000/platform/platform-lib.git
+      jobs: |
+        jobs:
+          - script: >
+              multibranchPipelineJob('demo-api') {
+                displayName('demo-api (payments team, EKS)')
+                description('Built by platform-lib from the in-cluster Gitea. Pushes to ECR, deploys to EKS.')
+                branchSources {
+                  git {
+                    id('demo-api-src')
+                    remote('http://gitea.git.svc.cluster.local:3000/payments/demo-api.git')
+                  }
+                }
+                factory {
+                  workflowBranchProjectFactory {
+                    scriptPath('Jenkinsfile')
+                  }
+                }
+                triggers {
+                  periodicFolderTrigger { interval('1m') }
+                }
+                orphanedItemStrategy {
+                  discardOldItems { numToKeep(5) }
+                }
+              }
