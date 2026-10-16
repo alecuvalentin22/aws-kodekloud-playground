@@ -97,11 +97,16 @@ cmd_start() {
     # shellcheck disable=SC1091
     read -r w j g kc < <( source "$PG_ROOT/lib/aws.sh"; load_creds >/dev/null 2>&1
       echo "$WORK $JENKINS_URL $GITEA_URL --kubeconfig=$EKS_KUBECONFIG" )
+  elif [[ $needs == homelab ]]; then
+    # shellcheck disable=SC1091
+    read -r w j g kc < <( source "$PG_ROOT/lib/homelab.sh"
+      echo "$HL_ANSWERS http://jenkins.$HL_IP.nip.io http://argocd.$HL_IP.nip.io --kubeconfig=$KUBECONFIG" )
   fi
+  local glabel=Gitea; [[ $needs == homelab ]] && glabel="Argo CD"
   cat <<EOF
 
   Your workspace: $w  (git pull first -- others may have pushed)
-  Jenkins $j   Gitea $g   kubectl $kc
+  Jenkins $j   $glabel $g   kubectl $kc
 
   Clock is running.   play hint | play check | play reveal
 EOF
@@ -219,6 +224,11 @@ cmd_reset() {
   # AWS-tier drills reset on EKS, through their own installer.
   if [[ -n $id && "$(drill_needs "$id")" == aws ]]; then
     "$PG_ROOT/setup/up-aws.sh" --reset && rm -f "$CUR"
+    return
+  fi
+  # Any other non-local tier resets through lib/reset-<tier>.sh <id>.
+  if [[ -n $id && "$(drill_needs "$id")" != local && -f "$PG_ROOT/lib/reset-$(drill_needs "$id").sh" ]]; then
+    bash "$PG_ROOT/lib/reset-$(drill_needs "$id").sh" "$id" && rm -f "$CUR"
     return
   fi
   load_creds
