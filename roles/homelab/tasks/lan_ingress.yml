@@ -1,0 +1,63 @@
+---
+# Layer-4 (TLS passthrough) forwarder: the LAN -> this WSL box :80/:443 -> the
+# three RKE2 nodes' ingress-nginx hostPorts. TLS is NOT terminated here, so the
+# certificates, SNI and Host routing stay entirely ingress-nginx's business.
+# Enabled by homelab_lan_ingress; run alone with `--tags lan_ingress`.
+
+- name: Nothing else in WSL may hold the forwarder's ports
+  ansible.builtin.shell: >-
+    set -o pipefail &&
+    ss -H -ltnp "( sport = :{{ homelab_lan_ingress_http_port }} or sport = :{{ homelab_lan_ingress_https_port }} )"
+    | grep -v '"haproxy"' || true
+  args:
+    executable: /bin/bash
+  register: homelab_lan_ingress_busy
+  changed_when: false
+
+- name: Refuse to start on top of another listener
+  ansible.builtin.assert:
+    that: homelab_lan_ingress_busy.stdout | trim == ''
+    fail_msg: "Something other than haproxy already listens on {{ homelab_lan_ingress_http_port }}/{{ homelab_lan_ingress_https_port }}: {{ homelab_lan_ingress_busy.stdout }}"
+    quiet: true
+
+- name: HAProxy {{ homelab_lan_ingress_haproxy_version }}
+  ansible.builtin.apt:
+    name: "haproxy={{ homelab_lan_ingress_haproxy_version }}"
+    state: present
+    update_cache: true
+    cache_valid_time: 3600
+    install_recommends: false
+
+- name: Hold HAProxy at the pinned version
+  ansible.builtin.dpkg_selections:
+    name: haproxy
+    selection: hold
+
+- name: haproxy.cfg
+  ansible.builtin.template:
+    src: haproxy.cfg.j2
+    dest: /etc/haproxy/haproxy.cfg
+    owner: root
+    group: root
+    mode: "0644"
+    validate: haproxy -c -f %s
+  notify: Reload haproxy
+
+- name: HAProxy running now and at boot
+  ansible.builtin.systemd_service:
+    name: haproxy
+    state: started
+    enabled: true
+
+# Flush the reload now, so the checks below see the new config.
+- name: Apply config
+  ansible.builtin.meta: flush_handlers
+
+- name: Forwarder is listening
+  ansible.builtin.wait_for:
+    port: "{{ item }}"
+    host: 127.0.0.1
+    timeout: 15
+  loop:
+    - "{{ homelab_lan_ingress_http_port }}"
+    - "{{ homelab_lan_ingress_https_port }}"

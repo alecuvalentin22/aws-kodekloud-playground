@@ -185,6 +185,46 @@ kind publishes its NodePorts on `127.0.0.1` only
 ([`playground/setup/kind.yaml`](../playground/setup/kind.yaml)). Use a tunnel,
 as above, rather than opening them to the LAN.
 
+## LAN access: the ingress from the whole home Wi-Fi
+
+```bash
+homelab/mac/lan-ingress.sh               # Windows firewall rules, then the forwarder
+curl -k --resolve argocd.127.0.0.1.nip.io:443:192.168.1.153 https://argocd.127.0.0.1.nip.io/
+```
+
+**Path:** LAN client -> Windows `192.168.1.153:80/443` (shared with WSL by mirrored
+networking) -> HAProxy in WSL, **layer 4, TLS passthrough** -> `:80/:443` of
+`10.77.0.31/.32/.33`, where ingress-nginx's DaemonSet listens on hostPorts.
+Certificates and Host routing stay ingress-nginx's; clients need the right Host/SNI.
+
+**Exposed, and to whom:**
+
+| What | To whom | By |
+|---|---|---|
+| TCP 80, 443 | the PC's own LAN subnet (auto-detected, `192.168.1.0/24`; override with `HOMELAB_LAN_CIDR`), **Private** network profile only | Defender rule `Homelab-LAN-Ingress-In` **and** Hyper-V firewall rule `Homelab-LAN-Ingress-HyperV-In` (WSL VMCreatorId `{40E0AC32-...}`), both scoped identically |
+| everything else (2222 WSL sshd, 8443 Incus, 6443, kind's 30094/30095/30300, HAProxy stats 8404) | nobody on the LAN | unchanged: sshd/Incus-API/stats are loopback or blocked by the firewalls; the Hyper-V default stays Block (the script does **not** set `DefaultInboundAction Allow`, which would open every WSL listener) |
+| TCP 22 | LAN, as before | `Homelab-SSH-LAN-In` (bootstrap.ps1), untouched |
+
+Anyone on that Wi-Fi can then reach every Ingress host on the cluster, including
+Argo CD's login page, so the apps' own authentication is the protection.
+
+**Forwarder:** HAProxy 2.8.16 from Ubuntu's noble archive, pinned and held, TCP-connect
+health check on every node every 2 s (3 fails = out, 2 passes = back), `leastconn`.
+Why HAProxy, not nginx `stream`: real active health checks and a per-server UP/DOWN view
+without nginx Plus. Backends are `homelab_vms`; ports and checks are `homelab_lan_ingress_*`
+in [`roles/homelab/defaults`](../roles/homelab/defaults/main.yml). See state with
+`ssh homelab-1-wsl "curl -s 'http://127.0.0.1:8404/;csv' | cut -d, -f1,2,18"`.
+
+**Undo:**
+
+```bash
+homelab/mac/lan-ingress.sh --uninstall   # removes exactly the two rules; stops and disables haproxy
+```
+
+The `haproxy` package stays installed and held. Mirrored networking means Windows must
+keep 80/443 free; the role refuses to start on top of another listener in WSL, and the
+script warns if Windows itself listens on them.
+
 ## Staying up (human-only settings on the PC)
 
 - **Power**: `bootstrap.ps1` sets never-sleep on AC.

@@ -64,3 +64,28 @@ homelab_link_group_vars: false
 
 # The controller's private key for the VMs (its .pub is in homelab_vm_ssh_keys).
 homelab_vm_private_key: ~/.ssh/homelab_ed25519
+
+# --- LAN ingress: an L4 forwarder in front of the RKE2 nodes' ingress-nginx ------
+# Off by default: it makes the lab answer on the LAN. homelab/mac/lan-ingress.sh
+# turns it on (and opens the Windows firewall for the same ports, scoped to the
+# LAN subnet -- see homelab/windows/lan-ingress.ps1).
+homelab_lan_ingress: false
+# HAProxy from Ubuntu's own archive (noble), pinned to the exact build and held.
+# Why HAProxy and not nginx stream: it has real active health checks on every
+# backend (nginx stream's are passive only unless you buy Plus), and a stats
+# socket that shows each server UP/DOWN.
+homelab_lan_ingress_haproxy_version: "2.8.16-0ubuntu0.24.04.3"
+# What the forwarder listens on (0.0.0.0, shared with Windows in mirrored mode).
+homelab_lan_ingress_http_port: 80
+homelab_lan_ingress_https_port: 443
+# RKE2's ingress-nginx DaemonSet publishes these hostPorts on every node.
+homelab_lan_ingress_backend_http_port: 80
+homelab_lan_ingress_backend_https_port: 443
+# Nodes = homelab_vms (all of them: server and agents all run the DaemonSet).
+# Active TCP-connect check: a node whose ingress pod is drained/gone refuses
+# the connection and is skipped after `fall` failed checks.
+homelab_lan_ingress_check_inter: 2s
+homelab_lan_ingress_check_fall: 3
+homelab_lan_ingress_check_rise: 2
+# Read-only stats page, loopback only (never reachable from the LAN).
+homelab_lan_ingress_stats_port: 8404

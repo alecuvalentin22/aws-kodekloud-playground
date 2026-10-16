@@ -190,3 +190,11 @@
     enabled: true
     state: "{{ 'restarted' if homelab_fwd_unit.changed else 'started' }}"
     daemon_reload: true
+
+# --- LAN ingress forwarder (opt-in) ---------------------------------------------------
+# import_tasks (static) so `--tags lan_ingress` runs only this and leaves
+# Incus, the VMs and the bridge alone.
+- name: LAN ingress forwarder
+  ansible.builtin.import_tasks: lan_ingress.yml
+  when: homelab_lan_ingress | bool
+  tags: [lan_ingress]
