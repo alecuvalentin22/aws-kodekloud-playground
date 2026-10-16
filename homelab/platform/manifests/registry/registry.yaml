@@ -6,7 +6,7 @@
 #   in-cluster   registry.registry.svc.cluster.local:5000
 #   from nodes   <any node IP>:30500   <- what PLATFORM_REGISTRY uses
 # See values/jenkins.yaml for why the NODE address is the one used, and
-# README.md step 2 for the registries.yaml every node needs to pull from it.
+# README.md step 0 for the registries.yaml every node needs to pull from it.
 apiVersion: v1
 kind: PersistentVolumeClaim
 metadata:

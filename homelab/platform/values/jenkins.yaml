@@ -88,7 +88,7 @@ controller:
       # by containerd on the nodes to pull the image into the demo-api pod, and
       # node-level containerd cannot resolve cluster DNS. For the pull to work
       # over plain http every node needs the registries.yaml mirror from
-      # README.md step 2. Any of the three node IPs would do (kube-proxy serves
+      # README.md step 0. Any of the three node IPs would do (kube-proxy serves
       # NodePorts everywhere); .31 is just the stable one.
       registry-env: |
         jenkins:

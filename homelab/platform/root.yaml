@@ -9,10 +9,10 @@
 # waits for a wave to be Healthy before starting the next):
 #
 #   0  local-path-provisioner (default StorageClass; every PVC below needs it)
-#   1  rke2-ingress-nginx tweaks (HelmChartConfig: body size, timeouts)
 #   2  kube-prometheus-stack (Prometheus, Grafana, Alertmanager, CRDs)
-#   3  CI tools: registry, Jenkins (+ agent RBAC), Artifactory OSS, Backstage RBAC
+#   3  CI tools: registry, Jenkins (+ agent RBAC), Backstage RBAC
 #   4  Backstage
+#   5  Artifactory OSS (last: the slowest, likeliest to fail; must not block the portal)
 #
 # selfHeal re-creates any child somebody deletes; prune removes children whose
 # file is deleted from git.

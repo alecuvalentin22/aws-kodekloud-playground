@@ -1,23 +1,22 @@
-# Wave 3. Artifactory OSS. Chart pin = ARTIFACTORY_CHART in versions.env
+# Artifactory OSS. Chart pin = ARTIFACTORY_CHART in versions.env
 # (jfrog/artifactory-oss, app 7.161.26). See values/artifactory.yaml for what OSS
 # can and cannot host, and for the memory sizing it was OOMKilled on before.
 #
-# Prerequisites (README step 3): Secrets artifactory/artifactory-keys,
+# Prerequisites (README step 2): Secrets artifactory/artifactory-keys,
 # artifactory/artifactory-admin, artifactory/artifactory-postgresql.
 #
-# It is the slowest thing in the stack to start (minutes, several containers).
-# Because Argo waits for every wave-3 Application to be Healthy before starting
-# wave 4, Backstage is held back until Artifactory is up -- and if Artifactory
-# never gets there (the most likely first-run failure), Backstage never syncs.
-# Move this file's wave annotation to "4" if you would rather have the portal
-# regardless.
+# Wave 5, the LAST wave, on purpose. It is the slowest thing in the stack to
+# start (several containers plus PostgreSQL) and the likeliest to fail on a first
+# run. Argo waits for a wave to be Healthy before starting the next, so as wave 3
+# it would have held Backstage (wave 4) back; as the last wave a slow or failed
+# Artifactory blocks nothing else.
 apiVersion: argoproj.io/v1alpha1
 kind: Application
 metadata:
   name: artifactory
   namespace: argocd
   annotations:
-    argocd.argoproj.io/sync-wave: "3"
+    argocd.argoproj.io/sync-wave: "5"
 spec:
   project: homelab
   destination:

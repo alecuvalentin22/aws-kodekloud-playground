@@ -35,7 +35,7 @@ artifactory:
   # while the database was initialised with the old one -- Artifactory could
   # then no longer connect. So: an existing Secret named <release>-postgresql
   # (the name the Artifactory container reads `password` from), created by the
-  # deploy step -- README step 3. Keys: password, postgres-password.
+  # deploy step -- README step 2. Keys: password, postgres-password.
   postgresql:
     enabled: true
     auth:
@@ -60,8 +60,9 @@ artifactory:
     hosts:
       - artifactory.127.0.0.1.nip.io
     annotations:
-      # Also set cluster-wide by apps/10-ingress-nginx-config; repeated here so
-      # this Ingress works on a cluster that skipped that app.
+      # nginx's default body limit is 1m, which would 413 every upload. Set per
+      # Ingress (there is no cluster-wide HelmChartConfig for rke2-ingress-nginx
+      # in this stack: this is the only Ingress that takes large bodies).
       nginx.ingress.kubernetes.io/proxy-body-size: "0"
     tls:
       - hosts:
@@ -69,7 +70,7 @@ artifactory:
 
   artifactory:
     # Keys and admin password come from Secrets the deploy step creates
-    # (README step 3). The chart would otherwise generate master/join keys at
+    # (README step 2). The chart would otherwise generate master/join keys at
     # template time -- different on every Argo render -- and a master key that
     # changes after first start makes encrypted data unreadable.
     masterKeySecretName: artifactory-keys   # key: master-key

@@ -2,7 +2,7 @@
 # LTS, jdk25). Semantics from ci/jenkins/values.yaml; the homelab differences
 # are listed at the top of values/jenkins.yaml.
 #
-# Prerequisite (README step 3): Secret jenkins/jenkins-admin.
+# Prerequisite (README step 2): Secret jenkins/jenkins-admin.
 # The in-cluster registry (apps/30-registry) is the image target.
 apiVersion: argoproj.io/v1alpha1
 kind: Application

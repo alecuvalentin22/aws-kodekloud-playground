@@ -4,7 +4,7 @@
 # multiple-sources `$values` ref so the file can be read and diffed as plain
 # YAML instead of an indented block inside an Application.
 #
-# Prerequisite (README step 3): Secret observability/grafana-admin.
+# Prerequisite (README step 2): Secret observability/grafana-admin.
 apiVersion: argoproj.io/v1alpha1
 kind: Application
 metadata:

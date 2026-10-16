@@ -7,7 +7,7 @@
 # Looser than gitops/platform/project.yaml on purpose. That one enumerates every
 # cluster-scoped kind and was worth it on a cluster where it could be iterated
 # against. This cluster is single-user, throwaway, and not yet verified, and
-# five unrelated charts (CRDs, ClusterRoles, a HelmChartConfig, webhooks) would
+# five unrelated charts (CRDs, ClusterRoles, webhooks) would
 # each cost a failed-sync round trip to whitelist. So: sources and destinations
 # are enumerated (that is where "which repos may feed this cluster" is
 # decided), and kinds are not. Tighten the two whitelists below once the stack
@@ -28,8 +28,6 @@ spec:
     - https://charts.jenkins.io
     - https://charts.jfrog.io
     - https://backstage.github.io/charts
-    # Only used by optional/argocd-self.yaml.
-    - https://argoproj.github.io/argo-helm
 
   destinations:
     - {server: https://kubernetes.default.svc, namespace: argocd}

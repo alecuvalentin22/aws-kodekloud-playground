@@ -16,8 +16,7 @@ homelab/platform/
   root.yaml                    the app-of-apps; watches apps/ on feat/playground
   apps/                        one Application per component (sync-wave annotated)
   values/                      Helm values, pulled in via Argo multiple sources ($values)
-  manifests/                   plain manifests for things with no chart (registry, RBAC, HelmChartConfig)
-  optional/argocd-self.yaml    Argo CD managing itself -- NOT included by default
+  manifests/                   plain manifests for things with no chart (registry, RBAC)
 ```
 
 ## What is deployed
@@ -28,16 +27,15 @@ Docker"); the job description itself is not in the repo.
 
 | Wave | App (file) | What it is | Pin | JD line it serves |
 |---|---|---|---|---|
-| - | Argo CD (`values/argocd.yaml`, helm install by hand) | the GitOps controller | chart 10.9.0 = app v3.5.2 (`ARGOCD_VERSION`) | GitOps / declarative delivery |
+| - | Argo CD (installed by hand from the official manifest, see [`../argocd/README.md`](../argocd/README.md); not managed by this tree) | the GitOps controller | app v3.5.2 (`ARGOCD_VERSION`) | GitOps / declarative delivery |
 | 0 | `00-local-path-storage` | default, node-local StorageClass (RKE2 has none) | **v0.0.37, released 2026-08-05** | Kubernetes storage / stateful workloads |
-| 1 | `10-ingress-nginx-config` | `HelmChartConfig` tuning RKE2's own ingress-nginx (body size, timeouts) | n/a (RKE2's chart) | Ingress / traffic management |
 | 2 | `20-kube-prometheus-stack` | Prometheus + Alertmanager + Grafana | chart 88.6.2 (`KPS_VERSION`) | Monitoring / observability |
 | 3 | `30-registry` | plain `registry:3` for CI images | **registry 3.1.1, pushed 2026-09-21** | Docker image build + push |
 | 3 | `31-jenkins-rbac` | agent ServiceAccount, deploy rights in `demo-ci` only | n/a | least-privilege CI |
 | 3 | `32-jenkins` | Jenkins, JCasC, shared library, `demo-api` multibranch job | chart 5.9.68 (`JENKINS_CHART`) | Jenkins pipelines, reusable pipeline code, branching workflows |
-| 3 | `33-artifactory` | Artifactory OSS | chart 107.161.26 (`ARTIFACTORY_CHART`) | Artifact management |
 | 3 | `34-backstage-rbac` | read-only SA for Backstage's Kubernetes tab | n/a | developer portal |
 | 4 | `40-backstage` | Backstage, catalog from this repo | chart 2.10.2 (`BACKSTAGE_CHART`), image 1.55.2 (`BACKSTAGE_IMAGE`) | developer portal / service catalog |
+| 5 | `50-artifactory` | Artifactory OSS | chart 107.161.26 (`ARTIFACTORY_CHART`) | Artifact management |
 
 Every chart version is the one in `versions.env`. The two pins that
 `versions.env` does not have were looked up on 2026-10-16:
@@ -55,14 +53,19 @@ on each child orders them, and Argo waits for a wave to be Healthy before
 starting the next:
 
 ```
-0 storage -> 1 ingress tweak -> 2 observability -> 3 CI tools -> 4 portal
+0 storage -> 2 observability -> 3 CI tools -> 4 portal -> 5 Artifactory
 ```
 
 Everything with a PVC needs wave 0. Wave 2 goes before 3 so the CRDs exist
-(and Prometheus is up) before anything ships a ServiceMonitor. Wave 4 is last
-because Backstage's catalog describes the things in wave 3. **Consequence:**
-wave 4 waits for Artifactory (wave 3) to be Healthy, and Artifactory is the
-most likely thing to fail on first run; see the note in `apps/33-artifactory.yaml`.
+(and Prometheus is up) before anything ships a ServiceMonitor. Backstage
+(wave 4) comes after the CI tools its catalog describes. **Artifactory is the
+last wave (5)** because it is the slowest to start and the likeliest to fail:
+Argo waits for a wave to be Healthy before starting the next, so as wave 3 it
+would have held Backstage back. (There is no wave 1: it used to hold an
+ingress-nginx `HelmChartConfig`, removed on 2026-10-16: nothing in this stack
+needs a cluster-wide ingress setting. The one large-body Ingress, Artifactory's,
+carries its own `proxy-body-size` annotation, and the registry is reached by
+NodePort, not through the Ingress.)
 
 ### Decisions worth knowing
 
@@ -91,8 +94,14 @@ for the memory reasoning. OSS limits: no Docker repos; generic and the Maven
 family are what it is for. **PyPI I could not confirm for OSS (I believe it is
 Pro-only)** -- check in the UI before relying on it.
 
-**Argo CD is installed by hand and is not self-managed by default.**
-`optional/argocd-self.yaml` is there if you want it after everything else works.
+**Argo CD is installed once, by hand, from the official manifest, and is not
+managed by this tree.** An earlier draft of this directory also carried a Helm
+install of Argo CD (`values/argocd.yaml`) and an optional Application to make it
+self-managing; both were removed so there is exactly one install. A self-managing
+Application for the *manifest* install would need its own kustomization over the
+upstream `install.yaml` plus `homelab/argocd/ingress.yaml`, ignore the Secrets
+Argo fills at runtime, and would restart the controller applying it; that is a
+new, untested design, not a rename, so it was not kept.
 
 ## Sizing
 
@@ -163,22 +172,11 @@ Without it, builds succeed (BuildKit pushes with `registry.insecure=true`) and
 the **deploy** stage fails with `ImagePullBackOff` / `http: server gave HTTP
 response to HTTPS client`.
 
-### 1. Install Argo CD (once, by hand)
+### 1. Argo CD (already installed)
 
-```bash
-helm repo add argo https://argoproj.github.io/argo-helm && helm repo update
-helm install argocd argo/argo-cd --version 10.9.0 -n argocd --create-namespace \
-  -f homelab/platform/values/argocd.yaml
-kubectl -n argocd rollout status deploy/argocd-server
-# generated by Argo CD itself, never in git:
-kubectl -n argocd get secret argocd-initial-admin-secret -o jsonpath='{.data.password}' | base64 -d; echo
-```
-
-Chart 10.9.0 is the newest chart whose app version is v3.5.2
-(`ARGOCD_VERSION`). The alternative is the pinned install manifest
-(`kubectl apply -n argocd --server-side -f https://raw.githubusercontent.com/argoproj/argo-cd/v3.5.2/manifests/install.yaml`),
-but then there is no Ingress and no `server.insecure`; the Helm route was
-chosen so Argo CD is reachable through the same tunnel as everything else.
+One install, from the pinned official manifest, with its Ingress. The steps,
+the tunnel and the way to read the initial admin password (straight to the
+clipboard) are in [`../argocd/README.md`](../argocd/README.md).
 
 ### 2. Create the secrets (no secrets are in git)
 
