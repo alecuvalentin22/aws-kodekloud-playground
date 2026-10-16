@@ -57,7 +57,9 @@ def call(Map cfg) {
                     }
                 }
                 post {
-                    always { junit allowEmptyResults: true, testResults: "${context}/test-results.xml" }
+                    // Ant-style pattern: "./test-results.xml" matches nothing, so an app
+                    // at the repo root (context '.') silently published no test report.
+                    always { junit allowEmptyResults: true, testResults: (context == '.' ? '' : "${context}/") + 'test-results.xml' }
                 }
             }
             stage('Build image') {

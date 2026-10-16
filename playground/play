@@ -7,6 +7,7 @@
 #   play start [ID]               start one (no ID: a random one you have not solved,
 #                                 and you are NOT told which -- like real life)
 #   play start --track jenkins    random, from one track
+#   play start --tier aws         random AWS-tier drill (needs a live EKS lab)
 #   play status                   what is running, how long, hints used
 #   play hint                     next hint (costs points)
 #   play check                    is it fixed? scores it if so
@@ -31,7 +32,7 @@ drill_meta() { ( # shellcheck disable=SC1091
 all_ids() { find "$DRILLS" -maxdepth 1 -mindepth 1 -type d -exec basename {} \; | cut -d- -f1 | sort; }
 best_score() { [[ -f $SCORES ]] && awk -F'\t' -v id="$1" '$2==id && $6=="solved"{ if($5>b) b=$5 } END{ if(b!="") print b }' "$SCORES"; }
 mmss() { printf '%d:%02d' $(( $1 / 60 )) $(( $1 % 60 )); }
-stars() { local s=""; for _ in $(seq 1 "$1"); do s+="●"; done; for _ in $(seq "$1" 2); do s+="○"; done; echo "$s"; }
+stars() { local s="" i; for ((i = 0; i < 3; i++)); do (( i < $1 )) && s+="●" || s+="○"; done; echo "$s"; }
 
 load_current() { [[ -f $CUR ]] || die "No drill running. Start one: play start"; # shellcheck disable=SC1090
   source "$CUR"; DIR=$(drill_dir "$ID"); }
@@ -40,15 +41,15 @@ cmd_list() {
   printf "\n  %-4s %-46s %-11s %-6s %-6s %s\n" ID DRILL TRACK LEVEL NEEDS BEST
   for id in $(all_ids); do
     IFS=$'\t' read -r title track level _ needs < <(drill_meta "$(drill_dir "$id")")
-    printf "  %-4s %-46s %-11s %-6s %-6s %s\n" "$id" "$title" "$track" "$(stars "$level")" "$needs" "$(best_score "$id")"
+    printf "  %-4s %-46s %-11s %s    %-6s %s\n" "$id" "$title" "$track" "$(stars "$level")" "$needs" "$(best_score "$id")"
   done
   echo
 }
 
 cmd_start() {
-  local id="" track="" hidden=false
+  local id="" track="" tier=local hidden=false
   while [[ $# -gt 0 ]]; do
-    case $1 in --track) track=$2; shift 2 ;; *) id=$1; shift ;; esac
+    case $1 in --track) track=$2; shift 2 ;; --tier) tier=$2; shift 2 ;; *) id=$1; shift ;; esac
   done
   if [[ -f $CUR ]]; then
     # shellcheck disable=SC1090
@@ -61,7 +62,7 @@ cmd_start() {
     for i in $(all_ids); do
       IFS=$'\t' read -r _ t _ _ n < <(drill_meta "$(drill_dir "$i")")
       [[ -n $track && $t != "$track" ]] && continue
-      [[ $n != local ]] && continue
+      [[ $n != "$tier" ]] && continue
       [[ -n "$(best_score "$i")" ]] && continue
       pool+=("$i")
     done
@@ -70,10 +71,14 @@ cmd_start() {
   fi
   DIR=$(drill_dir "$id") || die "No drill $id (play list)"
   IFS=$'\t' read -r title track level par needs < <(drill_meta "$DIR")
-  [[ $needs == local ]] || die "Drill $id needs '$needs' -- see its README section; not runnable locally."
-
   c_hdr "Setting the scene..."
-  "$PG_ROOT/play" doctor --quiet || die "Playground is not healthy; fix that first (play doctor)."
+  # Each tier has its own preflight: lib/preflight-<needs>.sh (local = play doctor).
+  if [[ $needs == local ]]; then
+    "$PG_ROOT/play" doctor --quiet || die "Playground is not healthy; fix that first (play doctor)."
+  else
+    [[ -x "$PG_ROOT/lib/preflight-$needs.sh" ]] || die "Drill $id needs tier '$needs', which has no preflight."
+    "$PG_ROOT/lib/preflight-$needs.sh" || die "Tier '$needs' is not ready (see above)."
+  fi
   local started; started=$(date +%s)
   DRILL_STARTED=$started bash "$DIR/break.sh" > "$STATE/logs/break-$id.log" 2>&1 \
     || die "The break script failed (not your fault): $STATE/logs/break-$id.log"
@@ -204,7 +209,11 @@ cmd_reset() {
     local dir="$STATE/scratch/reset"
     rm -rf "$dir"; git clone -q "$(repo_url "$repo")" "$dir"
     if [[ "$(git -C "$dir" rev-parse HEAD)" != "$(git -C "$dir" rev-parse 'baseline^{commit}')" ]]; then
-      git -C "$dir" checkout -q baseline -- . && git -C "$dir" add -A
+      git -C "$dir" checkout -q baseline -- .
+      # checkout restores baseline's files but keeps files added since; drop those.
+      git -C "$dir" diff --name-only --diff-filter=A baseline HEAD | while read -r f; do
+        git -C "$dir" rm -q -- "$f"; done
+      git -C "$dir" add -A
       git -C "$dir" -c user.name="playground reset" -c user.email=reset@playground.local \
         commit -q -m "reset to baseline" && git -C "$dir" push -q origin HEAD:main
       c_ok "$repo back to baseline content (as a new commit, not a force-push)"
@@ -222,8 +231,7 @@ cmd_wait_green() {
   printf "  waiting for a green main build"
   while (( $(date +%s) - t0 < limit )); do
     b=$(last_build main)
-    if [[ $(jq -r '.building // true' <<<"$b") == false && $(jq -r '.result' <<<"$b") == SUCCESS ]] \
-       && (( $(jq -r '.timestamp' <<<"$b") / 1000 >= t0 - 5 || ${WAIT_ANY:-1} == 1 )) \
+    if [[ $(jq -r '.building' <<<"$b") == false && $(jq -r '.result' <<<"$b") == SUCCESS ]] \
        && K -n demo-ci rollout status deploy/demo-api --timeout=5s >/dev/null 2>&1 \
        && [[ $(git ls-remote "$(repo_url payments/demo-api)" refs/heads/main | cut -c1-8) == \
              $(K -n demo-ci get deploy demo-api -o jsonpath='{.spec.template.spec.containers[0].image}' | sed -E 's/.*:main-([0-9a-f]{8})-.*/\1/') ]]; then
@@ -250,7 +258,7 @@ cmd_doctor() {
   K get nodes >/dev/null 2>&1 && say c_ok "kind cluster" || { say c_bad "kind cluster ($CTX) unreachable -- run setup/up.sh"; ok=1; }
   gitea_api GET /user >/dev/null 2>&1 && say c_ok "Gitea" || { say c_bad "Gitea not answering on $GITEA_URL"; ok=1; }
   jenkins_get /api/json >/dev/null 2>&1 && say c_ok "Jenkins" || { say c_bad "Jenkins not answering on $JENKINS_URL"; ok=1; }
-  curl -fsS localhost:5001/v2/ >/dev/null 2>&1 && say c_ok "registry" || { say c_bad "registry not answering on localhost:5001"; ok=1; }
+  curl -fsS "$REGISTRY_URL/v2/" >/dev/null 2>&1 && say c_ok "registry" || { say c_bad "registry not answering on $REGISTRY_URL"; ok=1; }
   return $ok
 }
 

@@ -1,7 +1,11 @@
 ROOT CAUSE
   The merged change set FAIL_HEALTH="true" in k8s/deployment.yaml. app.py
-  returns 500 from /healthz when that is set, so the readiness probe never
-  passes. With maxUnavailable: 0 the old pods stay up, the rollout stalls,
+  returns 500 from /healthz when that is set. Readiness never passes, and the
+  LIVENESS probe hits the same endpoint, so the kubelet keeps restarting the
+  container: the new pod shows CrashLoopBackOff with a growing restart count
+  -- although the process itself never crashed. (Verbatim from the Deploy
+  stage: `demo-api-6fd976c44c-7n4mn  0/1  CrashLoopBackOff  4 (38s ago)`.)
+  With maxUnavailable: 0 the two old pods stay up, the rollout stalls,
   `rollout status` times out, and deployToEks rolls back and fails the build.
   Unit tests cannot catch it: they never run the manifest.
 
@@ -9,6 +13,11 @@ FIX
   Revert the value (git revert <sha> is the honest way), push, watch it deploy.
   NOT acceptable: removing the readiness probe "so it deploys" -- the check
   fails you for that, because the pipeline would then go green on broken pods.
+
+ALSO WORTH SAYING
+  Readiness and liveness on the same endpoint turns "not ready" into a
+  restart loop. Liveness should answer "is the process wedged", readiness
+  "can it take traffic"; a dependency check belongs in readiness only.
 
 WHAT STOPS IT RECURRING
   A smoke test in the pipeline that runs the built image with the real env and

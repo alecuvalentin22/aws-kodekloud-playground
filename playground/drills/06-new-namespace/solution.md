@@ -2,8 +2,13 @@ ROOT CAUSE (two of them, in sequence)
   1. The agent's service account is bound to a Role in demo-ci only. In
      payments-staging it has no rights, so the API returns 403 forbidden.
      (And the namespace does not exist yet.)
-  2. With RBAC fixed, the Service fails: "provided port is already allocated".
+  2. With RBAC fixed, the Service fails. Verbatim:
+       The Service "demo-api" is invalid: spec.ports[0].nodePort: Invalid
+       value: 30095: provided port is already allocated
      nodePort 30095 is a CLUSTER-wide resource already used by demo-ci.
+     Note the half-state: kubectl applied the Deployment BEFORE the Service
+     failed, so payments-staging runs 2/2 pods while the build is red. "Red"
+     does not mean "nothing changed" -- check what actually landed.
 
 FIX
   - Namespace payments-staging + Role (deployments/replicasets/services/pods/

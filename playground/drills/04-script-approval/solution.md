@@ -1,8 +1,10 @@
 ROOT CAUSE
   Jenkinsfiles from SCM run in the Groovy sandbox. `'git ...'.execute()` is
   Groovy's "run a process", and the sandbox rejects it with
-  RejectedAccessException ("Scripts not permitted to use staticMethod ...
-  execute java.lang.String"). Code at the top of a Jenkinsfile, outside any
+  RejectedAccessException. Verbatim:
+    Scripts not permitted to use staticMethod
+    org.codehaus.groovy.runtime.DefaultGroovyMethods execute java.lang.String.
+    Administrators can decide whether to approve or reject this signature. Code at the top of a Jenkinsfile, outside any
   node/agent, runs ON THE CONTROLLER, not on the agent pod.
 
 WHY NOT APPROVE IT

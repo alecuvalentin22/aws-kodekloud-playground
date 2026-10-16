@@ -10,6 +10,10 @@ FIX
   Revert the commit in platform-lib (git revert, then push). Abort the builds
   that are queued behind the stuck one (disableConcurrentBuilds keeps them
   in line). Next build schedules normally.
+  Then look again: the aborted build's agent pod stays Pending -- the
+  Kubernetes plugin only reaps a never-connected agent after its connect
+  timeout. `kubectl -n jenkins delete pod <it>`. Verified here: still Pending
+  2+ minutes after the abort, while the next build ran and finished.
 
 WHAT STOPS IT RECURRING
   - Requests for what a build NEEDS; limits for the ceiling. A big Java build

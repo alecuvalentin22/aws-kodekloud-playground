@@ -1,9 +1,12 @@
 ROOT CAUSE
   @Library('platform-lib@v2') asks for a ref that does not exist. The library
   only has the tag v1.0.0 (and main). Jenkins resolves the library before the
-  first stage, so the build dies in seconds with:
+  first stage, so the build dies in seconds with (verbatim, local playground):
+    Loading library platform-lib@v2
+    Attempting to resolve v2 from remote references...
+    Could not find v2 in remote references. Pulling heads to local for deep search...
     ERROR: Could not resolve v2
-    ... No such library resource / Could not find any definition of libraries [platform-lib@v2]
+    hudson.plugins.git.GitException: Command "git rev-parse v2^{commit}" returned status code 128
 
 FIX
   @Library('platform-lib@v1.0.0') _       (pinned: best)

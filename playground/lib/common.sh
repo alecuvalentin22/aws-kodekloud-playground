@@ -21,8 +21,12 @@ CTX="kind-$CLUSTER"
 export PATH="$STATE/bin:$PATH"
 K() { kubectl --context "$CTX" "$@"; }
 
-JENKINS_URL=http://localhost:30094
-GITEA_URL=http://localhost:30300
+# Overridable so a runner on the kind Docker network (Semaphore) can drive the
+# game: there, localhost is the runner itself, and the node is
+# playground-control-plane.
+JENKINS_URL=${PLAYGROUND_JENKINS_URL:-http://localhost:30094}
+GITEA_URL=${PLAYGROUND_GITEA_URL:-http://localhost:30300}
+REGISTRY_URL=${PLAYGROUND_REGISTRY_URL:-http://localhost:5001}
 GITEA_IN_CLUSTER=http://gitea.git.svc.cluster.local:3000
 REGISTRY=kind-registry:5000
 
@@ -49,7 +53,7 @@ gitea_api() {   # gitea_api METHOD PATH [JSON]
 
 # Authenticated remote URL for scripts. The candidate's own clones use a
 # credential helper instead, so the password is not in their .git/config.
-repo_url() { echo "http://dev:$GITEA_PASSWORD@localhost:30300/$1.git"; }
+repo_url() { echo "${GITEA_URL/:\/\//://dev:$GITEA_PASSWORD@}/$1.git"; }
 
 # Push a change as a TEAMMATE would: from a scratch clone under STATE, with a
 # different author, so the candidate has to `git pull` and read the log.
