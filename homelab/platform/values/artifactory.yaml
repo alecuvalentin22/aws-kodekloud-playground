@@ -75,10 +75,18 @@ artifactory:
     # changes after first start makes encrypted data unreadable.
     masterKeySecretName: artifactory-keys   # key: master-key
     joinKeySecretName: artifactory-keys     # key: join-key
+    # THE ADMIN SECRET IS NOT A PASSWORD, IT IS A FILE. The chart mounts the
+    # named key verbatim as Access' bootstrap.creds, whose format is one line
+    # `<user>@*=<password>`. Pointing dataKey at a bare password makes Access
+    # die at bootstrap ("Illegal credentials file - each line is expected to be
+    # in the format: user=pass"), which in turn leaves the router waiting
+    # forever for a join key Access never wrote ("Cluster join: Join key is
+    # missing"). So the Secret carries both: `password` (what humans read back)
+    # and `bootstrap.creds` (`admin@*=<password>`, what the pod reads).
     admin:
       username: admin
       secret: artifactory-admin             # Secret name
-      dataKey: password                     # key inside it
+      dataKey: bootstrap.creds              # key inside it
 
     # Memory. The original failure (OOMKilled on a t3.medium, exit 137) was five
     # JVMs in ONE container each sizing its heap at 25% of one shared limit. In
