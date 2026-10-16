@@ -1,8 +1,25 @@
-# Probes, Argo CD ServiceMonitors and (next commit) the Grafana dashboards of
-# Application 72-monitoring.
+# Probes, Argo CD ServiceMonitors and the Grafana dashboards (Application
+# 72-monitoring). Each dashboards/*.json becomes a ConfigMap that Grafana's sidecar
+# (label grafana_dashboard, values/kube-prometheus-stack.yaml) loads:
+#   - label  grafana_dashboard: "1"   what the sidecar watches
+#   - annotation grafana_folder: "Home lab"   the Grafana folder
+# disableNameSuffixHash: the sidecar reloads on any change; a hash in the name
+# would only leave the old ConfigMap behind until Argo prunes it.
 apiVersion: kustomize.config.k8s.io/v1beta1
 kind: Kustomization
 namespace: observability
 resources:
   - probes.yaml
   - servicemonitors-argocd.yaml
+generatorOptions:
+  disableNameSuffixHash: true
+  labels:
+    grafana_dashboard: "1"
+    app.kubernetes.io/part-of: homelab-dashboards
+  annotations:
+    grafana_folder: Home lab
+configMapGenerator:
+  - name: dashboard-homelab-overview
+    files: [dashboards/home-lab-overview.json]
+  - name: dashboard-homelab-uptime
+    files: [dashboards/uptime.json]

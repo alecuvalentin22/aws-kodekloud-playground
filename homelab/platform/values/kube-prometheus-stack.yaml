@@ -113,6 +113,14 @@ grafana:
     resources:
       requests: {cpu: 10m, memory: 64Mi}
       limits: {memory: 128Mi}
+    dashboards:
+      # Dashboard ConfigMaps (label grafana_dashboard=1, any namespace -- the
+      # chart default) are filed into the Grafana folder named by their
+      # `grafana_folder` annotation; without these two lines every dashboard
+      # lands in "General". Used by manifests/monitoring (folder "Home lab").
+      folderAnnotation: grafana_folder
+      provider:
+        foldersFromFilesStructure: true
 
 kube-state-metrics:
   resources:
