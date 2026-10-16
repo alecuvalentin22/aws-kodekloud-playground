@@ -51,6 +51,15 @@
         siteMonitor: http://artifactory.artifactory.svc.cluster.local:8082/artifactory/api/system/ping
         namespace: artifactory
         podSelector: app=artifactory,component=artifactory
+    - Registry:
+        icon: docker.png
+        href: http://registry.192.168.1.153.nip.io
+        description: "Docker images Jenkins builds"
+        # The UI host answers 401 without the login (still green here, <= 403);
+        # the Service is checked instead so the dot means "the registry answers".
+        siteMonitor: http://registry.registry.svc.cluster.local:5000/v2/
+        namespace: registry
+        podSelector: app=registry
 
 - Playground:
     - Playground Jenkins:

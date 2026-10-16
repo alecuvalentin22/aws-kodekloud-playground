@@ -243,6 +243,52 @@ spec:
 apiVersion: monitoring.coreos.com/v1
 kind: Probe
 metadata:
+  name: registry-in-cluster
+  namespace: observability
+  labels:
+    app.kubernetes.io/part-of: homelab-uptime
+spec:
+  jobName: blackbox-http
+  interval: 30s
+  scrapeTimeout: 15s
+  module: http_up
+  prober:
+    url: blackbox-exporter.observability.svc.cluster.local:9115
+  targets:
+    staticConfig:
+      static:
+        - http://registry.registry.svc.cluster.local:5000/v2/
+      labels:
+        app: registry
+        group: CI
+        layer: in-cluster
+---
+apiVersion: monitoring.coreos.com/v1
+kind: Probe
+metadata:
+  name: registry-front-door
+  namespace: observability
+  labels:
+    app.kubernetes.io/part-of: homelab-uptime
+spec:
+  jobName: blackbox-http
+  interval: 30s
+  scrapeTimeout: 15s
+  module: http_up
+  prober:
+    url: blackbox-exporter.observability.svc.cluster.local:9115
+  targets:
+    staticConfig:
+      static:
+        - http://registry.192.168.1.153.nip.io/
+      labels:
+        app: registry
+        group: CI
+        layer: front-door
+---
+apiVersion: monitoring.coreos.com/v1
+kind: Probe
+metadata:
   name: homepage-in-cluster
   namespace: observability
   labels:
