@@ -1,0 +1,448 @@
+# Uptime targets, one Probe per (app, layer); edit by hand.
+# Two layers, because "the app is up" and "people can reach it" fail separately:
+#   layer=in-cluster   the Service URL: the app answers, ingress/HAProxy not involved
+#   layer=front-door   the Wi-Fi name (http://<tool>.192.168.1.153.nip.io, or the
+#                      playground's NodePort) as a browser sends it: the pod goes
+#                      out to the PC's 192.168.1.153, through HAProxy and
+#                      ingress-nginx, and back to the app
+# All use job="blackbox-http" (spec.jobName) so dashboards query one job, and the
+# modules http_up / http_up_insecure of values/blackbox-exporter.yaml: a login
+# wall (401/403) counts as up; 5xx and no answer do not.
+# To add a target: copy a block, change name / app / url. 30s = the Prometheus
+# scrape interval.
+apiVersion: monitoring.coreos.com/v1
+kind: Probe
+metadata:
+  name: argocd-in-cluster
+  namespace: observability
+  labels:
+    app.kubernetes.io/part-of: homelab-uptime
+spec:
+  jobName: blackbox-http
+  interval: 30s
+  scrapeTimeout: 15s
+  module: http_up
+  prober:
+    url: blackbox-exporter.observability.svc.cluster.local:9115
+  targets:
+    staticConfig:
+      static:
+        - http://argocd-server.argocd.svc.cluster.local/healthz
+      labels:
+        app: argocd
+        group: Platform
+        layer: in-cluster
+---
+apiVersion: monitoring.coreos.com/v1
+kind: Probe
+metadata:
+  name: argocd-front-door
+  namespace: observability
+  labels:
+    app.kubernetes.io/part-of: homelab-uptime
+spec:
+  jobName: blackbox-http
+  interval: 30s
+  scrapeTimeout: 15s
+  module: http_up
+  prober:
+    url: blackbox-exporter.observability.svc.cluster.local:9115
+  targets:
+    staticConfig:
+      static:
+        - http://argocd.192.168.1.153.nip.io/healthz
+      labels:
+        app: argocd
+        group: Platform
+        layer: front-door
+---
+apiVersion: monitoring.coreos.com/v1
+kind: Probe
+metadata:
+  name: grafana-in-cluster
+  namespace: observability
+  labels:
+    app.kubernetes.io/part-of: homelab-uptime
+spec:
+  jobName: blackbox-http
+  interval: 30s
+  scrapeTimeout: 15s
+  module: http_up
+  prober:
+    url: blackbox-exporter.observability.svc.cluster.local:9115
+  targets:
+    staticConfig:
+      static:
+        - http://kube-prometheus-stack-grafana.observability.svc.cluster.local/api/health
+      labels:
+        app: grafana
+        group: Platform
+        layer: in-cluster
+---
+apiVersion: monitoring.coreos.com/v1
+kind: Probe
+metadata:
+  name: grafana-front-door
+  namespace: observability
+  labels:
+    app.kubernetes.io/part-of: homelab-uptime
+spec:
+  jobName: blackbox-http
+  interval: 30s
+  scrapeTimeout: 15s
+  module: http_up
+  prober:
+    url: blackbox-exporter.observability.svc.cluster.local:9115
+  targets:
+    staticConfig:
+      static:
+        - http://grafana.192.168.1.153.nip.io/api/health
+      labels:
+        app: grafana
+        group: Platform
+        layer: front-door
+---
+apiVersion: monitoring.coreos.com/v1
+kind: Probe
+metadata:
+  name: backstage-in-cluster
+  namespace: observability
+  labels:
+    app.kubernetes.io/part-of: homelab-uptime
+spec:
+  jobName: blackbox-http
+  interval: 30s
+  scrapeTimeout: 15s
+  module: http_up
+  prober:
+    url: blackbox-exporter.observability.svc.cluster.local:9115
+  targets:
+    staticConfig:
+      static:
+        - http://backstage.backstage.svc.cluster.local:7007/.backstage/health/v1/liveness
+      labels:
+        app: backstage
+        group: Platform
+        layer: in-cluster
+---
+apiVersion: monitoring.coreos.com/v1
+kind: Probe
+metadata:
+  name: backstage-front-door
+  namespace: observability
+  labels:
+    app.kubernetes.io/part-of: homelab-uptime
+spec:
+  jobName: blackbox-http
+  interval: 30s
+  scrapeTimeout: 15s
+  module: http_up
+  prober:
+    url: blackbox-exporter.observability.svc.cluster.local:9115
+  targets:
+    staticConfig:
+      static:
+        - http://backstage.192.168.1.153.nip.io/.backstage/health/v1/liveness
+      labels:
+        app: backstage
+        group: Platform
+        layer: front-door
+---
+apiVersion: monitoring.coreos.com/v1
+kind: Probe
+metadata:
+  name: jenkins-in-cluster
+  namespace: observability
+  labels:
+    app.kubernetes.io/part-of: homelab-uptime
+spec:
+  jobName: blackbox-http
+  interval: 30s
+  scrapeTimeout: 15s
+  module: http_up
+  prober:
+    url: blackbox-exporter.observability.svc.cluster.local:9115
+  targets:
+    staticConfig:
+      static:
+        - http://jenkins.jenkins.svc.cluster.local:8080/login
+      labels:
+        app: jenkins
+        group: CI
+        layer: in-cluster
+---
+apiVersion: monitoring.coreos.com/v1
+kind: Probe
+metadata:
+  name: jenkins-front-door
+  namespace: observability
+  labels:
+    app.kubernetes.io/part-of: homelab-uptime
+spec:
+  jobName: blackbox-http
+  interval: 30s
+  scrapeTimeout: 15s
+  module: http_up
+  prober:
+    url: blackbox-exporter.observability.svc.cluster.local:9115
+  targets:
+    staticConfig:
+      static:
+        - http://jenkins.192.168.1.153.nip.io/login
+      labels:
+        app: jenkins
+        group: CI
+        layer: front-door
+---
+apiVersion: monitoring.coreos.com/v1
+kind: Probe
+metadata:
+  name: artifactory-in-cluster
+  namespace: observability
+  labels:
+    app.kubernetes.io/part-of: homelab-uptime
+spec:
+  jobName: blackbox-http
+  interval: 30s
+  scrapeTimeout: 15s
+  module: http_up
+  prober:
+    url: blackbox-exporter.observability.svc.cluster.local:9115
+  targets:
+    staticConfig:
+      static:
+        - http://artifactory.artifactory.svc.cluster.local:8082/artifactory/api/system/ping
+      labels:
+        app: artifactory
+        group: CI
+        layer: in-cluster
+---
+apiVersion: monitoring.coreos.com/v1
+kind: Probe
+metadata:
+  name: artifactory-front-door
+  namespace: observability
+  labels:
+    app.kubernetes.io/part-of: homelab-uptime
+spec:
+  jobName: blackbox-http
+  interval: 30s
+  scrapeTimeout: 15s
+  module: http_up
+  prober:
+    url: blackbox-exporter.observability.svc.cluster.local:9115
+  targets:
+    staticConfig:
+      static:
+        - http://artifactory.192.168.1.153.nip.io/artifactory/api/system/ping
+      labels:
+        app: artifactory
+        group: CI
+        layer: front-door
+---
+apiVersion: monitoring.coreos.com/v1
+kind: Probe
+metadata:
+  name: homepage-in-cluster
+  namespace: observability
+  labels:
+    app.kubernetes.io/part-of: homelab-uptime
+spec:
+  jobName: blackbox-http
+  interval: 30s
+  scrapeTimeout: 15s
+  module: http_up
+  prober:
+    url: blackbox-exporter.observability.svc.cluster.local:9115
+  targets:
+    staticConfig:
+      static:
+        - http://homepage.homepage.svc.cluster.local:3000/api/healthcheck
+      labels:
+        app: homepage
+        group: Platform
+        layer: in-cluster
+---
+apiVersion: monitoring.coreos.com/v1
+kind: Probe
+metadata:
+  name: homepage-front-door
+  namespace: observability
+  labels:
+    app.kubernetes.io/part-of: homelab-uptime
+spec:
+  jobName: blackbox-http
+  interval: 30s
+  scrapeTimeout: 15s
+  module: http_up
+  prober:
+    url: blackbox-exporter.observability.svc.cluster.local:9115
+  targets:
+    staticConfig:
+      static:
+        - http://home.192.168.1.153.nip.io/api/healthcheck
+      labels:
+        app: homepage
+        group: Platform
+        layer: front-door
+---
+apiVersion: monitoring.coreos.com/v1
+kind: Probe
+metadata:
+  name: homepage-ip-front-door
+  namespace: observability
+  labels:
+    app.kubernetes.io/part-of: homelab-uptime
+spec:
+  jobName: blackbox-http
+  interval: 30s
+  scrapeTimeout: 15s
+  module: http_up
+  prober:
+    url: blackbox-exporter.observability.svc.cluster.local:9115
+  targets:
+    staticConfig:
+      static:
+        - http://192.168.1.153/api/healthcheck
+      labels:
+        app: homepage-ip
+        group: Platform
+        layer: front-door
+---
+apiVersion: monitoring.coreos.com/v1
+kind: Probe
+metadata:
+  name: prometheus-in-cluster
+  namespace: observability
+  labels:
+    app.kubernetes.io/part-of: homelab-uptime
+spec:
+  jobName: blackbox-http
+  interval: 30s
+  scrapeTimeout: 15s
+  module: http_up
+  prober:
+    url: blackbox-exporter.observability.svc.cluster.local:9115
+  targets:
+    staticConfig:
+      static:
+        - http://kube-prometheus-stack-prometheus.observability.svc.cluster.local:9090/-/healthy
+      labels:
+        app: prometheus
+        group: Cluster
+        layer: in-cluster
+---
+apiVersion: monitoring.coreos.com/v1
+kind: Probe
+metadata:
+  name: kubernetes-api-in-cluster
+  namespace: observability
+  labels:
+    app.kubernetes.io/part-of: homelab-uptime
+spec:
+  jobName: blackbox-http
+  interval: 30s
+  scrapeTimeout: 15s
+  module: http_up_insecure
+  prober:
+    url: blackbox-exporter.observability.svc.cluster.local:9115
+  targets:
+    staticConfig:
+      static:
+        - https://kubernetes.default.svc.cluster.local/version
+      labels:
+        app: kubernetes-api
+        group: Cluster
+        layer: in-cluster
+---
+apiVersion: monitoring.coreos.com/v1
+kind: Probe
+metadata:
+  name: kubernetes-api-front-door
+  namespace: observability
+  labels:
+    app.kubernetes.io/part-of: homelab-uptime
+spec:
+  jobName: blackbox-http
+  interval: 30s
+  scrapeTimeout: 15s
+  module: http_up_insecure
+  prober:
+    url: blackbox-exporter.observability.svc.cluster.local:9115
+  targets:
+    staticConfig:
+      static:
+        - https://192.168.1.153:6443/version
+      labels:
+        app: kubernetes-api
+        group: Cluster
+        layer: front-door
+---
+apiVersion: monitoring.coreos.com/v1
+kind: Probe
+metadata:
+  name: playground-jenkins-front-door
+  namespace: observability
+  labels:
+    app.kubernetes.io/part-of: homelab-uptime
+spec:
+  jobName: blackbox-http
+  interval: 30s
+  scrapeTimeout: 15s
+  module: http_up
+  prober:
+    url: blackbox-exporter.observability.svc.cluster.local:9115
+  targets:
+    staticConfig:
+      static:
+        - http://192.168.1.153:30094/login
+      labels:
+        app: playground-jenkins
+        group: Playground
+        layer: front-door
+---
+apiVersion: monitoring.coreos.com/v1
+kind: Probe
+metadata:
+  name: gitea-front-door
+  namespace: observability
+  labels:
+    app.kubernetes.io/part-of: homelab-uptime
+spec:
+  jobName: blackbox-http
+  interval: 30s
+  scrapeTimeout: 15s
+  module: http_up
+  prober:
+    url: blackbox-exporter.observability.svc.cluster.local:9115
+  targets:
+    staticConfig:
+      static:
+        - http://192.168.1.153:30300/api/healthz
+      labels:
+        app: gitea
+        group: Playground
+        layer: front-door
+---
+apiVersion: monitoring.coreos.com/v1
+kind: Probe
+metadata:
+  name: demo-api-front-door
+  namespace: observability
+  labels:
+    app.kubernetes.io/part-of: homelab-uptime
+spec:
+  jobName: blackbox-http
+  interval: 30s
+  scrapeTimeout: 15s
+  module: http_up
+  prober:
+    url: blackbox-exporter.observability.svc.cluster.local:9115
+  targets:
+    staticConfig:
+      static:
+        - http://192.168.1.153:30095/
+      labels:
+        app: demo-api
+        group: Playground
+        layer: front-door

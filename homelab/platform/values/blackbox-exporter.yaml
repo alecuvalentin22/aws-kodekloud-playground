@@ -1,0 +1,38 @@
+# prometheus-blackbox-exporter for the home lab: probes the app URLs from inside
+# the cluster. The targets are Probe objects, manifests/monitoring/probes.yaml.
+fullnameOverride: blackbox-exporter
+
+# Image pinned explicitly (the chart would default to its appVersion):
+# v0.28.0, released 2025-12-06. v0.29.0 (2026-10-07) is under two weeks old.
+image:
+  tag: v0.28.0
+
+config:
+  modules:
+    # "Is anything answering?": 2xx/3xx and the login walls (401/403) are up --
+    # Jenkins, Artifactory and the Kubernetes API answer anonymous requests
+    # that way -- 404 and 5xx are not.
+    http_up:
+      prober: http
+      timeout: 10s
+      http:
+        valid_http_versions: ["HTTP/1.1", "HTTP/2.0"]
+        valid_status_codes: [200, 201, 202, 204, 301, 302, 303, 307, 308, 401, 403]
+        follow_redirects: true
+        preferred_ip_protocol: ip4
+    # The same for https endpoints with a certificate this pod cannot verify
+    # (the Kubernetes API is signed by RKE2's own CA).
+    http_up_insecure:
+      prober: http
+      timeout: 10s
+      http:
+        valid_http_versions: ["HTTP/1.1", "HTTP/2.0"]
+        valid_status_codes: [200, 201, 202, 204, 301, 302, 303, 307, 308, 401, 403]
+        follow_redirects: true
+        preferred_ip_protocol: ip4
+        tls_config:
+          insecure_skip_verify: true
+
+resources:
+  requests: {cpu: 10m, memory: 24Mi}
+  limits: {memory: 64Mi}

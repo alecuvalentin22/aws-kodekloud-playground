@@ -1,0 +1,33 @@
+# Wave 3. prometheus-blackbox-exporter: the prober behind the uptime dashboards.
+# Chart 11.19.1, released 2026-09-24 (11.20.0 is 2026-10-07: under two weeks
+# old); image v0.28.0 (values/blackbox-exporter.yaml). The targets and the
+# dashboards are the next Application, 72-monitoring.yaml.
+apiVersion: argoproj.io/v1alpha1
+kind: Application
+metadata:
+  name: blackbox-exporter
+  namespace: argocd
+  annotations:
+    argocd.argoproj.io/sync-wave: "3"
+spec:
+  project: homelab
+  destination:
+    server: https://kubernetes.default.svc
+    namespace: observability
+  sources:
+    - repoURL: https://prometheus-community.github.io/helm-charts
+      chart: prometheus-blackbox-exporter
+      targetRevision: 11.19.1
+      helm:
+        releaseName: blackbox-exporter
+        valueFiles:
+          - $values/homelab/platform/values/blackbox-exporter.yaml
+    - repoURL: https://github.com/alecuvalentin22/aws-kodekloud-playground.git
+      targetRevision: feat/playground
+      ref: values
+  syncPolicy:
+    automated: {prune: true, selfHeal: true}
+    syncOptions:
+      - ServerSideApply=true
+      - ServerSideDiff=true
+      - FailOnSharedResource=true

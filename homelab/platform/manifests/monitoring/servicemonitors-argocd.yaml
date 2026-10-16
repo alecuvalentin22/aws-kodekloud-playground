@@ -1,0 +1,48 @@
+# Argo CD (manifest install, not managed by this tree) exposes Prometheus metrics
+# on three Services, but ships no ServiceMonitor for them. Without these,
+# argocd_app_info (the per-Application sync/health series the overview dashboard
+# uses) does not exist. The objects live in `observability`, where the other
+# monitors are; namespaceSelector reaches into `argocd`.
+apiVersion: monitoring.coreos.com/v1
+kind: ServiceMonitor
+metadata:
+  name: argocd-metrics
+  namespace: observability
+  labels:
+    app.kubernetes.io/part-of: homelab-uptime
+spec:
+  namespaceSelector: {matchNames: [argocd]}
+  selector:
+    matchLabels: {app.kubernetes.io/name: argocd-metrics}
+  endpoints:
+    - {port: metrics, interval: 30s}
+---
+apiVersion: monitoring.coreos.com/v1
+kind: ServiceMonitor
+metadata:
+  name: argocd-server-metrics
+  namespace: observability
+  labels:
+    app.kubernetes.io/part-of: homelab-uptime
+spec:
+  namespaceSelector: {matchNames: [argocd]}
+  selector:
+    matchLabels: {app.kubernetes.io/name: argocd-server-metrics}
+  endpoints:
+    - {port: metrics, interval: 30s}
+---
+# argocd-repo-server's Service has two ports (server 8081, metrics 8084); only
+# the port named `metrics` is scraped.
+apiVersion: monitoring.coreos.com/v1
+kind: ServiceMonitor
+metadata:
+  name: argocd-repo-server
+  namespace: observability
+  labels:
+    app.kubernetes.io/part-of: homelab-uptime
+spec:
+  namespaceSelector: {matchNames: [argocd]}
+  selector:
+    matchLabels: {app.kubernetes.io/name: argocd-repo-server}
+  endpoints:
+    - {port: metrics, interval: 30s}

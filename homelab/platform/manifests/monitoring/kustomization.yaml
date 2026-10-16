@@ -1,0 +1,8 @@
+# Probes, Argo CD ServiceMonitors and (next commit) the Grafana dashboards of
+# Application 72-monitoring.
+apiVersion: kustomize.config.k8s.io/v1beta1
+kind: Kustomization
+namespace: observability
+resources:
+  - probes.yaml
+  - servicemonitors-argocd.yaml

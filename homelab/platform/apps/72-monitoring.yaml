@@ -1,0 +1,28 @@
+# Wave 4. What Prometheus and Grafana need on top of the stock chart:
+#   - Probe objects: the uptime targets (in-cluster and front-door), 30s
+#   - ServiceMonitors for Argo CD's three metrics Services (argocd_app_info)
+#   - Grafana dashboards as ConfigMaps (kustomize configMapGenerator from
+#     dashboards/*.json), folder "Home lab", picked up by Grafana's sidecar
+# Plain kustomize directory; needs the CRDs of wave 2 and the exporter of wave 3.
+apiVersion: argoproj.io/v1alpha1
+kind: Application
+metadata:
+  name: monitoring
+  namespace: argocd
+  annotations:
+    argocd.argoproj.io/sync-wave: "4"
+spec:
+  project: homelab
+  destination:
+    server: https://kubernetes.default.svc
+    namespace: observability
+  source:
+    repoURL: https://github.com/alecuvalentin22/aws-kodekloud-playground.git
+    targetRevision: feat/playground
+    path: homelab/platform/manifests/monitoring
+  syncPolicy:
+    automated: {prune: true, selfHeal: true}
+    syncOptions:
+      - ServerSideApply=true
+      - ServerSideDiff=true
+      - FailOnSharedResource=true
