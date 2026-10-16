@@ -208,10 +208,13 @@ Certificates and Host routing stay ingress-nginx's; clients need the right Host/
 Anyone on that Wi-Fi can then reach every Ingress host on the cluster, including
 Argo CD's login page, so the apps' own authentication is the protection.
 
-**Currently restricted:** both firewall rules are scoped to the Mac, `192.168.1.161`,
-until the default admin passwords of the deployed tools are rotated. Once they are,
-widen them again with `homelab/mac/lan-ingress.sh` or, on the PC,
-`homelab/windows/lan-ingress.ps1 -AllowFrom 192.168.1.0/24`.
+**Currently open to the whole LAN:** both firewall rules (`Homelab-LAN-Ingress-In` and
+`Homelab-LAN-Ingress-HyperV-In`) allow TCP 80/443 from the entire `192.168.1.0/24`
+(the user's decision, 2026-10-16). Every tool's login page, Argo CD's included, is
+therefore reachable by any device on the Wi-Fi, so the tools' own authentication is the
+only protection. To narrow it again, run on the PC
+`homelab/windows/lan-ingress.ps1 -AllowFrom <ip>`, for example `-AllowFrom 192.168.1.161`
+for the Mac only.
 
 **Forwarder:** HAProxy 2.8.16 from Ubuntu's noble archive, pinned and held, TCP-connect
 health check on every node every 2 s (3 fails = out, 2 passes = back), `leastconn`.
