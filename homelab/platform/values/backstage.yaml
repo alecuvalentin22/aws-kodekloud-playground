@@ -91,10 +91,11 @@ backstage:
               # Metrics lookup skipped to keep the tab simple (RKE2 does ship
               # metrics-server; the ClusterRole already allows pods metrics).
               skipMetricsLookup: true
-      customResources:
-        - group: argoproj.io
-          apiVersion: v1alpha1
-          plural: rollouts
+      # No customResources: the EKS values listed argoproj.io rollouts, but the
+      # RKE2 cluster has no Argo Rollouts CRD, so every Kubernetes tab showed
+      # "Warning: There was a problem retrieving Kubernetes objects ... rollouts
+      # ... NOT_FOUND 404" (found in a browser test, 2026-10-16). Add the entry
+      # back when Argo Rollouts is installed here.
     catalog:
       rules:
         - allow: [Component, System, Domain, API, Resource, Location, Group, User, Template]
