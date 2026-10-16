@@ -100,7 +100,7 @@ kubectl get nodes
 ```
 
 Three `images:ubuntu/24.04/cloud` VMs (the `/cloud` variant: the plain image
-has no cloud-init), 4 vCPU / 12 GiB / 40 GiB each, on fixed addresses on the
+has no cloud-init), 4 vCPU / 12 GiB / 60 GiB each, on fixed addresses on the
 Incus bridge: `rke2-s1` 10.77.0.31 (server), `rke2-a1` .32 and `rke2-a2` .33
 (agents). cloud-init sets user `lab`, your key, passwordless sudo, no password.
 Sizes and roles are `homelab_vms` in
@@ -116,6 +116,38 @@ kubectl drain <node> --ignore-daemonsets --delete-emptydir-data
 ssh homelab-1-wsl 'incus config set <vm> limits.memory=12GiB && incus restart <vm>'
 kubectl wait --for=condition=Ready node/<node> --timeout=300s && kubectl uncordon <node>
 ```
+
+The root disks were grown 40 -> 60 GiB the same way (2026-10-16): the
+platform's PVCs (about 40 Gi) plus several multi-GiB images did not fit
+comfortably on 40 GiB nodes, and local-path does not spread volumes. Per VM,
+agents first, the server last:
+
+```bash
+kubectl drain <node> --ignore-daemonsets --delete-emptydir-data
+ssh homelab-1-wsl 'incus config device set <vm> root size=60GiB && incus restart <vm>'
+# nothing to do inside the guest: cloud-init's growpart/resizefs grow
+# /dev/sda2 and the ext4 filesystem at boot (df -h / shows 58G afterwards).
+kubectl wait --for=condition=Ready node/<node> --timeout=300s && kubectl uncordon <node>
+```
+
+`incus config device set ... size=` is accepted while the VM runs but the guest
+only sees the new size after the restart. (`disk:` in `homelab_vms` is 60GiB so
+new builds match; like `memory`, it is not applied to VMs that already exist.)
+
+**Registry mirror.** Pods pull images through each node's own containerd, and
+containerd refuses plain http. `roles/rke2_cluster` therefore writes
+`/etc/rancher/rke2/registries.yaml` on every node from
+`rke2_cluster_registry_mirrors` (default: the in-cluster registry at
+`10.77.0.31:30500`, http). A new build gets it before the first start; to apply
+a change to the running cluster:
+
+```bash
+ansible-playbook -i homelab/generated/k8s.ini playbooks/rke2-registries.yml
+```
+
+which restarts RKE2 one node at a time, agents first and the server last, and
+only where the file changed (second run: `changed=0`). On the nodes RKE2 turns it
+into `/var/lib/rancher/rke2/agent/etc/containerd/certs.d/10.77.0.31:30500/hosts.toml`.
 
 [`roles/rke2_cluster`](../roles/rke2_cluster) builds ONE cluster: the server
 first (token in its config before the first start), then agents that wait for

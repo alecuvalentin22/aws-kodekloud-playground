@@ -44,9 +44,9 @@ homelab_vm_image: images:ubuntu/24.04/cloud
 homelab_vm_user: lab
 homelab_vm_ssh_keys: []                # public keys allowed into the VMs
 homelab_vms:
-  - {name: rke2-s1, ip: 10.77.0.31, cpus: 4, memory: 12GiB, disk: 40GiB, distribution: rke2, role: server}
-  - {name: rke2-a1, ip: 10.77.0.32, cpus: 4, memory: 12GiB, disk: 40GiB, distribution: rke2, role: agent}
-  - {name: rke2-a2, ip: 10.77.0.33, cpus: 4, memory: 12GiB, disk: 40GiB, distribution: rke2, role: agent}
+  - {name: rke2-s1, ip: 10.77.0.31, cpus: 4, memory: 12GiB, disk: 60GiB, distribution: rke2, role: server}
+  - {name: rke2-a1, ip: 10.77.0.32, cpus: 4, memory: 12GiB, disk: 60GiB, distribution: rke2, role: agent}
+  - {name: rke2-a2, ip: 10.77.0.33, cpus: 4, memory: 12GiB, disk: 60GiB, distribution: rke2, role: agent}
 
 # Where the generated inventory lands ON THE CONTROLLER (the Mac).
 homelab_inventory_out: "{{ playbook_dir }}/../homelab/generated/k8s.ini"

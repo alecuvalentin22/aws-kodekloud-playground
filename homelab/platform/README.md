@@ -154,19 +154,12 @@ updates.jenkins.io, the chart repositories).
 
 ### 0. Let every node pull from the plain-http registry
 
-On **each** of rke2-s1, rke2-a1, rke2-a2 (best done at cluster-build time, since
-it restarts RKE2):
-
-```bash
-sudo mkdir -p /etc/rancher/rke2
-sudo tee /etc/rancher/rke2/registries.yaml >/dev/null <<'EOF'
-mirrors:
-  "10.77.0.31:30500":
-    endpoint:
-      - "http://10.77.0.31:30500"
-EOF
-sudo systemctl restart rke2-server   # on rke2-s1;  rke2-agent on rke2-a1 and rke2-a2
-```
+Done by the cluster role, not by hand: `roles/rke2_cluster` writes
+`/etc/rancher/rke2/registries.yaml` on every node from
+`rke2_cluster_registry_mirrors` (default `10.77.0.31:30500`, http). On a running
+cluster apply it with
+`ansible-playbook -i homelab/generated/k8s.ini playbooks/rke2-registries.yml`
+(one node at a time, agents first; see [`../README.md`](../README.md#3-vms-and-one-multi-node-rke2-cluster)).
 
 Without it, builds succeed (BuildKit pushes with `registry.insecure=true`) and
 the **deploy** stage fails with `ImagePullBackOff` / `http: server gave HTTP
