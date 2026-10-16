@@ -1,0 +1,71 @@
+# Layered ON TOP of ../../ci/jenkins/values.yaml -- the same Jenkins as the EKS
+# lab, with only what has to differ for a laptop:
+#
+#   - git comes from Gitea in the cluster, not GitHub
+#   - the library is its OWN repo (platform/platform-lib), as it would be at a
+#     company: owned by the platform team, consumed by every app team
+#   - images go to the kind registry, announced through PLATFORM_REGISTRY
+#   - smaller memory, the kind storage class, a 1-minute poll
+#
+# Helm merges maps, so each configScripts key below REPLACES the one of the
+# same name in the base file; keys not named here are kept.
+controller:
+  resources:
+    requests: {cpu: 250m, memory: 768Mi}
+    limits: {memory: 1536Mi}
+  javaOpts: "-XX:MaxRAMPercentage=60"
+  JCasC:
+    configScripts:
+      # defaultVersion: main, i.e. UNPINNED. That is deliberate: drill 07 is
+      # the incident that teaches why you pin it.
+      shared-library: |
+        unclassified:
+          globalLibraries:
+            libraries:
+              - name: platform-lib
+                defaultVersion: main
+                implicit: false
+                allowVersionOverride: true
+                includeInChangesets: false
+                retriever:
+                  modernSCM:
+                    scm:
+                      git:
+                        remote: http://gitea.git.svc.cluster.local:3000/platform/platform-lib.git
+      jobs: |
+        jobs:
+          - script: >
+              multibranchPipelineJob('demo-api') {
+                displayName('demo-api (payments team)')
+                description('Built by platform-lib. Seeded by Job DSL. Polls Gitea every minute.')
+                branchSources {
+                  git {
+                    id('demo-api-src')
+                    remote('http://gitea.git.svc.cluster.local:3000/payments/demo-api.git')
+                  }
+                }
+                factory {
+                  workflowBranchProjectFactory {
+                    scriptPath('Jenkinsfile')
+                  }
+                }
+                triggers {
+                  periodicFolderTrigger { interval('1m') }
+                }
+                orphanedItemStrategy {
+                  discardOldItems { numToKeep(5) }
+                }
+              }
+      platform-env: |
+        jenkins:
+          globalNodeProperties:
+            - envVars:
+                env:
+                  - key: PLATFORM_REGISTRY
+                    value: kind-registry:5000
+                  - key: PLATFORM_REGISTRY_INSECURE
+                    value: "true"
+
+persistence:
+  storageClass: standard
+  size: 4Gi

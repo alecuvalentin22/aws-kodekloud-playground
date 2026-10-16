@@ -23,6 +23,12 @@ def call(Map cfg) {
     // Registry is OPTIONAL and resolved at build time when absent. Hardcoding
     // it would bake one AWS account ID into every team's Jenkinsfile, and the
     // file would break the moment it ran anywhere else.
+    //
+    // Resolution order, at build time: the Jenkinsfile, then PLATFORM_REGISTRY
+    // (a global env var the Jenkins instance sets in JCasC -- the local
+    // playground points it at its kind registry), then ECR in the account the
+    // agent runs as. The registry belongs to the Jenkins instance, not to
+    // each team.
     String registry = cfg.registry   ?: ''
     String repoPrefix = cfg.repoPrefix ?: 'platform-lab'
     String region   = cfg.region     ?: 'us-east-1'
@@ -57,6 +63,9 @@ def call(Map cfg) {
             stage('Build image') {
                 steps {
                     script {
+                        if (!registry && env.PLATFORM_REGISTRY) {
+                            registry = env.PLATFORM_REGISTRY
+                        }
                         if (!registry) {
                             String acct = ''
                             container('deploy') {

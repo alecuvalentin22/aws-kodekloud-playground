@@ -1,0 +1,73 @@
+# Gitea: the playground's GitHub. Repos, history, PRs, a web UI -- in ~150 MB.
+# SQLite, one replica, config entirely from env. IMAGE_PLACEHOLDER is set by
+# up.sh from versions.env.
+apiVersion: v1
+kind: Namespace
+metadata:
+  name: git
+---
+apiVersion: v1
+kind: PersistentVolumeClaim
+metadata:
+  name: gitea-data
+  namespace: git
+spec:
+  accessModes: [ReadWriteOnce]
+  resources:
+    requests: {storage: 1Gi}
+---
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: gitea
+  namespace: git
+spec:
+  replicas: 1
+  strategy: {type: Recreate}   # RWO volume + SQLite: never two at once
+  selector:
+    matchLabels: {app: gitea}
+  template:
+    metadata:
+      labels: {app: gitea}
+    spec:
+      securityContext:
+        fsGroup: 1000
+      containers:
+        - name: gitea
+          image: IMAGE_PLACEHOLDER
+          ports: [{containerPort: 3000, name: http}]
+          env:
+            - {name: GITEA__database__DB_TYPE, value: sqlite3}
+            - {name: GITEA__security__INSTALL_LOCK, value: "true"}
+            - {name: GITEA__server__ROOT_URL, value: "http://localhost:30300/"}
+            - {name: GITEA__server__HTTP_PORT, value: "3000"}
+            - {name: GITEA__server__DISABLE_SSH, value: "true"}
+            - {name: GITEA__service__DISABLE_REGISTRATION, value: "true"}
+            - {name: GITEA__repository__ENABLE_PUSH_CREATE_ORG, value: "true"}
+            - {name: GITEA__repository__DEFAULT_PUSH_CREATE_PRIVATE, value: "false"}
+            - {name: GITEA__repository__DEFAULT_BRANCH, value: main}
+            - {name: GITEA__webhook__ALLOWED_HOST_LIST, value: "*"}
+            - {name: GITEA__log__LEVEL, value: Warn}
+          readinessProbe:
+            httpGet: {path: /api/healthz, port: http}
+            periodSeconds: 5
+          resources:
+            requests: {cpu: 50m, memory: 96Mi}
+            limits: {memory: 384Mi}
+          volumeMounts:
+            - {name: data, mountPath: /var/lib/gitea}
+            - {name: data, mountPath: /etc/gitea, subPath: conf}
+      volumes:
+        - name: data
+          persistentVolumeClaim: {claimName: gitea-data}
+---
+apiVersion: v1
+kind: Service
+metadata:
+  name: gitea
+  namespace: git
+spec:
+  type: NodePort
+  selector: {app: gitea}
+  ports:
+    - {name: http, port: 3000, targetPort: http, nodePort: 30300}

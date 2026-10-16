@@ -1,0 +1,270 @@
+#!/usr/bin/env bash
+# The playground game. Every drill is an incident: something gets broken the
+# way it breaks at work, you get a ticket from the developer who hit it, and
+# the clock runs until `play check` says it is really fixed.
+#
+#   play list                     the drills, and your best score on each
+#   play start [ID]               start one (no ID: a random one you have not solved,
+#                                 and you are NOT told which -- like real life)
+#   play start --track jenkins    random, from one track
+#   play status                   what is running, how long, hints used
+#   play hint                     next hint (costs points)
+#   play check                    is it fixed? scores it if so
+#   play close                    write the reply to the developer (the journal)
+#   play reveal                   give up: the root cause and the interview answer
+#   play reset                    put everything back to baseline
+#   play score                    your record
+#   play doctor                   is the playground healthy?
+#
+# The Semaphore templates call exactly these commands; nothing here needs a UI.
+set -uo pipefail
+# shellcheck disable=SC1091
+source "$(dirname "${BASH_SOURCE[0]}")/lib/common.sh"
+DRILLS="$PG_ROOT/drills"
+CUR="$STATE/current.env"
+SCORES="$STATE/scores.tsv"
+JOURNAL="$WORK/journal"
+
+drill_dir() { local d; d=$(find "$DRILLS" -maxdepth 1 -type d -name "$1-*" | head -1); [[ -n $d ]] && echo "$d"; }
+drill_meta() { ( # shellcheck disable=SC1091
+  source "$1/drill.env"; printf '%s\t%s\t%s\t%s\t%s\n' "$TITLE" "$TRACK" "$LEVEL" "$PAR_MIN" "$NEEDS" ); }
+all_ids() { find "$DRILLS" -maxdepth 1 -mindepth 1 -type d -exec basename {} \; | cut -d- -f1 | sort; }
+best_score() { [[ -f $SCORES ]] && awk -F'\t' -v id="$1" '$2==id && $6=="solved"{ if($5>b) b=$5 } END{ if(b!="") print b }' "$SCORES"; }
+mmss() { printf '%d:%02d' $(( $1 / 60 )) $(( $1 % 60 )); }
+stars() { local s=""; for _ in $(seq 1 "$1"); do s+="●"; done; for _ in $(seq "$1" 2); do s+="○"; done; echo "$s"; }
+
+load_current() { [[ -f $CUR ]] || die "No drill running. Start one: play start"; # shellcheck disable=SC1090
+  source "$CUR"; DIR=$(drill_dir "$ID"); }
+
+cmd_list() {
+  printf "\n  %-4s %-46s %-11s %-6s %-6s %s\n" ID DRILL TRACK LEVEL NEEDS BEST
+  for id in $(all_ids); do
+    IFS=$'\t' read -r title track level _ needs < <(drill_meta "$(drill_dir "$id")")
+    printf "  %-4s %-46s %-11s %-6s %-6s %s\n" "$id" "$title" "$track" "$(stars "$level")" "$needs" "$(best_score "$id")"
+  done
+  echo
+}
+
+cmd_start() {
+  local id="" track="" hidden=false
+  while [[ $# -gt 0 ]]; do
+    case $1 in --track) track=$2; shift 2 ;; *) id=$1; shift ;; esac
+  done
+  if [[ -f $CUR ]]; then
+    # shellcheck disable=SC1090
+    source "$CUR"; die "Drill $ID is still running. Finish it (play check), give up (play reveal), or play reset."
+  fi
+  load_creds
+  if [[ -z $id ]]; then
+    hidden=true
+    local pool=()
+    for i in $(all_ids); do
+      IFS=$'\t' read -r _ t _ _ n < <(drill_meta "$(drill_dir "$i")")
+      [[ -n $track && $t != "$track" ]] && continue
+      [[ $n != local ]] && continue
+      [[ -n "$(best_score "$i")" ]] && continue
+      pool+=("$i")
+    done
+    (( ${#pool[@]} )) || die "Nothing unsolved left${track:+ in track $track}. Replay one by ID."
+    id=${pool[RANDOM % ${#pool[@]}]}
+  fi
+  DIR=$(drill_dir "$id") || die "No drill $id (play list)"
+  IFS=$'\t' read -r title track level par needs < <(drill_meta "$DIR")
+  [[ $needs == local ]] || die "Drill $id needs '$needs' -- see its README section; not runnable locally."
+
+  c_hdr "Setting the scene..."
+  "$PG_ROOT/play" doctor --quiet || die "Playground is not healthy; fix that first (play doctor)."
+  local started; started=$(date +%s)
+  DRILL_STARTED=$started bash "$DIR/break.sh" > "$STATE/logs/break-$id.log" 2>&1 \
+    || die "The break script failed (not your fault): $STATE/logs/break-$id.log"
+  printf 'ID=%s\nSTARTED=%s\nHINTS=0\nHIDDEN=%s\n' "$id" "$started" "$hidden" > "$CUR"
+
+  echo
+  if [[ $hidden == true ]]; then c_hdr "INCIDENT  (random drill, level $(stars "$level"), par ${par} min)"
+  else c_hdr "INCIDENT $id: $title  ($(stars "$level"), par ${par} min)"; fi
+  sed 's/^/  /' "$DIR/ticket.md"
+  cat <<EOF
+
+  Your workspace: $WORK  (git pull first -- others may have pushed)
+  Jenkins $JENKINS_URL   Gitea $GITEA_URL   kubectl --context $CTX
+
+  Clock is running.   play hint | play check | play reveal
+EOF
+}
+
+cmd_status() {
+  load_current
+  IFS=$'\t' read -r title _ level par _ < <(drill_meta "$DIR")
+  local el=$(( $(date +%s) - STARTED ))
+  [[ $HIDDEN == true ]] && title="(hidden -- you are diagnosing blind)"
+  echo "  drill $([[ $HIDDEN == true ]] && echo '??' || echo "$ID"): $title"
+  echo "  elapsed $(mmss $el) (par ${par}:00), hints used $HINTS"
+}
+
+cmd_hint() {
+  load_current
+  local n=$(( HINTS + 1 )) total
+  total=$(awk '/^---$/{c++} END{print c+1}' "$DIR/hints.md")
+  (( n > total )) && { c_warn "No more hints. play reveal gives you the answer."; return; }
+  c_hdr "Hint $n of $total  (-15 points)"
+  awk -v n="$n" 'BEGIN{c=1} /^---$/{c++; next} c==n' "$DIR/hints.md" | sed 's/^/  /'
+  sed -i.bak "s/^HINTS=.*/HINTS=$n/" "$CUR" && rm -f "$CUR.bak"
+}
+
+cmd_check() {
+  load_current; load_creds
+  c_hdr "Checking..."
+  local out rc
+  out=$(DRILL_STARTED=$STARTED bash "$DIR/check.sh" 2>&1); rc=$?
+  grep -v '^PENALTY' <<<"$out"
+  if (( rc != 0 )); then
+    echo; c_warn "Not fixed yet. Clock still running ($(mmss $(( $(date +%s) - STARTED ))))."
+    return 1
+  fi
+  local el=$(( $(date +%s) - STARTED )) score=100 pen reasons
+  IFS=$'\t' read -r _ _ _ par _ < <(drill_meta "$DIR")
+  score=$(( score - HINTS * 15 ))
+  over=$(( el / 60 - par )); (( over > 0 )) && score=$(( score - over ))
+  pen=$(awk '/^PENALTY/{s+=$2} END{print s+0}' <<<"$out")
+  reasons=$(grep '^PENALTY' <<<"$out" | cut -d' ' -f3-)
+  score=$(( score - pen )); (( score < 10 )) && score=10
+  echo
+  c_ok "SOLVED in $(mmss $el), $HINTS hint(s), score $score/100"
+  [[ -n $reasons ]] && while read -r r; do c_warn "$r"; done <<<"$reasons"
+  printf '%s\t%s\t%s\t%s\t%s\tsolved\n' "$(date -u +%FT%TZ)" "$ID" "$el" "$HINTS" "$score" >> "$SCORES"
+  finish_drill
+  echo
+  echo "  Now close the ticket like you would at work:   play close"
+}
+
+finish_drill() {
+  mkdir -p "$JOURNAL"
+  cp "$CUR" "$STATE/last.env"
+  rm -f "$CUR"
+}
+
+cmd_reveal() {
+  if [[ -f $CUR ]]; then
+    load_current
+    printf '%s\t%s\t%s\t%s\t0\trevealed\n' "$(date -u +%FT%TZ)" "$ID" "$(( $(date +%s) - STARTED ))" "$HINTS" >> "$SCORES"
+    finish_drill
+  else
+    [[ -f "$STATE/last.env" ]] || die "Nothing to reveal."
+    # shellcheck disable=SC1091
+    source "$STATE/last.env"; DIR=$(drill_dir "$ID")
+  fi
+  IFS=$'\t' read -r title _ _ _ _ < <(drill_meta "$DIR")
+  c_hdr "Drill $ID: $title"
+  sed 's/^/  /' "$DIR/solution.md"
+  echo; echo "  Then: play reset   (puts the playground back to baseline)"
+}
+
+cmd_close() {
+  [[ -f "$STATE/last.env" ]] || die "Solve a drill first."
+  # shellcheck disable=SC1091
+  source "$STATE/last.env"; DIR=$(drill_dir "$ID")
+  IFS=$'\t' read -r title _ _ _ _ < <(drill_meta "$DIR")
+  mkdir -p "$JOURNAL"
+  local f="$JOURNAL/$(date +%Y%m%d-%H%M)-$ID.md"
+  cat > "$f" <<EOF
+# $ID -- $title
+
+## Reply to the developer (3 lines, no jargon they would not know)
+
+
+## Root cause (one sentence, the layer that actually failed)
+
+
+## How I found it (the commands, in the order I ran them)
+
+
+## What stops it happening again
+
+
+## How I would tell this in an interview (STAR, 60 seconds)
+
+EOF
+  "${EDITOR:-vi}" "$f"
+  c_ok "saved $f"
+  echo "  Compare with the model answer: play reveal"
+}
+
+cmd_reset() {
+  load_creds
+  c_hdr "Resetting to baseline"
+  local id=""
+  [[ -f $CUR ]] && { # shellcheck disable=SC1090
+    source "$CUR"; id=$ID; }
+  [[ -z $id && -f "$STATE/last.env" ]] && { # shellcheck disable=SC1091
+    source "$STATE/last.env"; id=$ID; }
+  for d in "$DRILLS"/*/; do
+    [[ -f "$d/reset.sh" ]] && bash "$d/reset.sh" >>"$STATE/logs/reset.log" 2>&1
+  done
+  for repo in platform/platform-lib payments/demo-api; do
+    local dir="$STATE/scratch/reset"
+    rm -rf "$dir"; git clone -q "$(repo_url "$repo")" "$dir"
+    if [[ "$(git -C "$dir" rev-parse HEAD)" != "$(git -C "$dir" rev-parse 'baseline^{commit}')" ]]; then
+      git -C "$dir" checkout -q baseline -- . && git -C "$dir" add -A
+      git -C "$dir" -c user.name="playground reset" -c user.email=reset@playground.local \
+        commit -q -m "reset to baseline" && git -C "$dir" push -q origin HEAD:main
+      c_ok "$repo back to baseline content (as a new commit, not a force-push)"
+    fi
+    rm -rf "$dir"
+  done
+  rm -f "$CUR"
+  jenkins_scan
+  cmd_wait_green 600 && c_ok "baseline is green. Remember to git pull in $WORK."
+}
+
+cmd_wait_green() {
+  load_creds
+  local limit=${1:-600} t0; t0=$(date +%s)
+  printf "  waiting for a green main build"
+  while (( $(date +%s) - t0 < limit )); do
+    b=$(last_build main)
+    if [[ $(jq -r '.building // true' <<<"$b") == false && $(jq -r '.result' <<<"$b") == SUCCESS ]] \
+       && (( $(jq -r '.timestamp' <<<"$b") / 1000 >= t0 - 5 || ${WAIT_ANY:-1} == 1 )) \
+       && K -n demo-ci rollout status deploy/demo-api --timeout=5s >/dev/null 2>&1 \
+       && [[ $(git ls-remote "$(repo_url payments/demo-api)" refs/heads/main | cut -c1-8) == \
+             $(K -n demo-ci get deploy demo-api -o jsonpath='{.spec.template.spec.containers[0].image}' | sed -E 's/.*:main-([0-9a-f]{8})-.*/\1/') ]]; then
+      echo; c_ok "main #$(jq -r .number <<<"$b") green and deployed"; return 0
+    fi
+    printf "."; sleep 10
+  done
+  echo; c_bad "timed out after ${limit}s"; return 1
+}
+
+cmd_score() {
+  [[ -f $SCORES ]] || { echo "  No games yet."; return; }
+  printf "\n  %-20s %-4s %-7s %-5s %-5s %s\n" WHEN ID TIME HINTS SCORE RESULT
+  while IFS=$'\t' read -r when id el hints score res; do
+    printf "  %-20s %-4s %-7s %-5s %-5s %s\n" "$when" "$id" "$(mmss "$el")" "$hints" "$score" "$res"
+  done < "$SCORES"
+  echo
+}
+
+cmd_doctor() {
+  local quiet=${1:-} ok=0
+  say() { [[ $quiet == --quiet ]] || "$@"; }
+  load_creds
+  K get nodes >/dev/null 2>&1 && say c_ok "kind cluster" || { say c_bad "kind cluster ($CTX) unreachable -- run setup/up.sh"; ok=1; }
+  gitea_api GET /user >/dev/null 2>&1 && say c_ok "Gitea" || { say c_bad "Gitea not answering on $GITEA_URL"; ok=1; }
+  jenkins_get /api/json >/dev/null 2>&1 && say c_ok "Jenkins" || { say c_bad "Jenkins not answering on $JENKINS_URL"; ok=1; }
+  curl -fsS localhost:5001/v2/ >/dev/null 2>&1 && say c_ok "registry" || { say c_bad "registry not answering on localhost:5001"; ok=1; }
+  return $ok
+}
+
+case "${1:-help}" in
+  list) cmd_list ;;
+  start) shift; cmd_start "$@" ;;
+  status) cmd_status ;;
+  hint) cmd_hint ;;
+  check) cmd_check ;;
+  reveal|giveup) cmd_reveal ;;
+  close) cmd_close ;;
+  reset) cmd_reset ;;
+  score) cmd_score ;;
+  doctor) shift; cmd_doctor "${1:-}" ;;
+  wait-green) shift; cmd_wait_green "${1:-600}" ;;
+  *) sed -n '2,20p' "$0" | sed 's/^# \{0,1\}//' ;;
+esac

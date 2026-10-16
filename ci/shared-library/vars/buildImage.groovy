@@ -17,13 +17,18 @@ def call(Map cfg) {
     boolean push   = cfg.push == null ? true : cfg.push
     String region  = cfg.region     ?: 'us-east-1'
     String registry = repo.tokenize('/')[0]
+    // Only ECR needs a minted token. Anything else (the playground's kind
+    // registry) is either anonymous or logged in some other way.
+    boolean ecr    = registry.contains('.dkr.ecr.')
+    // Plain-HTTP registry, e.g. the playground's. Never set for ECR.
+    boolean insecure = cfg.insecure == null ? (env.PLATFORM_REGISTRY_INSECURE == 'true') : cfg.insecure
 
     // Docker-style config.json in the workspace, readable by the BuildKit
     // container (shared emptyDir). Mode 600; deleted in `finally`.
     String dockerCfg = "${env.WORKSPACE}/.docker-${env.BUILD_NUMBER}"
 
     try {
-        if (push) {
+        if (push && ecr) {
             container('deploy') {
                 // `set +x` FIRST. Jenkins runs every `sh` with -x, which echoes
                 // each command with its variables expanded -- the first version
@@ -63,7 +68,7 @@ def call(Map cfg) {
                   --local context='${context}' \\
                   --local dockerfile='${context}' \\
                   --opt build-arg:VERSION='${tag}' \\
-                  --output type=image,name='${repo}:${tag}',push=${push}
+                  --output type=image,name='${repo}:${tag}',push=${push}${insecure ? ',registry.insecure=true' : ''}
             """
         }
     } finally {
