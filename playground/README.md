@@ -104,7 +104,7 @@ Suggested first pass: 01 → 02 → 08 → 03 → 05 → 04 → 07 → 06, then
 3. `play close` on both. Re-read yesterday's journal entries.
 4. `play reveal` on the one you found hardest, and compare.
 
-## AWS tier: drills 11–14 (needs a KodeKloud session)
+## AWS tier: drills 11–16 (needs a KodeKloud session)
 
 Same game, same Gitea-and-Jenkins mechanics, but on the EKS lab with real
 **ECR** and real **IAM**. Its state and clones are separate
@@ -124,6 +124,8 @@ playground/play reset                     # an AWS drill resets via up-aws.sh --
 | 12 | "Security found a token in a build log" | `set -x` leaks, what you can and cannot revoke, cleaning history |
 | 13 | "denied: not authorized to perform" | 403 = credentials arrived and were refused; least privilege on the node role |
 | 14 | "Pentest: any pod can push to ECR" | node role vs IRSA / Pod Identity, and proving what a locked-down account allows |
+| 15 | "Terraform says the state is locked" | stale S3 lockfile, who holds it, force-unlock vs -lock=false / deleting state, plan before apply |
+| 16 | "New pods can't pull; the image is gone from ECR" | lifecycle policies (tagStatus, countType, rule priority), why running pods hide it, rebuild + keep-last-N per prefix |
 
 `preflight-aws.sh` refuses to start a drill with expired creds or under 20
 minutes left in the 3-hour IAM window. These drills are `VERIFIED=no` until
