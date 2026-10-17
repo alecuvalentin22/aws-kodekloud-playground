@@ -36,22 +36,27 @@ There are two Jenkins: the **playground** one (port 30094) is where the drills
 happen; the **platform** one (`jenkins.` address) is part of the home-lab
 platform you will give a tour of on day 5.
 
-**2. Check the playground** from a Mac terminal:
+**2. Connect your Mac** (once). Nothing gets installed: everything runs on the lab,
+your Mac only needs its built-in `ssh` and a browser. The lab owner must have added
+your **public** key first (send them `~/.ssh/id_ed25519.pub`, never the file without
+`.pub`). On the home Wi-Fi, in Terminal:
+
+```bash
+curl -fsSL -o join.sh https://raw.githubusercontent.com/alecuvalentin22/aws-kodekloud-playground/feat/playground/homelab/mac/join.sh
+bash join.sh
+```
+
+It sets up SSH for the lab (and pins the lab's identity, so there is no "are you
+sure?" question), checks the connection, and ends with "You are set up". Then:
 
 ```bash
 ssh homelab-1-wsl                                   # you are now on the lab box
 git -C ~/platform-lab pull                          # latest drills
-~/platform-lab/playground/play doctor               # every line should be ✓
+play doctor                                         # every line should be ✓
 ```
 
 If something is ✗: `~/platform-lab/playground/setup/up.sh` (safe to re-run), then
 `play doctor` again. Still red? See "When something is broken" at the bottom.
-
-**3. Make `play` short to type** (on the box, once):
-
-```bash
-echo 'alias play=~/platform-lab/playground/play' >> ~/.bashrc && source ~/.bashrc
-```
 
 ---
 
