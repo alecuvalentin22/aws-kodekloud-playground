@@ -83,6 +83,7 @@ is a set of real incident stories in your own words.
 | 06 | "Can our pipeline deploy to staging?" | kubernetes | least-privilege RBAC, `auth can-i --as`, a second bug hiding behind the first |
 | 07 | "Every team red at 9:05" | jenkins | shared-library blast radius, revert vs force-push, pinning, release strategy |
 | 08 | "Remove one bucket, not three" | terraform | count vs for_each, `moved` blocks, reading a plan as a review artifact |
+| 09 | "Three copies of the same test block" | jenkins | writing a shared-library step (`vars/`, `call`), releasing it as a semver tag, testing it from a branch, pinning the pilot team, leaving other teams untouched |
 
 Home-lab tier (`NEEDS=homelab`: they break the home lab's RKE2 cluster itself, so
 `play` runs them from the **Mac**, `playground/play start 21`; see "Playing on the home lab"):
