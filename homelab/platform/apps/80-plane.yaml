@@ -1,0 +1,73 @@
+# Wave 8, after everything else (it serves the interview drills, nothing in the
+# platform depends on it). Plane Community Edition, the Jira-like tracker, at
+# http://tracker.192.168.0.23.nip.io. Chart plane-ce 1.8.4 (2026-09-29), Plane
+# v1.4.2 (2026-08-23); see values/plane.yaml.
+#
+# Prerequisites, from the Mac (README "Tracker (Plane)"):
+#   homelab/platform/plane-setup.sh secrets      # 5 Secrets in ns plane, random, once
+# then, once the pods are up:
+#   HOMELAB_ADMIN_PASSWORD=... homelab/platform/plane-setup.sh admin
+# Without the Secrets the pods wait in CreateContainerConfigError (closed, not open).
+apiVersion: argoproj.io/v1alpha1
+kind: Application
+metadata:
+  name: plane
+  namespace: argocd
+  annotations:
+    argocd.argoproj.io/sync-wave: "8"
+spec:
+  project: homelab
+  destination:
+    server: https://kubernetes.default.svc
+    namespace: plane
+  sources:
+    - repoURL: https://helm.plane.so
+      chart: plane-ce
+      targetRevision: 1.8.4
+      helm:
+        releaseName: plane
+        valueFiles:
+          - $values/homelab/platform/values/plane.yaml
+    - repoURL: https://github.com/alecuvalentin22/aws-kodekloud-playground.git
+      targetRevision: feat/playground
+      ref: values
+    # LimitRange for the chart's resource-less datastores and Jobs.
+    - repoURL: https://github.com/alecuvalentin22/aws-kodekloud-playground.git
+      targetRevision: feat/playground
+      path: homelab/platform/manifests/plane
+  # 1. Every pod template carries `timestamp: {{ now }}` (all the chart's
+  #    Deployments, StatefulSets and Jobs), so each render differs and, with
+  #    selfHeal, Argo would roll every Plane pod on every reconcile. Ignore that
+  #    one annotation AND RespectIgnoreDifferences, so a sync does not write it
+  #    either (AGENTS.md 4e: suppressing the report without stopping the write
+  #    hides the churn).
+  # 2. volumeClaimTemplates are rendered with apiVersion/kind/creationTimestamp:
+  #    null/storageClassName: null, which the API server does not store: the
+  #    same permanent OutOfSync as Artifactory's StatefulSet. They are immutable,
+  #    so ignore the whole list.
+  # 3. Jobs plane-api-migrate-1 / plane-minio-bucket-1 (helm template always
+  #    renders Release.Revision 1): their pod template is immutable. To upgrade
+  #    Plane, delete both Jobs right after bumping planeVersion; Argo re-creates
+  #    them and the api waits for the migrations (wait_for_migrations).
+  ignoreDifferences:
+    - group: apps
+      kind: Deployment
+      jqPathExpressions:
+        - .spec.template.metadata.annotations.timestamp
+    - group: apps
+      kind: StatefulSet
+      jqPathExpressions:
+        - .spec.template.metadata.annotations.timestamp
+        - .spec.volumeClaimTemplates
+    - group: batch
+      kind: Job
+      jqPathExpressions:
+        - .spec.template.metadata.annotations.timestamp
+  syncPolicy:
+    automated: {prune: true, selfHeal: true}
+    syncOptions:
+      - CreateNamespace=true
+      - ServerSideApply=true
+      - ServerSideDiff=true
+      - FailOnSharedResource=true
+      - RespectIgnoreDifferences=true

@@ -15,6 +15,7 @@
 #   5  Artifactory OSS (last of the tools: the slowest, likeliest to fail; must not block the portal)
 #   6  lan-ingress (the Wi-Fi names)
 #   7  homepage (the start page)
+#   8  plane (the interview tracker, playground/tracker/)
 #
 # selfHeal re-creates any child somebody deletes; prune removes children whose
 # file is deleted from git.

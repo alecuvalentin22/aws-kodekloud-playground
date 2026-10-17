@@ -1,0 +1,103 @@
+# Plane Community Edition: the Jira-like issue tracker for the interview drills
+# (playground/tracker/: one ticket per drill, the board follows `play`).
+# Chart plane-ce 1.8.4 (helm.plane.so), published 2026-09-29; app Plane v1.4.2,
+# GitHub release and Docker images of 2026-08-23. Chart 1.8.5 (2026-10-13) and
+# Plane v1.4.3-rc1 (2026-10-06) are under two weeks old.
+#
+# http://tracker.192.168.0.23.nip.io  login admin@homelab.local / the shared password
+# (Plane logs in by e-mail; homelab/platform/plane-setup.sh creates the account).
+#
+# NO SECRET IS RENDERED BY THIS CHART: every external_secrets.* below names a
+# Secret created from the Mac by `homelab/platform/plane-setup.sh secrets`
+# (random values, created once, never rotated). Without them the chart would
+# render its PUBLIC example SECRET_KEY and DB/MinIO/RabbitMQ passwords, and
+# Argo would have them in git-rendered state. requireExplicitSecrets makes the
+# render fail instead of falling back to those constants.
+#
+# Plain HTTP works without a setting: the chart puts http://<appHost> in
+# CORS_ALLOWED_ORIGINS, and Plane then sets SESSION_COOKIE_SECURE /
+# CSRF_COOKIE_SECURE = False (apps/api/plane/settings/common.py, v1.4.2).
+planeVersion: v1.4.2
+
+ingress:
+  enabled: true
+  appHost: tracker.192.168.0.23.nip.io
+  # Any value not starting with "traefik" renders a plain networking.k8s.io Ingress.
+  ingressClass: nginx
+  ingress_annotations:
+    nginx.ingress.kubernetes.io/proxy-body-size: "5m"
+
+external_secrets:
+  app_env_existingSecret: plane-app-env        # SECRET_KEY LIVE_SERVER_SECRET_KEY REDIS_URL DATABASE_URL AMQP_URL
+  live_env_existingSecret: plane-live-env      # LIVE_SERVER_SECRET_KEY REDIS_URL
+  pgdb_existingSecret: plane-pgdb              # POSTGRES_USER POSTGRES_PASSWORD POSTGRES_DB
+  rabbitmq_existingSecret: plane-rabbitmq      # RABBITMQ_DEFAULT_USER RABBITMQ_DEFAULT_PASS
+  doc_store_existingSecret: plane-doc-store    # USE_MINIO MINIO_ROOT_* AWS_* FILE_SIZE_LIMIT
+
+env:
+  requireExplicitSecrets: true
+  # Default 60/minute per API key; playground/tracker/sync.sh makes ~150 calls
+  # in one run (it also backs off on 429).
+  api_key_rate_limit: "300/minute"
+
+# Datastores. The chart gives these StatefulSets NO resources block and has no
+# value for one, so manifests/plane/limitrange.yaml gives them (and the two
+# Jobs) defaults: 64Mi/25m requested, 768Mi limit.
+postgres:
+  volumeSize: 2Gi
+  pullPolicy: IfNotPresent
+redis:
+  pullPolicy: IfNotPresent
+rabbitmq:
+  pullPolicy: IfNotPresent
+minio:
+  # The chart's default init image is a bare `busybox` (floating tag). 1.37.0 is
+  # from 2024 (Docker Hub re-pushed the tag 2026-09-23).
+  init_image: busybox:1.37.0
+  pullPolicy: IfNotPresent
+
+# App pods. pullPolicy Always is the chart default; the tag is pinned, so
+# IfNotPresent saves a registry round trip on every restart.
+# Requests: measured with `kubectl top`, see homelab/platform/README.md "Tracker".
+api:
+  memoryRequest: 384Mi
+  memoryLimit: 1Gi
+  cpuRequest: 50m
+  cpuLimit: "1"
+  pullPolicy: IfNotPresent
+worker:
+  memoryRequest: 256Mi
+  memoryLimit: 1Gi
+  cpuRequest: 25m
+  cpuLimit: "1"
+  pullPolicy: IfNotPresent
+beatworker:
+  memoryRequest: 128Mi
+  memoryLimit: 512Mi
+  cpuRequest: 10m
+  cpuLimit: 500m
+  pullPolicy: IfNotPresent
+web:
+  memoryRequest: 64Mi
+  memoryLimit: 512Mi
+  cpuRequest: 10m
+  cpuLimit: 500m
+  pullPolicy: IfNotPresent
+space:
+  memoryRequest: 32Mi
+  memoryLimit: 256Mi
+  cpuRequest: 10m
+  cpuLimit: 250m
+  pullPolicy: IfNotPresent
+admin:
+  memoryRequest: 32Mi
+  memoryLimit: 256Mi
+  cpuRequest: 10m
+  cpuLimit: 250m
+  pullPolicy: IfNotPresent
+live:
+  memoryRequest: 64Mi
+  memoryLimit: 512Mi
+  cpuRequest: 10m
+  cpuLimit: 500m
+  pullPolicy: IfNotPresent

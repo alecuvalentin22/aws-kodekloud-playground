@@ -29,6 +29,7 @@ spec:
     - https://charts.jfrog.io
     - https://backstage.github.io/charts
     - https://kubernetes-sigs.github.io/headlamp/
+    - https://helm.plane.so
 
   destinations:
     - {server: https://kubernetes.default.svc, namespace: argocd}
@@ -42,6 +43,7 @@ spec:
     - {server: https://kubernetes.default.svc, namespace: backstage}
     - {server: https://kubernetes.default.svc, namespace: homepage}
     - {server: https://kubernetes.default.svc, namespace: headlamp}
+    - {server: https://kubernetes.default.svc, namespace: plane}
 
   clusterResourceWhitelist:
     - {group: "*", kind: "*"}

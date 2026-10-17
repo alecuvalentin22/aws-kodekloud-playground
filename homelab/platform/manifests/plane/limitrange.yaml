@@ -1,0 +1,18 @@
+# Defaults for the containers the plane-ce chart leaves without resources:
+# PostgreSQL, Valkey, RabbitMQ, MinIO (StatefulSets) and the migrate / bucket
+# Jobs. The app Deployments set their own (values/plane.yaml), which a
+# LimitRange default does not override. Argo applies LimitRange before any
+# workload (its built-in kind order), so the first pods already get these.
+apiVersion: v1
+kind: LimitRange
+metadata:
+  name: plane-defaults
+  namespace: plane
+spec:
+  limits:
+    - type: Container
+      defaultRequest:
+        cpu: 25m
+        memory: 64Mi
+      default:
+        memory: 768Mi
