@@ -1,0 +1,21 @@
+// ledger-export (finance): exports the ledger to CSV every night for the close.
+// Runs on the static box: it needs the finance VPN route that only build-01 has.
+pipeline {
+    agent { label 'static' }
+    options {
+        timestamps()
+        timeout(time: 10, unit: 'MINUTES')
+    }
+    stages {
+        stage('Export ledger') {
+            steps {
+                sh 'bash ci/export.sh'
+            }
+        }
+        stage('Publish') {
+            steps {
+                archiveArtifacts artifacts: 'out/*.csv.gz'
+            }
+        }
+    }
+}

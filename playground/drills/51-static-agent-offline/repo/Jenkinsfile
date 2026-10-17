@@ -1,0 +1,23 @@
+// release-signer (release engineering): signs the monthly release bundle.
+// It runs ONLY on the static box: the signing key lives on build-01
+// (hardware-backed in production). Hence the label, and hence the incident
+// when that box is down.
+pipeline {
+    agent { label 'static' }
+    options {
+        timestamps()
+        timeout(time: 10, unit: 'MINUTES')
+    }
+    stages {
+        stage('Sign release') {
+            steps {
+                sh '''
+                    echo "signing on $(uname -n) as $(id -un), node $NODE_NAME"
+                    test -d /home/jenkins/agent
+                    sleep 2
+                    echo "release bundle signed"
+                '''
+            }
+        }
+    }
+}

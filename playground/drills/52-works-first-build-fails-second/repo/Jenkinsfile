@@ -1,0 +1,32 @@
+// invoice-gen (billing team): renders and packages the monthly invoices.
+// Runs on the static box: the licensed PDF renderer is installed on build-01.
+pipeline {
+    agent { label 'static' }
+    options {
+        timestamps()
+        timeout(time: 10, unit: 'MINUTES')
+    }
+    stages {
+        stage('Dependencies') {
+            steps {
+                sh 'bash ci/fetch-deps.sh'
+            }
+        }
+        stage('Test') {
+            steps {
+                sh 'bash ci/run-tests.sh'
+            }
+            post {
+                always { junit 'build/reports/*.xml' }
+            }
+        }
+        stage('Package') {
+            steps {
+                sh 'bash ci/package.sh'
+            }
+            post {
+                success { archiveArtifacts artifacts: 'release.tgz' }
+            }
+        }
+    }
+}

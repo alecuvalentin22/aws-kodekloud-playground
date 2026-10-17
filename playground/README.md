@@ -92,6 +92,9 @@ is a set of real incident stories in your own words.
 | 46 | "My branch has no build" | jenkins | multibranch discovery: name filter vs Script Path, reading the scan log, fixing the branch not the shared job |
 | 47 | "Release job asks no questions, deploys the default" | jenkins | parameters only take effect after a run, defaults vs null, `params` vs `env`, release jobs that fail on missing input |
 | 48 | "Downstream deploy ran the wrong build" | jenkins | passing data between jobs, silently dropped parameters, deploying an exact tag/digest, never `latest` |
+| 51 | "build-01 is offline and the release only runs there" | jenkins | static (inbound) agents: agent vs controller log, a stale node secret a restart can't fix, the "temporarily offline" flag, why not to move a host-bound job to the controller |
+| 52 | "Works on the first build, fails on the second" | jenkins | static workspaces persist: ignored files survive checkout, a cache with no key, stale `dist/`, cleaning at the start vs only in `post`, why pods hide it |
+| 53 | "Static agent disk full, every static build red" | jenkins | the disk-space monitor, ENOSPC, orphaned workspaces, `cleanWs` + build discarders, not loosening the threshold |
 
 Home-lab tier (`NEEDS=homelab`: they break the home lab's RKE2 cluster itself, so
 `play` runs them from the **Mac**, `playground/play start 21`; see "Playing on the home lab"):
@@ -135,6 +138,7 @@ playground/play reset                     # an AWS drill resets via up-aws.sh --
 | 15 | "Terraform says the state is locked" | stale S3 lockfile, who holds it, force-unlock vs -lock=false / deleting state, plan before apply |
 | 16 | "New pods can't pull; the image is gone from ECR" | lifecycle policies (tagStatus, countType, rule priority), why running pods hide it, rebuild + keep-last-N per prefix |
 | 17 | "Ledger DB stuck Pending after the node went away" | EBS is zonal and the PV pins the pod to its AZ; restore capacity in that AZ or snapshot-and-restore elsewhere; never delete the PVC; node group per AZ, and EFS for shared files |
+| 64 | "The error-rate alarm never fired during the outage" | monitoring: metric identity = namespace + name + exact dimensions (case-sensitive), TreatMissingData and why a green alarm can be blind, proving an alarm with real datapoints instead of set-alarm-state, CloudWatch here / Datadog in the JD (CloudWatch only, no EKS needed beyond the preflight) |
 | 18 | "Terraform plan wants to delete a rule nobody knows about" | drift from console changes in an incident: read the plan, `plan -refresh-only`, the actor in CloudTrail, decide each change (remove the open SSH rule, don't codify it, no `ignore_changes`), then the unrelated change and a clean plan |
 | 61 | "Upload job: AccessDenied, and our IAM policy allows s3:PutObject" | "explicit deny in a resource-based policy": a bucket-policy Deny beats any IAM allow; two Denies (SSE header, TLS) behind one message; fix the client, never weaken the guardrail or disable TLS verification |
 | 62 | "The release manifest is gone, and the one there now is wrong" | S3 versioning: delete markers vs versions, restoring the RIGHT version forward with copy-object, why a laptop re-upload is not recovery |
@@ -189,6 +193,7 @@ on the Wi-Fi (`HOMELAB_ADMIN_PASSWORD` or a hidden prompt; nothing installed).
 | [`exercises/backstage/`](exercises/backstage/README.md) | model a System + API + Component, register it from your public GitHub repo, find why a broken entity never appears | the catalog model, ownership, templates/TechDocs/plugins |
 | [`exercises/jenkins-job-types/`](exercises/jenkins-job-types/README.md) | one job of every kind: freestyle, scripted vs declarative, multibranch, parameterized, upstream/downstream, matrix, Job DSL, triggers | when to use which; CPS; jobs as code; 15 interview Q&A |
 | [`exercises/full-cicd/`](exercises/full-cicd/README.md) | build -> test -> image -> staging -> smoke test -> approval -> prod -> automatic rollback, in one declarative pipeline | why each stage exists; `input` outside agents; `stash`; `rollout undo` in `post { failure }` |
+| [`exercises/static-vs-dynamic-agents/`](exercises/static-vs-dynamic-agents/README.md) | one pipeline on `static-01` and on a pod: persistence, queueing, cold start, offline behaviour, leftover credentials | static vs dynamic trade-offs and how each breaks (static agent: `setup/static-agent.sh up`) |
 
 ## Playing on the home lab
 
