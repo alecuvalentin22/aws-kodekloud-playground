@@ -57,3 +57,29 @@ To undo all of it: same admin PowerShell,
 
 On the Mac: `homelab/mac/prepare.sh homelab-2` prints the same three blocks
 with the new name. (This page is for `homelab-1` and this Mac's key.)
+
+## New router? (the Mac can no longer reach the PC)
+
+The firewall only lets in the old network's addresses, and Windows treats the
+new network as Public, so the fix has to happen on the PC. Admin PowerShell
+again, three blocks:
+
+```powershell
+cd $HOME; Invoke-WebRequest 'https://raw.githubusercontent.com/alecuvalentin22/aws-kodekloud-playground/0afb52aca2d1234c3f11f3fdac3f87d2ac44dc97/homelab/windows/readdress.ps1' -OutFile readdress.ps1
+```
+
+This must print **True**. If it prints False, stop.
+
+```powershell
+(Get-FileHash .\readdress.ps1 -Algorithm SHA256).Hash -eq '70BF2BDC29AFF69808B744B99296FBAB02139AECFC741258CBD91B8509ACBCAD'
+```
+
+```powershell
+powershell -ExecutionPolicy Bypass -File .\readdress.ps1
+```
+
+It marks the network Private, points the three home-lab firewall rules at the
+new network (same ports, nothing new opened), and prints a yellow HANDOFF
+block with the new IP and MAC. On the Mac: `homelab/mac/readdress.sh <new ip>`
+moves everything else (web addresses, API certificate, kubeconfig, SSH config).
+Then reserve that IP for that MAC on the router so it does not move again.
