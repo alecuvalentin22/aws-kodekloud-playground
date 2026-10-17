@@ -143,28 +143,44 @@ Then give the **platform tour** (section 3) out loud, as if to an interviewer.
 
 ### Day 6: AWS (one KodeKloud session, about 3 hours)
 
-Real ECR and real IAM on EKS. Start a KodeKloud AWS playground first; the
-session's credentials go in `~/.config/platform-lab/aws-lab-creds.env` on the Mac
-(mode 600, never `~/.aws/credentials`). Then, from the Mac:
+Real ECR, IAM, S3, VPC and EKS. Start a KodeKloud AWS playground first; its keys go
+in `~/.config/platform-lab/aws-lab-creds.env` (mode 600, never `~/.aws/credentials`).
+**Today the AWS drills run from the lab owner's Mac** (it has the AWS CLI and the
+keys; the lab box does not yet), so do this session together with them.
 
 ```bash
-make eks                                   # the EKS cluster (takes a while: start it first)
+make state && make eks && make kubeconfig  # the EKS cluster (~20 min: start it first)
 playground/setup/up-aws.sh                 # Gitea + Jenkins on EKS, ECR, a first green build
-playground/play start 11                   # then 12, 13, 14
+playground/play start 13                   # then the table below
 ```
+
+**Part 1, CI/CD on EKS** (Jenkins agents on EKS pushing to ECR):
 
 | Drill | Ticket | Par | Practise saying |
 |---|---|---|---|
 | 11 | "401 from ECR, and IAM is fine" | 20 min | what a 401 means vs a 403, and why "IAM is fine" can be true |
 | 12 | "Security found a token in a build log" | 25 min | what you can and cannot undo after a secret leaks |
 | 13 | "denied: not authorized to perform" | 20 min | least privilege on AWS, reading an IAM denial |
-| 14 | "Pentest: any pod can push to ECR" | 40 min | node role vs per-pod identity (IRSA / Pod Identity), and proving the fix |
+| 14 | "Pentest: any pod can push to ECR" | 40 min | node role vs per-pod identity (IRSA), and proving the fix |
+| 16 | "New pods can't pull; the image is gone from ECR" | 20 min | lifecycle policies, and why running pods hide the problem |
+
+**Part 2, cloud operations** (no Jenkins needed; pick the ones that match the
+interview, 3-4 per session). Each one is a real incident on the AWS account:
+
+| Area | Drills |
+|---|---|
+| Terraform | 15 state lock, 18 drift from a console change, 63 adopting a hand-made bucket (`import`) |
+| IAM / STS | 19 IRSA trust mismatch, 68 CI can't assume the deploy role, 72 session duration and role chaining |
+| S3 | 61 explicit deny in a bucket policy, 62 recovering with versioning, 75 ACLs disabled, 77 policy prefixes |
+| EKS | 17 volume pinned to an availability zone, 66 pod DNS policy, 69 full volume resized online, 74 Service selector matches no pods |
+| Network | 71 blocking one IP with a network ACL, 73 a stranded security-group reference, 76 a subnet on the wrong route table |
+| Ops | 64 an alarm that never fired (monitoring, like Datadog monitors), 65 ECR immutable tags, 67 who opened the bucket (CloudTrail forensics) |
 
 `play` refuses to start an AWS drill with under 20 minutes left in the session.
-Drills 13 and 14 have not been played live yet: if one misbehaves, note what
-happened; that is a bug in the drill, not you. Also read `STORY-AWS.md` (repo
-root): the EKS "17 pods per node" story is a classic interview question and cannot
-be a drill.
+Also read `STORY-AWS.md` (repo root): the EKS "17 pods per node" story is a classic
+interview question and cannot be a drill. Every AWS drill above was played live on
+2026-10-17; if one misbehaves on a new account, note what happened: that is the
+account's rules or a drill bug, not you.
 
 ### Day 7: Mock interview
 
@@ -176,6 +192,21 @@ box) and practise each STAR story in under two minutes.
 After that: replay anything under 80 points (`play list` shows your best scores).
 
 ---
+
+### After the seven days: more practice
+
+| Track | Drills / exercises | Where |
+|---|---|---|
+| Jenkins: pipelines II | 09 write and release a library step, 41-48 (swallowed failures, workspaces between stages, approvals that hold agents, credential scope, triggers, multibranch discovery, the parameter trap, downstream jobs) | the box |
+| Jenkins: static agents | exercise `exercises/static-vs-dynamic-agents/`, then 51-53 (agent offline, leftovers, disk full); start with `playground/setup/static-agent.sh up` | the box |
+| Jenkins job types | exercises `exercises/jenkins-job-types/` (freestyle .. Job DSL, 15 Q&A) and `exercises/full-cicd/` (staging, approval, prod, automatic rollback) | the box |
+| GitHub | 31-34 on your own GitHub account (`playground/setup/GITHUB.md`) | anywhere with your token |
+| Nice-to-haves | exercises `exercises/artifactory/` and `exercises/backstage/` | any computer on the Wi-Fi |
+
+**The board:** every drill and exercise is a ticket on the Tracker (start page
+tile, Jira-like). `play start` moves it to In Progress, a solved `play check` to
+Done with your score, `play close` posts your write-up, `play reveal` marks it
+"Needs replay". The tickets say exactly how to run each drill.
 
 ## 3. The platform tour (day 5, and "walk me through something you built")
 
