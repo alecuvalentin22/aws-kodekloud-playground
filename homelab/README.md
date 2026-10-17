@@ -261,6 +261,27 @@ keep these ports free; the role refuses to start on top of another listener in W
 script warns if Windows itself listens on them. To drop only some ports, edit
 `homelab_lan_tcp_forwards` and re-run with `-Ports` (without them) for the firewall.
 
+## Another computer's SSH key
+
+SSH is key-only and, after bootstrap, only this Mac's key gets in. To let another
+computer in (from the Mac, with the `.pub` file they sent; the private half never
+leaves their machine):
+
+```bash
+homelab/mac/authorize-key.sh their_id_ed25519.pub           # drills only: WSL box as `lab`, no Windows shell
+homelab/mac/authorize-key.sh their_id_ed25519.pub --full    # also an administrator PowerShell on the PC
+homelab/mac/authorize-key.sh their_id_ed25519.pub --remove  # take it out of both again
+```
+
+It writes the key to Windows' `administrators_authorized_keys` (permissions kept) and
+to `lab`'s `authorized_keys` in WSL, and prints the `~/.ssh/config` for the other
+computer plus the two host-key fingerprints to compare. "Drills only" restricts the
+Windows half to `command="exit 1",restrict,port-forwarding,permitopen="127.0.0.1:2222"`:
+it can only carry the connection on to WSL. Tested 2026-10-17 with a throwaway key:
+drills-only gives no Windows shell (exit 1, no output), reaches WSL as `lab`, and is
+refused any other port ("administratively prohibited"); `--full` gives the shell;
+`--remove` locks it out of both. Home Wi-Fi only, like everything here.
+
 ## Run these yourself
 
 Three scripts that change the running lab. They are written and statically checked
