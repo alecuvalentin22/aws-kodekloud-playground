@@ -51,9 +51,11 @@ spec:
                   fieldPath: status.podIP
             # Host values Homepage's API proxy answers. The pod IP is for the
             # kubelet probe; the Service names for the blackbox probe; the other
-            # two are what a browser on the Wi-Fi sends (no port: it is :80).
+            # two are what a browser on the Wi-Fi sends (no port: it is :80), the name
+            # also with a trailing dot: a link copied from the end of a sentence
+            # sends "home.<ip>.nip.io." and Homepage compares names exactly.
             - name: HOMEPAGE_ALLOWED_HOSTS
-              value: "$(MY_POD_IP):3000,homepage.homepage.svc.cluster.local:3000,home.192.168.0.23.nip.io,192.168.0.23"
+              value: "$(MY_POD_IP):3000,homepage.homepage.svc.cluster.local:3000,home.192.168.0.23.nip.io,home.192.168.0.23.nip.io.,192.168.0.23"
           ports:
             - {name: http, containerPort: 3000, protocol: TCP}
           livenessProbe:
