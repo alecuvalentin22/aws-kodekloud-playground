@@ -1,12 +1,12 @@
 #!/usr/bin/env bash
 # Reach the RKE2 API from the home LAN WITHOUT the ssh tunnel: kubectl on the Mac
-# (or any LAN machine with the kubeconfig) talks to https://192.168.1.153:6443.
+# (or any LAN machine with the kubeconfig) talks to https://192.168.0.23:6443.
 #
 #   homelab/mac/lan-kube-api.sh            add the PC's LAN address to the API cert, write the kubeconfig
 #   homelab/mac/lan-kube-api.sh --yes      same, without the y/N question
 #   homelab/mac/lan-kube-api.sh --undo     remove that address again, delete the LAN kubeconfig
 #
-# Why it is needed: HAProxy in WSL already forwards 192.168.1.153:6443 -> 10.77.0.31:6443
+# Why it is needed: HAProxy in WSL already forwards 192.168.0.23:6443 -> 10.77.0.31:6443
 # (homelab/mac/lan-ingress.sh), but the API server's certificate only names 10.77.0.31
 # and 127.0.0.1, so kubectl refuses it. RKE2 takes extra names from `tls-san`.
 #
@@ -23,7 +23,7 @@
 # cluster-admin password. Re-running playbooks/rke2-cluster.yml WITHOUT the variable
 # drops the name again (it renders the same config.yaml); re-run this script after it.
 #
-# HOMELAB_LAN_IP   the address to add and to use    (default: 192.168.1.153)
+# HOMELAB_LAN_IP   the address to add and to use    (default: 192.168.0.23)
 # RKE2_SERVER_IP   the server VM, for the summary   (default: from homelab/generated/k8s.ini)
 set -euo pipefail
 HERE="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
@@ -32,7 +32,7 @@ GEN="$HERE/generated"
 INV="$GEN/k8s.ini"
 BASE="$GEN/rke2.kubeconfig"
 OUT="$GEN/rke2-lan.kubeconfig"
-SAN="${HOMELAB_LAN_IP:-192.168.1.153}"
+SAN="${HOMELAB_LAN_IP:-192.168.0.23}"
 CTX=homelab-rke2-lan
 
 YES=0
@@ -58,7 +58,7 @@ SERVER_NAME="$(awk '/^\[rke2_servers\]/{f=1;next} /^\[/{f=0} f&&NF&&$1!~/^#/{pri
 SERVER_IP="${RKE2_SERVER_IP:-$(sed -n "s/^${SERVER_NAME}[[:space:]].*ansible_host=\([^[:space:]]*\).*/\1/p" "$INV" | head -1)}"
 [[ -n $SERVER_NAME && -n $SERVER_IP ]] || die "could not find the [rke2_servers] host in $INV"
 
-# SANs of what 192.168.1.153:6443 serves, one per line. -text works on macOS' LibreSSL
+# SANs of what 192.168.0.23:6443 serves, one per line. -text works on macOS' LibreSSL
 # (which has no `x509 -ext`) as well as on OpenSSL 3.
 served_sans() {
   echo | openssl s_client -connect "$SAN:6443" -servername "$SAN" 2>/dev/null \

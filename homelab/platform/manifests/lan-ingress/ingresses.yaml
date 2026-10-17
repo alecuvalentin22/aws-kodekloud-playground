@@ -1,6 +1,6 @@
-# The tools on the home Wi-Fi, plain http: http://<tool>.192.168.1.153.nip.io
+# The tools on the home Wi-Fi, plain http: http://<tool>.192.168.0.23.nip.io
 #
-# The user's decision (2026-10-16): reachable from the whole 192.168.1.0/24,
+# The user's decision (2026-10-16): reachable from the whole 192.168.0.0/24,
 # no TLS, no local CA to trust, one shared admin login (set by
 # homelab/platform/secrets.sh, never in git). So logins cross the Wi-Fi in
 # clear text -- fine on a trusted home network, wrong anywhere else.
@@ -21,7 +21,7 @@ metadata:
 spec:
   ingressClassName: nginx
   rules:
-    - host: grafana.192.168.1.153.nip.io
+    - host: grafana.192.168.0.23.nip.io
       http:
         paths:
           - path: /
@@ -37,7 +37,7 @@ metadata:
 spec:
   ingressClassName: nginx
   rules:
-    - host: jenkins.192.168.1.153.nip.io
+    - host: jenkins.192.168.0.23.nip.io
       http:
         paths:
           - path: /
@@ -57,7 +57,7 @@ metadata:
 spec:
   ingressClassName: nginx
   rules:
-    - host: artifactory.192.168.1.153.nip.io
+    - host: artifactory.192.168.0.23.nip.io
       http:
         paths:
           - path: /
@@ -73,7 +73,7 @@ metadata:
 spec:
   ingressClassName: nginx
   rules:
-    - host: backstage.192.168.1.153.nip.io
+    - host: backstage.192.168.0.23.nip.io
       http:
         paths:
           - path: /
@@ -98,7 +98,7 @@ metadata:
 spec:
   ingressClassName: nginx
   rules:
-    - host: registry.192.168.1.153.nip.io
+    - host: registry.192.168.0.23.nip.io
       http:
         paths:
           - path: /

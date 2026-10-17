@@ -1,7 +1,7 @@
 # Argo CD UI/API through RKE2's bundled ingress-nginx.
 #
 # Two hosts:
-#   argocd.192.168.1.153.nip.io  plain http, from any device on the home Wi-Fi
+#   argocd.192.168.0.23.nip.io  plain http, from any device on the home Wi-Fi
 #                                (the user's decision, 2026-10-16: no TLS, no CA)
 #   argocd.127.0.0.1.nip.io      the SSH tunnel (homelab/mac/kube-tunnel.sh era);
 #                                https at the browser via nginx's default cert
@@ -22,7 +22,7 @@ metadata:
 spec:
   ingressClassName: nginx
   rules:
-    - host: argocd.192.168.1.153.nip.io
+    - host: argocd.192.168.0.23.nip.io
       http:
         paths:
           - path: /

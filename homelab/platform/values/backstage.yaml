@@ -47,7 +47,7 @@ backstage:
       # be the address the BROWSER uses: the SSH tunnel's port 8443, not the
       # Ingress' 443.
       # The Wi-Fi name (manifests/lan-ingress), plain http by the user's choice.
-      baseUrl: http://backstage.192.168.1.153.nip.io
+      baseUrl: http://backstage.192.168.0.23.nip.io
       # This list REPLACES the image's app.extensions (Backstage replaces arrays
       # rather than merging them), so the catalog-at-/ entry is repeated.
       extensions:
@@ -66,9 +66,9 @@ backstage:
     organization:
       name: Platform Lab
     backend:
-      baseUrl: http://backstage.192.168.1.153.nip.io
+      baseUrl: http://backstage.192.168.0.23.nip.io
       cors:
-        origin: http://backstage.192.168.1.153.nip.io
+        origin: http://backstage.192.168.0.23.nip.io
       # Required over plain http: the default CSP ends in
       # upgrade-insecure-requests, the browser rewrites every script URL to
       # https://, nothing serves that, and the page is blank with HTTP 200.

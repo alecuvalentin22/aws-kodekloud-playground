@@ -1,5 +1,5 @@
 # Wave 7, after the Wi-Fi Ingresses (wave 6). Homepage, the start page at
-# http://192.168.1.153/ and http://home.192.168.1.153.nip.io. Plain manifests
+# http://192.168.0.23/ and http://home.192.168.0.23.nip.io. Plain manifests
 # (kustomize for the hashed ConfigMap only), no chart: manifests/homepage/.
 #
 # Prerequisite, optional: Secret homepage/homepage-widgets (README, "Start page

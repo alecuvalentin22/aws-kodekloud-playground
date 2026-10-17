@@ -190,11 +190,11 @@ as above, rather than opening them to the LAN.
 
 ```bash
 homelab/mac/lan-ingress.sh               # Windows firewall rules, then the forwarder
-curl -k --resolve argocd.127.0.0.1.nip.io:443:192.168.1.153 https://argocd.127.0.0.1.nip.io/
-curl -sk https://192.168.1.153:6443/version        # RKE2 API: 401 without a client cert, which proves the path
+curl -k --resolve argocd.127.0.0.1.nip.io:443:192.168.0.23 https://argocd.127.0.0.1.nip.io/
+curl -sk https://192.168.0.23:6443/version        # RKE2 API: 401 without a client cert, which proves the path
 ```
 
-**Path:** LAN client -> Windows `192.168.1.153:<port>` (shared with WSL by mirrored
+**Path:** LAN client -> Windows `192.168.0.23:<port>` (shared with WSL by mirrored
 networking) -> HAProxy in WSL, **layer 4, TCP passthrough** (TLS is never terminated) ->
 
 - `80/443` -> `:80/:443` of `10.77.0.31/.32/.33` (ingress-nginx DaemonSet hostPorts);
@@ -203,12 +203,12 @@ networking) -> HAProxy in WSL, **layer 4, TCP passthrough** (TLS is never termin
   a future HA control plane joins the pool by itself). The API authenticates with client
   certificates, so passthrough is enough.
 - `30094/30095/30300` -> `127.0.0.1:<same port>` in WSL, where kind publishes the
-  playground's NodePorts. HAProxy binds the WSL's LAN address (`192.168.1.153`) rather
+  playground's NodePorts. HAProxy binds the WSL's LAN address (`192.168.0.23`) rather
   than `0.0.0.0` because a wildcard bind clashes with Docker's `127.0.0.1:30094`;
   `playground/setup/kind.yaml` (the Mac keeps its own copy) is untouched and the cluster
   is not recreated.
 
-**Reachable from the Wi-Fi (`192.168.1.0/24`, Private network profile) and what is deliberately not:**
+**Reachable from the Wi-Fi (`192.168.0.0/24`, Private network profile) and what is deliberately not:**
 
 | Port | What | From the LAN |
 |---|---|---|
@@ -269,7 +269,7 @@ Three scripts that change the running lab. They are written and statically check
 
 | Script | What it changes | Run |
 |---|---|---|
-| [`mac/lan-kube-api.sh`](mac/lan-kube-api.sh) | Adds `192.168.1.153` to `tls-san` on the RKE2 **server VM** (variable `rke2_cluster_extra_sans`, [`playbooks/rke2-sans.yml`](../playbooks/rke2-sans.yml)); `rke2-server` restarts once (API down ~1-2 min, pods keep running). Writes `generated/rke2-lan.kubeconfig` (mode 600, context `homelab-rke2-lan`) and runs `kubectl get nodes` with it: kubectl from the LAN, no tunnel. | `homelab/mac/lan-kube-api.sh` (asks y/N; `--yes` skips it; `--undo` removes the name and the file) |
+| [`mac/lan-kube-api.sh`](mac/lan-kube-api.sh) | Adds `192.168.0.23` to `tls-san` on the RKE2 **server VM** (variable `rke2_cluster_extra_sans`, [`playbooks/rke2-sans.yml`](../playbooks/rke2-sans.yml)); `rke2-server` restarts once (API down ~1-2 min, pods keep running). Writes `generated/rke2-lan.kubeconfig` (mode 600, context `homelab-rke2-lan`) and runs `kubectl get nodes` with it: kubectl from the LAN, no tunnel. | `homelab/mac/lan-kube-api.sh` (asks y/N; `--yes` skips it; `--undo` removes the name and the file) |
 | [`platform/secrets.sh`](platform/secrets.sh) | One password for user `admin` in Grafana, Jenkins, Argo CD and Artifactory: the chart Secrets, Grafana's and Artifactory's databases, Argo CD's bcrypt hash; restarts Grafana, Jenkins and `argocd-server`; deletes `argocd-initial-admin-secret`. Verifies each login over the LAN ingress and prints only HTTP codes. | `homelab/platform/secrets.sh` (`--check`, read-only, is the default)<br>`HOMELAB_ADMIN_PASSWORD='<your password>' homelab/platform/secrets.sh --apply` |
 | [`mac/wsl-self-heal.sh`](mac/wsl-self-heal.sh) | Re-registers only the `Homelab-WSL` task on the PC (`wsl-setup.ps1 -TaskOnly`): boot trigger **plus** a repeat every 5 minutes. WSL itself is not touched. `--prove` does one deliberate `wsl --shutdown` (everything in WSL, including the cluster, stops) and prints the seconds until the task has WSL back. | `homelab/mac/wsl-self-heal.sh`<br>`homelab/mac/wsl-self-heal.sh --prove` (asks y/N) |
 

@@ -50,7 +50,7 @@
 #   homelab/generated/rke2.kubeconfig      needs `homelab/mac/kube-tunnel.sh` running
 # A candidate that does not answer is skipped for the next one.
 #
-# HOMELAB_INGRESS_IP    where the ingress answers   (default: 192.168.1.153, the PC's LAN address)
+# HOMELAB_INGRESS_IP    where the ingress answers   (default: 192.168.0.23, the PC's LAN address)
 # HOMELAB_INGRESS_PORT  its HTTPS port              (default: 443; 8443 with the ssh tunnel
 #                       in homelab/platform/README.md and HOMELAB_INGRESS_IP=127.0.0.1)
 # HOMELAB_WAIT          seconds to wait for each login to work after a restart (default: 180)
@@ -63,7 +63,7 @@ umask 077
 
 HERE="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 GEN="$(cd "$HERE/.." && pwd)/generated"
-IP="${HOMELAB_INGRESS_IP:-192.168.1.153}"
+IP="${HOMELAB_INGRESS_IP:-192.168.0.23}"
 PORT="${HOMELAB_INGRESS_PORT:-443}"
 WAIT="${HOMELAB_WAIT:-180}"
 HOST_GRAFANA=grafana.127.0.0.1.nip.io

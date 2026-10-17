@@ -37,7 +37,7 @@ rke2_cluster_registry_mirrors:
 # which renders the file exactly as before (no change, no restart). Set it to
 # let a client reach the API by another address, e.g. the PC's LAN address:
 # homelab/mac/lan-kube-api.sh runs playbooks/rke2-sans.yml with
-# -e '{"rke2_cluster_extra_sans": ["192.168.1.153"]}'.
+# -e '{"rke2_cluster_extra_sans": ["192.168.0.23"]}'.
 # NB: rke2-cluster.yml renders config.yaml too, so re-running it WITHOUT the
 # variable drops the SAN again (and restarts rke2-server); keep it in -e or in
 # your own group_vars if the SAN should stay.

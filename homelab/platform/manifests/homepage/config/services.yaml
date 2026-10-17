@@ -9,7 +9,7 @@
 - Platform:
     - Argo CD:
         icon: argo-cd.png
-        href: http://argocd.192.168.1.153.nip.io
+        href: http://argocd.192.168.0.23.nip.io
         description: "GitOps controller (app-of-apps)"
         siteMonitor: http://argocd-server.argocd.svc.cluster.local/healthz
         namespace: argocd
@@ -24,7 +24,7 @@
           fields: ["apps", "synced", "outOfSync", "healthy"]
     - Grafana:
         icon: grafana.png
-        href: http://grafana.192.168.1.153.nip.io
+        href: http://grafana.192.168.0.23.nip.io
         description: "Dashboards, folder \"Home lab\""
         siteMonitor: http://kube-prometheus-stack-grafana.observability.svc.cluster.local/api/health
         namespace: observability
@@ -38,7 +38,7 @@
           fields: ["dashboards", "datasources", "totalalerts", "alertstriggered"]
     - Backstage:
         icon: backstage.png
-        href: http://backstage.192.168.1.153.nip.io
+        href: http://backstage.192.168.0.23.nip.io
         description: "Developer portal and service catalog"
         siteMonitor: http://backstage.backstage.svc.cluster.local:7007/.backstage/health/v1/liveness
         namespace: backstage
@@ -47,21 +47,21 @@
 - CI:
     - Jenkins:
         icon: jenkins.png
-        href: http://jenkins.192.168.1.153.nip.io
+        href: http://jenkins.192.168.0.23.nip.io
         description: "Pipelines, shared library, agents in the cluster"
         siteMonitor: http://jenkins.jenkins.svc.cluster.local:8080/login
         namespace: jenkins
         podSelector: app.kubernetes.io/component=jenkins-controller
     - Artifactory:
         icon: artifactory.png
-        href: http://artifactory.192.168.1.153.nip.io
+        href: http://artifactory.192.168.0.23.nip.io
         description: "Artifact repositories (OSS: generic, Maven)"
         siteMonitor: http://artifactory.artifactory.svc.cluster.local:8082/artifactory/api/system/ping
         namespace: artifactory
         podSelector: app=artifactory,component=artifactory
     - Registry:
         icon: docker.png
-        href: http://registry.192.168.1.153.nip.io
+        href: http://registry.192.168.0.23.nip.io
         description: "Docker images Jenkins builds"
         # The UI host answers 401 without the login (still green here, <= 403);
         # the Service is checked instead so the dot means "the registry answers".
@@ -72,24 +72,24 @@
 - Playground:
     - Playground Jenkins:
         icon: jenkins.png
-        href: http://192.168.1.153:30094
+        href: http://192.168.0.23:30094
         description: "Jenkins of the kind playground (Windows PC)"
-        siteMonitor: http://192.168.1.153:30094/login
+        siteMonitor: http://192.168.0.23:30094/login
     - Gitea:
         icon: gitea.png
-        href: http://192.168.1.153:30300
+        href: http://192.168.0.23:30300
         description: "Git server of the kind playground"
-        siteMonitor: http://192.168.1.153:30300/api/healthz
+        siteMonitor: http://192.168.0.23:30300/api/healthz
     - demo-api:
         icon: mdi-api
-        href: http://192.168.1.153:30095
+        href: http://192.168.0.23:30095
         description: "Sample app deployed by the playground pipeline"
-        siteMonitor: http://192.168.1.153:30095/
+        siteMonitor: http://192.168.0.23:30095/
 
 - Cluster:
     - Kubernetes API:
         icon: kubernetes.png
-        href: https://192.168.1.153:6443
+        href: https://192.168.0.23:6443
         description: "RKE2 v1.33, 3 nodes (token or kubeconfig needed)"
         # Anonymous /version answers 401: that is "up" here.
         siteMonitor: https://kubernetes.default.svc.cluster.local/version

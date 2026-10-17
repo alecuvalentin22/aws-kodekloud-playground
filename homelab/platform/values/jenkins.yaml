@@ -52,7 +52,7 @@ controller:
   # Jenkins' own idea of its URL, used in links and redirects. The browser
   # reaches it through the SSH tunnel on :8443, so the port is part of the URL.
   # The Wi-Fi name (manifests/lan-ingress), plain http by the user's choice.
-  jenkinsUrl: http://jenkins.192.168.1.153.nip.io
+  jenkinsUrl: http://jenkins.192.168.0.23.nip.io
   ingress:
     enabled: true
     ingressClassName: nginx

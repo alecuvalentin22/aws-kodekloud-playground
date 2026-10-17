@@ -116,7 +116,7 @@ homelab_lan_tcp_forwards:
 
 # Extra SANs for the RKE2 API certificate, written into the generated inventory
 # (homelab/generated/k8s.ini) so every rke2-cluster.yml run keeps them. Set per
-# PC in homelab/inventory.ini, e.g. homelab_rke2_extra_sans='["192.168.1.153"]'.
+# PC in homelab/inventory.ini, e.g. homelab_rke2_extra_sans='["192.168.0.23"]'.
 homelab_rke2_extra_sans: []
 
 # Off-VM copies of the RKE2 etcd snapshots (tasks/backups.yml).

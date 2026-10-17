@@ -130,7 +130,7 @@
       "id": 3,
       "type": "stat",
       "title": "Front door up (Wi-Fi name)",
-      "description": "Blackbox probe of the name people use (<tool>.192.168.1.153.nip.io, the playground NodePorts): PC -> HAProxy -> ingress-nginx -> app.",
+      "description": "Blackbox probe of the name people use (<tool>.192.168.0.23.nip.io, the playground NodePorts): PC -> HAProxy -> ingress-nginx -> app.",
       "datasource": {
         "type": "prometheus",
         "uid": "prometheus"

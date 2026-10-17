@@ -1,10 +1,10 @@
 // Backstage smoke test in a real headless Chromium, over plain http.
 // Run via ./backstage-smoke.sh (pinned Playwright image + package).
-// Env: BASE (default http://backstage.192.168.1.153.nip.io), OUT (screenshot dir, default /out).
+// Env: BASE (default http://backstage.192.168.0.23.nip.io), OUT (screenshot dir, default /out).
 import { chromium } from 'playwright';
 import fs from 'node:fs';
 
-const BASE = process.env.BASE || 'http://backstage.192.168.1.153.nip.io';
+const BASE = process.env.BASE || 'http://backstage.192.168.0.23.nip.io';
 const OUT = process.env.OUT || '/out';
 fs.mkdirSync(OUT, { recursive: true });
 

@@ -28,7 +28,7 @@
   Public or Domain networks. -Uninstall removes exactly the two rules above.
 .PARAMETER AllowFrom
   Who may connect, as a CIDR. Default: this PC's own LAN subnet, detected from
-  the interface that holds the default route (e.g. 192.168.1.0/24), as in bootstrap.ps1.
+  the interface that holds the default route (e.g. 192.168.0.0/24), as in bootstrap.ps1.
 .PARAMETER Ports
   TCP ports to open, in BOTH rules. Default 80, 443, 6443, 30094, 30095, 30300
   (keep in step with homelab_lan_tcp_forwards in roles/homelab/defaults).
@@ -77,7 +77,7 @@ if (-not $AllowFrom) {
   $net   = [BitConverter]::GetBytes([BitConverter]::ToUInt32($bytes, 0) -band $mask); [array]::Reverse($net)
   $AllowFrom = "$([Net.IPAddress]::new($net))/$($ip.PrefixLength)"
 }
-if ($AllowFrom -notmatch '^\d{1,3}(\.\d{1,3}){3}/\d{1,2}$') { throw "-AllowFrom must be a CIDR such as 192.168.1.0/24 (got '$AllowFrom')." }
+if ($AllowFrom -notmatch '^\d{1,3}(\.\d{1,3}){3}/\d{1,2}$') { throw "-AllowFrom must be a CIDR such as 192.168.0.0/24 (got '$AllowFrom')." }
 if ([int]($AllowFrom.Split('/')[1]) -lt 16) { throw "-AllowFrom $AllowFrom is wider than a home network. Refusing; pass something like /24." }
 
 # Nothing on Windows itself may hold these ports: mirrored mode shares them with WSL.

@@ -1,9 +1,9 @@
 # Uptime targets, one Probe per (app, layer); edit by hand.
 # Two layers, because "the app is up" and "people can reach it" fail separately:
 #   layer=in-cluster   the Service URL: the app answers, ingress/HAProxy not involved
-#   layer=front-door   the Wi-Fi name (http://<tool>.192.168.1.153.nip.io, or the
+#   layer=front-door   the Wi-Fi name (http://<tool>.192.168.0.23.nip.io, or the
 #                      playground's NodePort) as a browser sends it: the pod goes
-#                      out to the PC's 192.168.1.153, through HAProxy and
+#                      out to the PC's 192.168.0.23, through HAProxy and
 #                      ingress-nginx, and back to the app
 # All use job="blackbox-http" (spec.jobName) so dashboards query one job, and the
 # modules http_up / http_up_insecure of values/blackbox-exporter.yaml: a login
@@ -50,7 +50,7 @@ spec:
   targets:
     staticConfig:
       static:
-        - http://argocd.192.168.1.153.nip.io/healthz
+        - http://argocd.192.168.0.23.nip.io/healthz
       labels:
         app: argocd
         group: Platform
@@ -96,7 +96,7 @@ spec:
   targets:
     staticConfig:
       static:
-        - http://grafana.192.168.1.153.nip.io/api/health
+        - http://grafana.192.168.0.23.nip.io/api/health
       labels:
         app: grafana
         group: Platform
@@ -142,7 +142,7 @@ spec:
   targets:
     staticConfig:
       static:
-        - http://backstage.192.168.1.153.nip.io/.backstage/health/v1/liveness
+        - http://backstage.192.168.0.23.nip.io/.backstage/health/v1/liveness
       labels:
         app: backstage
         group: Platform
@@ -188,7 +188,7 @@ spec:
   targets:
     staticConfig:
       static:
-        - http://jenkins.192.168.1.153.nip.io/login
+        - http://jenkins.192.168.0.23.nip.io/login
       labels:
         app: jenkins
         group: CI
@@ -234,7 +234,7 @@ spec:
   targets:
     staticConfig:
       static:
-        - http://artifactory.192.168.1.153.nip.io/artifactory/api/system/ping
+        - http://artifactory.192.168.0.23.nip.io/artifactory/api/system/ping
       labels:
         app: artifactory
         group: CI
@@ -280,7 +280,7 @@ spec:
   targets:
     staticConfig:
       static:
-        - http://registry.192.168.1.153.nip.io/
+        - http://registry.192.168.0.23.nip.io/
       labels:
         app: registry
         group: CI
@@ -326,7 +326,7 @@ spec:
   targets:
     staticConfig:
       static:
-        - http://home.192.168.1.153.nip.io/api/healthcheck
+        - http://home.192.168.0.23.nip.io/api/healthcheck
       labels:
         app: homepage
         group: Platform
@@ -349,7 +349,7 @@ spec:
   targets:
     staticConfig:
       static:
-        - http://192.168.1.153/api/healthcheck
+        - http://192.168.0.23/api/healthcheck
       labels:
         app: homepage-ip
         group: Platform
@@ -418,7 +418,7 @@ spec:
   targets:
     staticConfig:
       static:
-        - https://192.168.1.153:6443/version
+        - https://192.168.0.23:6443/version
       labels:
         app: kubernetes-api
         group: Cluster
@@ -441,7 +441,7 @@ spec:
   targets:
     staticConfig:
       static:
-        - http://192.168.1.153:30094/login
+        - http://192.168.0.23:30094/login
       labels:
         app: playground-jenkins
         group: Playground
@@ -464,7 +464,7 @@ spec:
   targets:
     staticConfig:
       static:
-        - http://192.168.1.153:30300/api/healthz
+        - http://192.168.0.23:30300/api/healthz
       labels:
         app: gitea
         group: Playground
@@ -487,7 +487,7 @@ spec:
   targets:
     staticConfig:
       static:
-        - http://192.168.1.153:30095/
+        - http://192.168.0.23:30095/
       labels:
         app: demo-api
         group: Playground

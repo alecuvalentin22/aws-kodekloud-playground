@@ -2,7 +2,7 @@
 # The homelab tier: drills against the RKE2 cluster on the home-lab PC.
 # Source AFTER lib/common.sh.
 #
-#   kubectl   the LAN kubeconfig (https://192.168.1.153:6443, no tunnel)
+#   kubectl   the LAN kubeconfig (https://192.168.0.23:6443, no tunnel)
 #   VM ops    `hl_wsl <cmd>` runs a command in WSL (where Incus lives)
 #   answers   ~/platform-playground-homelab/answers/<id>.md  (what checks read)
 #
@@ -11,7 +11,7 @@
 HL_LAB="$(cd "$(dirname "${BASH_SOURCE[0]}")/../.." && pwd)"
 export KUBECONFIG="${HOMELAB_KUBECONFIG:-$HL_LAB/homelab/generated/rke2-lan.kubeconfig}"
 HL_WSL="${HOMELAB_SSH:-homelab-1}-wsl"
-HL_IP="${HOMELAB_IP:-192.168.1.153}"
+HL_IP="${HOMELAB_IP:-192.168.0.23}"
 HL_STATE="${PLAYGROUND_STATE:-$HOME/.local/state/platform-lab-playground}/homelab"
 HL_WORK="${HOMELAB_WORK:-$HOME/platform-playground-homelab}"
 HL_ANSWERS="$HL_WORK/answers"

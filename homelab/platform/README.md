@@ -39,7 +39,7 @@ Docker"); the job description itself is not in the repo.
 | 5 | `50-artifactory` | Artifactory OSS | chart 107.161.26 (`ARTIFACTORY_CHART`) | Artifact management |
 | 3 | `70-blackbox-exporter` | prober for the uptime dashboards | chart 11.19.1 (**2026-09-24**), image v0.28.0 (**2025-12-06**) | Monitoring / observability |
 | 4 | `72-monitoring` | uptime Probes, Argo CD ServiceMonitors, Grafana dashboards (folder "Home lab") | n/a (kustomize) | Monitoring / observability |
-| 7 | `74-homepage` | start page at `http://192.168.1.153/` | Homepage v2.4.0 (**2026-09-17**) | developer portal / front door |
+| 7 | `74-homepage` | start page at `http://192.168.0.23/` | Homepage v2.4.0 (**2026-09-17**) | developer portal / front door |
 
 Every chart version is the one in `versions.env`. The two pins that
 `versions.env` does not have were looked up on 2026-10-16:
@@ -187,8 +187,8 @@ to be cut. Two honest caveats remain:
 
 | What | URL |
 |---|---|
-| Start page | http://192.168.1.153/ or http://home.192.168.1.153.nip.io (Homepage v2.4.0, released 2026-09-17; v2.5.0 of 2026-10-10 is under two weeks old) |
-| Dashboards | Grafana, folder **Home lab**: [Home lab overview](http://grafana.192.168.1.153.nip.io/d/homelab-overview) and [Uptime](http://grafana.192.168.1.153.nip.io/d/homelab-uptime) |
+| Start page | http://192.168.0.23/ or http://home.192.168.0.23.nip.io (Homepage v2.4.0, released 2026-09-17; v2.5.0 of 2026-10-10 is under two weeks old) |
+| Dashboards | Grafana, folder **Home lab**: [Home lab overview](http://grafana.192.168.0.23.nip.io/d/homelab-overview) and [Uptime](http://grafana.192.168.0.23.nip.io/d/homelab-uptime) |
 
 **The start page** (`manifests/homepage/`, Application `74-homepage`, wave 7) is plain manifests from
 Homepage's own Kubernetes docs: namespace, read-only ServiceAccount/ClusterRole (nodes, pods, namespaces,
@@ -202,9 +202,9 @@ In-cluster tiles also show their pod's status and CPU/memory (`namespace` + `pod
 - **Why the bare IP works, and why it does not swallow the tools:** the Ingress has a host-less rule next to the named
   host. ingress-nginx makes one nginx server block per named host and puts a host-less rule in the default server, which only
   receives requests whose `Host` matches no block, so `argocd.`, `grafana.`, `jenkins.`, `artifactory.`, `backstage.` and
-  `registry.192.168.1.153.nip.io` still reach their apps (checked, below). An unknown host (`typo.192.168.1.153.nip.io`)
-  reaches Homepage, which answers 400 because `HOMEPAGE_ALLOWED_HOSTS` (pod IP, `home.192.168.1.153.nip.io`,
-  `192.168.1.153`, the Service name) does not list it. Homepage 2.x enforces that variable.
+  `registry.192.168.0.23.nip.io` still reach their apps (checked, below). An unknown host (`typo.192.168.0.23.nip.io`)
+  reaches Homepage, which answers 400 because `HOMEPAGE_ALLOWED_HOSTS` (pod IP, `home.192.168.0.23.nip.io`,
+  `192.168.0.23`, the Service name) does not list it. Homepage 2.x enforces that variable.
 - **Widgets that need credentials** read `{{HOMEPAGE_VAR_*}}` from the Secret `homepage-widgets` (optional: Homepage starts
   without it). Create it from the Mac, values never in git (this copies the Grafana login from the existing Secret):
 
@@ -250,9 +250,9 @@ Edit the JSON in git (or build it in Grafana, export, paste); the UI copy is rea
   disk / network, pods per node.
 - *Uptime:* `probe_success` state timeline, availability over the range, latency, HTTP status, TLS expiry (only the Kubernetes API is https).
 
-Verified 2026-10-16 from the Mac over the Wi-Fi: `http://192.168.1.153/` and `http://home.192.168.1.153.nip.io/` -> 200 (Homepage);
-`argocd.`, `grafana.`, `jenkins.`, `artifactory.`, `backstage.192.168.1.153.nip.io` -> 200 with their own pages (titles Argo CD, Grafana, Sign in - Jenkins,
-JFrog, Platform Lab); `typo.192.168.1.153.nip.io` -> 400 from Homepage. A headless Chromium (Playwright image v1.63.0-noble, container removed after)
+Verified 2026-10-16 from the Mac over the Wi-Fi: `http://192.168.0.23/` and `http://home.192.168.0.23.nip.io/` -> 200 (Homepage);
+`argocd.`, `grafana.`, `jenkins.`, `artifactory.`, `backstage.192.168.0.23.nip.io` -> 200 with their own pages (titles Argo CD, Grafana, Sign in - Jenkins,
+JFrog, Platform Lab); `typo.192.168.0.23.nip.io` -> 400 from Homepage. A headless Chromium (Playwright image v1.63.0-noble, container removed after)
 rendered all 11 tiles with a green status dot (HTTP 200 or 401, 81-874 ms), the Kubernetes widget (cluster + 3 nodes) and the Grafana widget (27 dashboards,
 2 data sources). Prometheus: `probe_success{job="blackbox-http"}` 21 series, all 1; `argocd_app_info` 13 series. Every dashboard query returns data
 against the live Prometheus. Not measured: how the pages look on a phone, or the Homepage page after the WSL restart.
@@ -365,14 +365,14 @@ Verified 2026-10-16 from the Mac over the Wi-Fi, real nip.io DNS, real logins:
 
 | Tool | URL | Page | Login check |
 |---|---|---|---|
-| Argo CD | http://argocd.192.168.1.153.nip.io | 200 | `POST /api/v1/session` 200; cookie without `Secure` |
-| Grafana | http://grafana.192.168.1.153.nip.io | 200 | `/api/user` 200 |
-| Jenkins | http://jenkins.192.168.1.153.nip.io | 200 | `/whoAmI` 200 (wrong password: 401) |
-| Artifactory | http://artifactory.192.168.1.153.nip.io | 200 | `/api/repositories` 200 |
-| Backstage | http://backstage.192.168.1.153.nip.io | 200 | guest (read-only) |
-| Registry UI | http://registry.192.168.1.153.nip.io | 200 | admin / shared password (basic auth; no credentials: 401) |
-| Homepage (start page) | http://192.168.1.153/ and http://home.192.168.1.153.nip.io | 200 | none (see [Start page and dashboards](#start-page-and-dashboards)) |
-| Kubernetes API | https://192.168.1.153:6443 | — | `homelab/generated/rke2-lan.kubeconfig` (`homelab/mac/lan-kube-api.sh`) |
+| Argo CD | http://argocd.192.168.0.23.nip.io | 200 | `POST /api/v1/session` 200; cookie without `Secure` |
+| Grafana | http://grafana.192.168.0.23.nip.io | 200 | `/api/user` 200 |
+| Jenkins | http://jenkins.192.168.0.23.nip.io | 200 | `/whoAmI` 200 (wrong password: 401) |
+| Artifactory | http://artifactory.192.168.0.23.nip.io | 200 | `/api/repositories` 200 |
+| Backstage | http://backstage.192.168.0.23.nip.io | 200 | guest (read-only) |
+| Registry UI | http://registry.192.168.0.23.nip.io | 200 | admin / shared password (basic auth; no credentials: 401) |
+| Homepage (start page) | http://192.168.0.23/ and http://home.192.168.0.23.nip.io | 200 | none (see [Start page and dashboards](#start-page-and-dashboards)) |
+| Kubernetes API | https://192.168.0.23:6443 | — | `homelab/generated/rke2-lan.kubeconfig` (`homelab/mac/lan-kube-api.sh`) |
 
 The Wi-Fi names are `manifests/lan-ingress/` (Argo CD app `lan-ingress`) and,
 for Argo CD itself, `homelab/argocd/ingress.yaml`. The LAN IP is in those two
@@ -416,7 +416,7 @@ point at the Wi-Fi names.
 
 ## Verified (2026-10-16)
 
-On the live cluster, from the Mac, against `https://192.168.1.153/` (HAProxy -> ingress-nginx
+On the live cluster, from the Mac, against `https://192.168.0.23/` (HAProxy -> ingress-nginx
 hostPorts) with the tool's `Host` header, no credentials:
 
 | Tool | Request | Status |
@@ -445,7 +445,7 @@ CI path, run 2026-10-16 from the Mac (Jenkins REST with crumb, `kubectl` on the 
 |---|---|
 | **Jenkins `demo-api` `main` build** (Kubernetes agent, shared library, BuildKit push, deploy) | Build #2 (triggered with `POST /job/demo-api/job/main/build`): SUCCESS in about 2 min; stages Declarative: Checkout SCM, Test, Build image, Deploy, Declarative: Post Actions. Console: `pushed 10.77.0.31:30500/platform-lab/demo-api:main-488bac7e-2`, `kubectl -n demo-ci rollout status deployment/demo-api` ended `successfully rolled out`. Both `demo-api` pods Running with that image (rke2-a2 and rke2-s1, so containerd pulled it over plain http from the NodePort registry through the `registries.yaml` mirror). `port-forward` + GET `/` -> `{"app":"demo-api","version":"main-488bac7e-2"}`. Build #3 (re-run for the cgroup peaks) also SUCCESS. Agent memory: Sizing. |
 | **Jenkins -> Artifactory** | Credential `artifactory-admin` (username/password, created with `POST /credentials/store/system/domain/_/createCredentials`) and job `artifactory-publish-test` (REST `createItem`; script in [`fixtures/artifactory-publish-test.Jenkinsfile`](fixtures/artifactory-publish-test.Jenkinsfile); runs on the library's `podtemplates/build.yaml`, container `deploy`). Build #1 SUCCESS: `upload HTTP 201`, `download HTTP 200`, `sha256 MATCH` (27d86279...1a46) against `http://artifactory.artifactory.svc.cluster.local:8082/artifactory/generic-local/jenkins/1.txt` (Service `artifactory`, ports 8082/8081); the password shows as `****` in the console; Artifactory's own `api/storage` reports the same sha256. The job and credential are **test fixtures and stay on the instance** (Jenkins keeps them on its PVC; they are not in JCasC). |
-| **Artifactory OSS repo types** (UI endpoint `POST /ui/api/v1/ui/auth/login`, which needs `X-Requested-With: XMLHttpRequest` and an `Origin` header or it answers 403, then `POST /ui/api/v1/ui/admin/repositories` with `remoteRepoConfig`) | **Maven remote works**: `maven-remote` -> `https://repo1.maven.org/maven2`; GET `/artifactory/maven-remote/junit/junit/4.13.2/junit-4.13.2.pom` -> 200, 27018 bytes, cached in `maven-remote-cache` (sha256 569b6977...d94). **PyPI remote is created (200) but unusable**: `/artifactory/api/pypi/pypi-remote/simple/requests/` -> 404 (also without the trailing slash and `/simple/`), and `pip download requests==2.32.3 --no-deps -i http://admin:***@artifactory.192.168.1.153.nip.io/artifactory/api/pypi/pypi-remote/simple` -> "Could not find a version ... (from versions: none)"; the pod reaches pypi.org (200), so it is the OSS build not serving the PyPI API. npm, Docker (local and remote) entries were also accepted at creation (200); Docker `/v2` and npm `/api/npm` routes answered 404 / 401 and nothing was pushed. Repo delete is Pro-only. |
+| **Artifactory OSS repo types** (UI endpoint `POST /ui/api/v1/ui/auth/login`, which needs `X-Requested-With: XMLHttpRequest` and an `Origin` header or it answers 403, then `POST /ui/api/v1/ui/admin/repositories` with `remoteRepoConfig`) | **Maven remote works**: `maven-remote` -> `https://repo1.maven.org/maven2`; GET `/artifactory/maven-remote/junit/junit/4.13.2/junit-4.13.2.pom` -> 200, 27018 bytes, cached in `maven-remote-cache` (sha256 569b6977...d94). **PyPI remote is created (200) but unusable**: `/artifactory/api/pypi/pypi-remote/simple/requests/` -> 404 (also without the trailing slash and `/simple/`), and `pip download requests==2.32.3 --no-deps -i http://admin:***@artifactory.192.168.0.23.nip.io/artifactory/api/pypi/pypi-remote/simple` -> "Could not find a version ... (from versions: none)"; the pod reaches pypi.org (200), so it is the OSS build not serving the PyPI API. npm, Docker (local and remote) entries were also accepted at creation (200); Docker `/v2` and npm `/api/npm` routes answered 404 / 401 and nothing was pushed. Repo delete is Pro-only. |
 - **Artifactory's root cause** (two parts; both fixed in git):
   1. `artifactory.admin.dataKey: password` made the chart mount the bare password as Access'
      `bootstrap.creds`, which must be `admin@*=<password>`. Access died at bootstrap
@@ -461,7 +461,7 @@ CI path, run 2026-10-16 from the Mac (Jenkins REST with crumb, `kubectl` on the 
   start-up ordering, not a fault.
 - **After a WSL restart** (the Windows Update of WSL stopped the lab): nothing was broken
   persistently. The VMs cold-booted (about 3 minutes), all pods restarted at once, and
-  `https://192.168.1.153/` timed out or returned 503 until each node's ingress-nginx and the
+  `https://192.168.0.23/` timed out or returned 503 until each node's ingress-nginx and the
   app behind it were Ready. HAProxy log: started 21:57:22, all 3 backends DOWN, rke2-s1 UP
   21:58:09, rke2-a2 22:00:35, rke2-a1 22:00:51. The CNI hostPort rules
   (`CNI-HOSTPORT-DNAT` for :80/:443) were present on all three nodes, `iptables` is installed,
@@ -473,7 +473,7 @@ CI path, run 2026-10-16 from the Mac (Jenkins REST with crumb, `kubectl` on the 
 ### Backstage in a browser (2026-10-16)
 
 Driven like a person, in headless Chromium 1.57 (Playwright image `v1.57.0-noble`, package
-pinned the same) from the Mac over the home Wi-Fi, plain `http://backstage.192.168.1.153.nip.io`.
+pinned the same) from the Mac over the home Wi-Fi, plain `http://backstage.192.168.0.23.nip.io`.
 Re-runnable: [`tests/backstage-smoke.sh`](tests/backstage-smoke.sh) (needs Docker; writes
 screenshots and `results.json` to `tests/out/`, which is git-ignored). Screenshots are **not
 stored in git**: they stay in `tests/out/` on the machine that ran it.

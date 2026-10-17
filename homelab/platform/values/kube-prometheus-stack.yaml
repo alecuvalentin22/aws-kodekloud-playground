@@ -105,7 +105,7 @@ grafana:
       # (port 443 on the Mac), which goes nowhere.
       # The Wi-Fi name is primary (manifests/lan-ingress). Through the old
       # tunnel name, login redirects now land on this URL instead.
-      root_url: http://grafana.192.168.1.153.nip.io
+      root_url: http://grafana.192.168.0.23.nip.io
   resources:
     requests: {cpu: 50m, memory: 192Mi}
     limits: {memory: 384Mi}

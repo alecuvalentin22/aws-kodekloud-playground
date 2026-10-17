@@ -7,7 +7,7 @@ PW=1.57.0
 here="$(cd "$(dirname "$0")" && pwd)"
 mkdir -p "$here/out"
 exec docker run --rm --ipc=host \
-  -e BASE="${BASE:-http://backstage.192.168.1.153.nip.io}" -e OUT=/out \
+  -e BASE="${BASE:-http://backstage.192.168.0.23.nip.io}" -e OUT=/out \
   -v "$here/backstage-smoke.mjs:/work/backstage-smoke.mjs:ro" -v "$here/out:/out" \
   "mcr.microsoft.com/playwright:v${PW}-noble" \
   bash -c "cd /tmp && npm init -y >/dev/null && npm i --no-audit --no-fund playwright@${PW} >/dev/null && cp /work/backstage-smoke.mjs . && node backstage-smoke.mjs"
