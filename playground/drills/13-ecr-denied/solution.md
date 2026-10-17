@@ -12,9 +12,6 @@ ROOT CAUSE
 FIX
   Restore push for that principal: re-attach PowerUser (baseline), or better,
   an inline policy with the push actions on the ONE repository ARN.
-  (Untested here: whether this account lets you iam:PutRolePolicy at all. If
-  it refuses, re-attaching the managed policy is the accepted baseline fix --
-  say that the tighter inline policy is what you would ship elsewhere.)
   NOT: AdministratorAccess / PowerUserAccess / ECR FullAccess on the node role.
 
 WHAT STOPS IT RECURRING

@@ -7,7 +7,7 @@
 #   play start [ID]               start one (no ID: a random one you have not solved,
 #                                 and you are NOT told which -- like real life)
 #   play start --track jenkins    random, from one track
-#   play start --tier aws         random drill of a tier (aws | homelab | github)
+#   play start --tier aws         random AWS-tier drill (needs a live EKS lab)
 #   play status                   what is running, how long, hints used
 #   play hint                     next hint (costs points)
 #   play check                    is it fixed? scores it if so
@@ -103,16 +103,10 @@ cmd_start() {
       echo "$HL_ANSWERS http://jenkins.$HL_IP.nip.io http://argocd.$HL_IP.nip.io --kubeconfig=$KUBECONFIG" )
   fi
   local glabel=Gitea; [[ $needs == homelab ]] && glabel="Argo CD"
-  local tools="Jenkins $j   $glabel $g   kubectl $kc"
-  if [[ $needs == github ]]; then
-    # shellcheck disable=SC1091
-    w=$( source "$PG_ROOT/lib/github.sh"; gh_load_env; echo "$GH_WORK" )
-    tools=$( source "$PG_ROOT/lib/github.sh"; gh_load_env; echo "GitHub $(gh_web)   Actions $(gh_web "$GH_APP1")/actions" )
-  fi
   cat <<EOF
 
   Your workspace: $w  (git pull first -- others may have pushed)
-  $tools
+  Jenkins $j   $glabel $g   kubectl $kc
 
   Clock is running.   play hint | play check | play reveal
 EOF

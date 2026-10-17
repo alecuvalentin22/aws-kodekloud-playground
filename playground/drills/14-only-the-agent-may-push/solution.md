@@ -17,21 +17,13 @@ FIX (production)
        CompleteLayerUpload, PutImage, BatchGetImage) on
        arn:aws:ecr:us-east-1:<acct>:repository/platform-lab/demo-api only.
     4. Annotate the SA: eks.amazonaws.com/role-arn: <role arn>.
-    5. Detach PowerUser from the node role. ECR ReadOnly stays (terraform/eks
-       attaches it, nodes still pull; check with list-attached-role-policies).
-    6. Prove it: the sandbox pod's initiate-layer-upload is now AccessDenied
-       (a token alone is not push: ReadOnly mints tokens too); the pipeline
-       still pushes.
+    5. Node role back to AmazonEC2ContainerRegistryReadOnly (nodes still pull).
+    6. Prove it: the sandbox pod can no longer push; the pipeline still can.
   Pod Identity is the same shape with an add-on + association instead of the
   OIDC provider, trust principal pods.eks.amazonaws.com. Also worth naming:
   IMDS hop limit 1 stops pods reaching the node role at all.
 
 THE PLAYGROUND PART
-  terraform/eks/variables.tf records that the boundary policy permits iam:CreateRole
-  only for eksClusterRole, eksWorkerNodeRole and AmazonEKSFargatePodExecutionRole.
-  So even if the OIDC provider can be created, the dedicated role (ci-agent-ecr-push)
-  may be what is refused. Either denial is valid evidence. Not yet re-probed on
-  the current account.
   A read of this account's AWS_EKSECSWithConditions policy (2026-10-16) did
   not grant iam:CreateOpenIDConnectProvider or eks:CreatePodIdentityAssociation.
   Other attached policies could not be listed, so the live attempt is the real
