@@ -21,6 +21,7 @@
 set -uo pipefail
 # shellcheck disable=SC1091
 source "$(dirname "${BASH_SOURCE[0]}")/lib/common.sh"
+tracker() { "$PG_ROOT/lib/tracker.sh" "$@" || true; }   # optional board sync, never fatal (lib/tracker.sh)
 DRILLS="$PG_ROOT/drills"
 CUR="$STATE/current.env"
 SCORES="$STATE/scores.tsv"
@@ -116,6 +117,7 @@ cmd_start() {
 
   Clock is running.   play hint | play check | play reveal
 EOF
+  [[ $hidden == true ]] || tracker start "$id"   # after the ticket; a random drill must not reveal itself by moving its ticket
 }
 
 cmd_status() {
@@ -160,6 +162,7 @@ cmd_check() {
   [[ -n $reasons ]] && while read -r r; do c_warn "$r"; done <<<"$reasons"
   printf '%s\t%s\t%s\t%s\t%s\tsolved\n' "$(date -u +%FT%TZ)" "$ID" "$el" "$HINTS" "$score" >> "$SCORES"
   finish_drill
+  tracker solved "$ID" "SOLVED in $(mmss $el), $HINTS hint(s), score $score/100${reasons:+ -- penalties: ${reasons//$'\n'/; }}"
   echo
   echo "  Now close the ticket like you would at work:   play close"
 }
@@ -175,6 +178,7 @@ cmd_reveal() {
     load_current
     printf '%s\t%s\t%s\t%s\t0\trevealed\n' "$(date -u +%FT%TZ)" "$ID" "$(( $(date +%s) - STARTED ))" "$HINTS" >> "$SCORES"
     finish_drill
+    tracker revealed "$ID" "after $(mmss $(( $(date +%s) - STARTED ))), $HINTS hint(s)"
   else
     [[ -f "$STATE/last.env" ]] || die "Nothing to reveal."
     # shellcheck disable=SC1091
@@ -218,6 +222,7 @@ EOF
     # No terminal (a Semaphore task, CI): leave the template to fill in.
     c_ok "journal template written: $f -- fill it in from your editor"
   fi
+  tracker journal "$ID" "$f"
   echo "  Compare with the model answer: play reveal"
 }
 

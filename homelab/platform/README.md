@@ -40,6 +40,7 @@ Docker"); the job description itself is not in the repo.
 | 3 | `70-blackbox-exporter` | prober for the uptime dashboards | chart 11.19.1 (**2026-09-24**), image v0.28.0 (**2025-12-06**) | Monitoring / observability |
 | 4 | `72-monitoring` | uptime Probes, Argo CD ServiceMonitors, Grafana dashboards (folder "Home lab") | n/a (kustomize) | Monitoring / observability |
 | 7 | `74-homepage` | start page at `http://192.168.0.23/` | Homepage v2.4.0 (**2026-09-17**) | developer portal / front door |
+| 8 | `80-plane` | Plane CE, the Jira-like tracker for the interview drills ([Tracker (Plane)](#tracker-plane)) | chart plane-ce 1.8.4 (**2026-09-29**), Plane v1.4.2 (**2026-08-23**) | working from tickets (Jira) |
 
 Every chart version is the one in `versions.env`. The two pins that
 `versions.env` does not have were looked up on 2026-10-16:
@@ -372,6 +373,7 @@ Verified 2026-10-16 from the Mac over the Wi-Fi, real nip.io DNS, real logins:
 | Backstage | http://backstage.192.168.0.23.nip.io | 200 | guest (read-only) |
 | Registry UI | http://registry.192.168.0.23.nip.io | 200 | admin / shared password (basic auth; no credentials: 401) |
 | Headlamp (Kubernetes UI) | http://headlamp.192.168.0.23.nip.io | 200 | admin / shared password once, then a cookie (cluster-admin; see [Headlamp](#headlamp)) |
+| Tracker (Plane) | http://tracker.192.168.0.23.nip.io | 200 | `admin@homelab.local` / shared password (`POST /auth/sign-in/` 302 to `/`, then `/api/users/me/` 200; wrong password 302 to `?error_code=5065`); API key: `/api/v1/users/me/` 200, none 401 |
 | Homepage (start page) | http://192.168.0.23/ and http://home.192.168.0.23.nip.io | 200 | none (see [Start page and dashboards](#start-page-and-dashboards)) |
 | Kubernetes API | https://192.168.0.23:6443 | — | `homelab/generated/rke2-lan.kubeconfig` (`homelab/mac/lan-kube-api.sh`) |
 
@@ -439,6 +441,65 @@ without / with a wrong password 401; admin 200 + cookie; with the cookie `/`,
 cookie -> 302. The login is cluster-admin from any device on the Wi-Fi, the same
 reach as Argo CD's admin; for a read-only UI set
 `clusterRoleBinding.clusterRoleName: view` in `values/headlamp.yaml`.
+
+### Tracker (Plane)
+
+Plane Community Edition (`apps/80-plane.yaml`, `values/plane.yaml`, wave 8) is the
+Jira-like board the interview drills live on: one ticket per drill, moved by `play`
+(`playground/tracker/README.md`: why Plane, what the candidate sees, the hook).
+http://tracker.192.168.0.23.nip.io, login **`admin@homelab.local`** / the shared
+password (Plane logs in by e-mail). Public sign-up is off.
+
+What runs (namespace `plane`, chart plane-ce 1.8.4 of 2026-09-29, images v1.4.2 of
+2026-08-23 from `artifacts.plane.so`): web, space, admin (god-mode), live, api,
+worker, beat-worker, PostgreSQL 15.7 (2 Gi), Valkey, RabbitMQ, MinIO (1 Gi), plus
+two Jobs (migrations, bucket). Measured 2026-10-17, idle: **~1.2 GiB** (worker 373 Mi,
+api 149, beat 146, live 142, RabbitMQ 138, space 97, MinIO 76, PostgreSQL 39,
+admin/web/Valkey under 10 each); requests 1.3 GiB. The chart gives the four
+datastores and the Jobs no resources, so `manifests/plane/limitrange.yaml` does
+(64 Mi / 25m requested, 768 Mi limit). The first start runs ~150 migrations: **21
+minutes** on these VMs, the api waiting on them (`Waiting for database migrations`);
+a restart later takes seconds.
+
+Three Argo CD traps in this chart, handled in `apps/80-plane.yaml` (comments there):
+every pod template has `timestamp: {{ now }}` (ignored + `RespectIgnoreDifferences`,
+otherwise selfHeal rolls all Plane pods on every reconcile); `volumeClaimTemplates`
+rendered with fields the API server drops (ignored, as for Artifactory); Jobs named
+`plane-api-migrate-1` with an immutable template (**to upgrade: bump `planeVersion`,
+then delete both Jobs** so Argo re-creates them).
+
+Plain http needs no setting: the chart puts `http://tracker...` in
+`CORS_ALLOWED_ORIGINS`, and Plane then issues its session and CSRF cookies without
+`Secure`.
+
+**Not in git, from the Mac** (`homelab/platform/plane-setup.sh`, which prints no value):
+
+```sh
+homelab/platform/plane-setup.sh secrets                               # once, before the first sync
+HOMELAB_ADMIN_PASSWORD='...' homelab/platform/plane-setup.sh admin    # after the api is up; re-run to change it
+homelab/platform/plane-setup.sh token     # API key -> ~/.config/platform-lab/tracker.env (= playground/tracker/token.sh;
+                                          # sync.sh runs it by itself; one reused token, label "platform-lab sync")
+homelab/platform/plane-setup.sh check
+```
+
+| Secret (ns `plane`) | Keys | Read by |
+|---|---|---|
+| `plane-pgdb` | `POSTGRES_USER`, `POSTGRES_PASSWORD`, `POSTGRES_DB` | PostgreSQL |
+| `plane-rabbitmq` | `RABBITMQ_DEFAULT_USER`, `RABBITMQ_DEFAULT_PASS` | RabbitMQ |
+| `plane-app-env` | `SECRET_KEY`, `LIVE_SERVER_SECRET_KEY`, `REDIS_URL`, `DATABASE_URL`, `AMQP_URL` | api, worker, beat, migrator |
+| `plane-live-env` | `LIVE_SERVER_SECRET_KEY`, `REDIS_URL` | live |
+| `plane-doc-store` | `USE_MINIO`, `MINIO_ROOT_*`, `AWS_*`, `FILE_SIZE_LIMIT` | MinIO, api, workers |
+
+`secrets` generates random values only for Secrets that are absent (re-using the
+existing ones so `DATABASE_URL` keeps the password PostgreSQL was initialised with)
+and never rotates; `SECRET_KEY` encrypts Plane's instance settings, so do not change
+it on a running instance. `admin` runs Django's shell in the api pod with the password
+on stdin (Plane's own sign-up form refuses short passwords): it creates the user, the
+instance-admin role, marks setup done, turns sign-up off, creates the workspace
+`interview-prep` and skips onboarding, then signs in over the front door and prints
+only HTTP codes. Without the Secrets the pods wait in `CreateContainerConfigError`.
+Start page tile "Tracker" (group Playground); Probes `plane-in-cluster`
+(`/api/instances/` on the api Service) and `plane-front-door`.
 
 Prometheus and Alertmanager have **no Ingress** (neither authenticates):
 `kubectl -n observability port-forward svc/kube-prometheus-stack-prometheus 9090`

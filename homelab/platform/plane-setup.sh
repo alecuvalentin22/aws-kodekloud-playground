@@ -7,10 +7,12 @@
 #                                             ONLY those that are absent; never rotates anything)
 #   HOMELAB_ADMIN_PASSWORD=... homelab/platform/plane-setup.sh admin
 #                                             create/refresh the admin login, workspace, signup off
-#   homelab/platform/plane-setup.sh token     a new API token for admin, written straight to
-#                                             ~/.config/platform-lab/tracker.env (mode 600)
+#   homelab/platform/plane-setup.sh token     the API token for admin -> ~/.config/platform-lab/tracker.env
+#                                             (mode 600; = playground/tracker/token.sh, which sync.sh
+#                                             also runs by itself when the file is missing)
 #
-# Order on a fresh cluster: secrets -> (Argo syncs, ~5 min) -> admin -> token -> sync.sh.
+# Order on a fresh cluster: secrets -> (Argo syncs; the first start migrates for ~20 min) -> admin
+# -> playground/tracker/sync.sh (which gets the token itself).
 #
 # admin: Plane logs in by e-mail, so "admin" is admin@homelab.local (PLANE_ADMIN_EMAIL to
 # change it). It runs Django's shell in the api pod; the password goes over the exec's
@@ -168,30 +170,8 @@ cmd_admin() {
   [[ $me == 200 ]] || die "login check failed"
 }
 
-TOKEN_PY='
-import secrets
-from plane.db.models import User, APIToken, Workspace
-u = User.objects.get(email=@@EMAIL@@)
-ws = Workspace.objects.filter(slug=@@SLUG@@).first()
-t = APIToken.objects.create(user=u, label="playground-tracker", description="playground/tracker (sync.sh, play hook)", workspace=ws, user_type=0)
-print(t.token)
-'
-
-cmd_token() {
-  mkdir -p "$(dirname "$CONF")"; chmod 700 "$(dirname "$CONF")"
-  local code; code=$(printf '%s' "$TOKEN_PY" | py_with_args)
-  local tok
-  tok=$(K exec deploy/plane-api-wl -c plane-api -- python manage.py shell -c "$code" 2>/dev/null | tail -1)
-  [[ $tok == plane_api_* ]] || die "token creation failed (nothing written)"
-  {
-    echo "# Plane API access for playground/tracker (sync.sh and the play hook). Mode 600, never in git."
-    echo "TRACKER_URL=http://$HOST"
-    echo "TRACKER_WORKSPACE=$WS_SLUG"
-    echo "TRACKER_PROJECT=PREP"
-    printf 'TRACKER_TOKEN=%s\n' "$tok"
-  } > "$CONF"
-  chmod 600 "$CONF"
-  echo "  token written to $CONF (mode 600; not printed). Check: playground/tracker/sync.sh --check"
+cmd_token() {   # one mechanism: playground/tracker/token.sh (reuses, never piles up tokens)
+  TRACKER_URL="http://$HOST" TRACKER_ENV="$CONF" PLANE_ADMIN_EMAIL="$EMAIL" "$HERE/../../playground/tracker/token.sh"
 }
 
 for t in kubectl python3 curl openssl base64; do command -v "$t" >/dev/null || die "$t not found"; done
