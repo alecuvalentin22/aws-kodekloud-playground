@@ -31,7 +31,10 @@ chmod 700 "$STATE"
 if [[ ${1:-} == --reset ]]; then
   load_creds
   c_hdr "Resetting the AWS tier to baseline"
-  for d in "$PG_ROOT"/drills/1[1-9]-*/; do
+  # Every AWS-tier drill (NEEDS=aws in its drill.env), whatever its number:
+  # 11-19 and 61-69 today.
+  for d in "$PG_ROOT"/drills/*/; do
+    grep -qx 'NEEDS=aws' "$d/drill.env" 2>/dev/null || continue
     [[ -f "$d/reset.sh" ]] && bash "$d/reset.sh" >>"$STATE/logs/reset.log" 2>&1
   done
   for repo in platform/platform-lib payments/demo-api; do
@@ -48,13 +51,14 @@ if [[ ${1:-} == --reset ]]; then
     fi
     rm -rf "$dir"
   done
-  # Clear the current-drill marker only if it is an AWS-tier drill (11-19). The
+  # Clear the current-drill marker only if it is an AWS-tier drill (NEEDS=aws). The
   # default state dir is shared with the local tier: an unconditional rm here
   # deleted a LOCAL drill's marker mid-run (2026-10-17, drill 45 on the Mac).
   for c in "$HOME/.local/state/platform-lab-playground/current.env" "$STATE/current.env"; do
     [[ -f $c ]] || continue
     id=$(sed -n 's/^ID=//p' "$c" | tr -d "'\"" | head -1)
-    [[ $id =~ ^1[1-9]$ ]] && rm -f "$c"
+    dd=$(find "$PG_ROOT/drills" -maxdepth 1 -type d -name "$id-*" | head -1)
+    [[ -n $id && -n $dd ]] && grep -qx 'NEEDS=aws' "$dd/drill.env" 2>/dev/null && rm -f "$c"
   done
   b=$(build_main_and_wait 900) || die "baseline build did not finish"
   [[ $(jq -r .result <<<"$b") == SUCCESS ]] || die "baseline build: $b"
