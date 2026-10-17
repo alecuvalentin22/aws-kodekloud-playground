@@ -1,0 +1,66 @@
+# CI for __REPO__: lint (shared workflow), unit tests, and an image on GHCR.
+#
+# TODO(pin): every `uses:` below is a version tag. Run
+# `playground/setup/up-github.sh --pin-actions` to rewrite them to full commit
+# SHAs with the tag kept in a comment (a tag can move; a SHA cannot).
+name: CI
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+    branches: [main]
+    paths-ignore:
+      - "**.md"
+      - "docs/**"
+  workflow_dispatch:
+
+# Least privilege by default: every job reads the repo and nothing else. A job
+# that needs more asks for it itself (see publish).
+permissions:
+  contents: read
+
+concurrency:
+  group: ci-${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: ${{ github.event_name == 'pull_request' }}
+
+jobs:
+  lint:
+    # Shared pipeline code lives in one place. `@main` follows the platform
+    # team's main branch, which is convenient and is also how one commit there
+    # turns every repo red at once.
+    uses: __OWNER__/__WORKFLOWS_REPO__/.github/workflows/python-lint.yml@main
+    with:
+      path: service
+
+  build:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.13"
+      - name: Install
+        run: python -m pip install --quiet -r requirements.txt
+      - name: Test
+        run: python -m pytest service -q
+
+  publish:
+    needs: [lint, build]
+    if: github.event_name == 'push' && github.ref == 'refs/heads/main'
+    runs-on: ubuntu-latest
+    permissions:
+      contents: read
+      packages: write
+    env:
+      IMAGE: ghcr.io/__OWNER_LC__/__REPO__
+    steps:
+      - uses: actions/checkout@v4
+      - name: Build image
+        run: docker build --build-arg VERSION="sha-${GITHUB_SHA::7}" -t "$IMAGE:sha-${GITHUB_SHA::7}" .
+      - name: Log in to GHCR
+        env:
+          REGISTRY_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        run: echo "$REGISTRY_TOKEN" | docker login ghcr.io -u "$GITHUB_ACTOR" --password-stdin
+      - name: Push image
+        run: docker push "$IMAGE:sha-${GITHUB_SHA::7}"

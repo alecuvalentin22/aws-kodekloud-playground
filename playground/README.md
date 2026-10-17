@@ -135,6 +135,33 @@ ceiling (a node that joins wrong must be terminated). Talk it through from
 `STORY-AWS.md` instead. Artifactory as a pip/maven remote runs on GCP
 (`terraform/gcp-artifactory`) and is not wired into a drill yet.
 
+## GitHub tier: drills 31–34 (needs a GitHub account and a token)
+
+Real GitHub, Actions and GHCR, in three public repos created under YOUR account
+(`playground-workflows`, `playground-demo-api`, `playground-search-api`). Setup,
+token scopes and gotchas: [setup/GITHUB.md](setup/GITHUB.md).
+
+```bash
+# token in ~/.config/platform-lab/github-playground.env (mode 600), see GITHUB.md
+playground/setup/up-github.sh --pin-actions   # once: tags -> commit SHAs
+playground/setup/up-github.sh                 # creates the repos, waits for green CI
+playground/play start 31                      # or: play start --tier github
+playground/setup/up-github.sh --destroy       # delete the repos when done
+```
+
+| ID | Ticket | What it trains |
+|---|---|---|
+| 31 | "My PR has no checks" | `on:` triggers, path filters, why `pull_request_target` is the wrong fix |
+| 32 | "Can't merge: 'build' expected" | branch protection, required check names vs matrix names, no admin override |
+| 33 | "Every repo red after a shared workflow change" | reusable workflows, `@main` vs tag/SHA, revert forward, releases (analog of 07) |
+| 34 | "Publish job: 403 pushing to GHCR" | `GITHUB_TOKEN` permissions, job-level least privilege, GHCR |
+
+`preflight-github.sh` refuses to start unless the token works, the repos and clones
+exist, `main` is at baseline and CI is green. `play reset` closes PRs, restores the
+protection and puts `main` back to baseline as new commits. **The drills are
+`VERIFIED=no` until played live**: built and tested offline (fixtures, local bare
+repos), never yet against github.com.
+
 ## Playing on the home lab
 
 The whole game can run on the Ubuntu/WSL2 box (`homelab-1-wsl`) instead of on
