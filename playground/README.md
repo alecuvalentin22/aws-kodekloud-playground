@@ -89,6 +89,9 @@ is a set of real incident stories in your own words.
 | 43 | "Waiting for approval froze every team's builds" | jenkins | `input` inside an agent holds the pod; the cloud's agent cap; `agent none` + stage agents; timeouts; aborting parked builds instead of raising the cap |
 | 44 | "Our deploy says credentials not found, payments' works" | jenkins | credential scope (global vs folder stores), a least-privilege move exposing a hidden dependency, a per-team credential, masking limits |
 | 45 | "Pushes don't start builds anymore" | jenkins | how a multibranch job is triggered (indexing vs webhook vs polling), reading the scan log, "Suppress automatic SCM triggering", UI drift from JCasC |
+| 46 | "My branch has no build" | jenkins | multibranch discovery: name filter vs Script Path, reading the scan log, fixing the branch not the shared job |
+| 47 | "Release job asks no questions, deploys the default" | jenkins | parameters only take effect after a run, defaults vs null, `params` vs `env`, release jobs that fail on missing input |
+| 48 | "Downstream deploy ran the wrong build" | jenkins | passing data between jobs, silently dropped parameters, deploying an exact tag/digest, never `latest` |
 
 Home-lab tier (`NEEDS=homelab`: they break the home lab's RKE2 cluster itself, so
 `play` runs them from the **Mac**, `playground/play start 21`; see "Playing on the home lab"):
@@ -180,6 +183,8 @@ on the Wi-Fi (`HOMELAB_ADMIN_PASSWORD` or a hidden prompt; nothing installed).
 |---|---|---|
 | [`exercises/artifactory/`](exercises/artifactory/README.md) | local + remote + virtual Maven repos, resolve through the proxy, deploy your own jar with checksums | why a proxy cache, local vs remote vs virtual, what OSS cannot do |
 | [`exercises/backstage/`](exercises/backstage/README.md) | model a System + API + Component, register it from your public GitHub repo, find why a broken entity never appears | the catalog model, ownership, templates/TechDocs/plugins |
+| [`exercises/jenkins-job-types/`](exercises/jenkins-job-types/README.md) | one job of every kind: freestyle, scripted vs declarative, multibranch, parameterized, upstream/downstream, matrix, Job DSL, triggers | when to use which; CPS; jobs as code; 15 interview Q&A |
+| [`exercises/full-cicd/`](exercises/full-cicd/README.md) | build -> test -> image -> staging -> smoke test -> approval -> prod -> automatic rollback, in one declarative pipeline | why each stage exists; `input` outside agents; `stash`; `rollout undo` in `post { failure }` |
 
 ## Playing on the home lab
 

@@ -1,0 +1,143 @@
+// ===========================================================================
+// REFERENCE SOLUTION for exercises/full-cicd. Do not copy it first: write the
+// stages yourself from the README, then compare. It is not read by Jenkins
+// from here; your Jenkinsfile lives in ~/platform-playground/cicd-demo.
+// ===========================================================================
+@Library('platform-lib') _
+
+pipeline {
+    // No agent at the top. Each stage that needs a pod asks for its own, and
+    // the approval stage asks for none: waiting for a human must not hold a pod.
+    agent none
+
+    options {
+        timestamps()
+        buildDiscarder(logRotator(numToKeepStr: '10'))
+        disableConcurrentBuilds()          // two releases racing each other is how prod gets the older build
+    }
+
+    environment {
+        REPO = "${env.PLATFORM_REGISTRY}/payments/cicd-demo"
+    }
+
+    stages {
+
+        // One pod for test + build + staging, so the workspace (and the image
+        // tag) are shared and we pay for one pod start, not four.
+        stage('Build and stage') {
+            agent {
+                kubernetes {
+                    yaml libraryResource('podtemplates/build.yaml')   // python, rootless buildkit, kubectl
+                    defaultContainer 'python'
+                }
+            }
+            options { timeout(time: 15, unit: 'MINUTES') }
+            stages {
+
+                stage('Unit tests') {
+                    steps {
+                        sh 'pip install -q -r requirements.txt && python -m pytest -q --junitxml=test-results.xml'
+                    }
+                    post {
+                        // always: a red test run must still publish WHICH tests failed.
+                        always { junit 'test-results.xml' }
+                    }
+                }
+
+                stage('Build and push image') {
+                    steps {
+                        script {
+                            // The tag IS the commit. Not 'latest', not the build number: the sha is what
+                            // you can look up in git, and what makes "which build is running?" answerable.
+                            env.SHA = env.GIT_COMMIT.substring(0, 8)
+                            env.IMAGE = "${env.REPO}:${env.SHA}"
+                            buildImage(repository: env.REPO, tag: env.SHA, context: '.', push: true)
+                            echo "IMAGE ${env.IMAGE}"
+                        }
+                    }
+                }
+
+                stage('Deploy staging') {
+                    steps {
+                        container('deploy') {
+                            sh '''
+                                set -eu
+                                rm -rf .rendered && mkdir .rendered
+                                sed "s|IMAGE_PLACEHOLDER|$IMAGE|g" k8s/deployment.yaml > .rendered/deployment.yaml
+                                kubectl -n cicd-staging apply -f .rendered/
+                                # apply returns when the API server accepted the object, NOT when pods are healthy.
+                                kubectl -n cicd-staging rollout status deployment/cicd-demo --timeout=120s
+                            '''
+                        }
+                        // Take the manifests to the prod stage, which runs on another pod: what we tested
+                        // is what we ship, even if main moves while a human thinks about the approval.
+                        stash name: 'manifests', includes: 'k8s/*.yaml'
+                    }
+                }
+
+                stage('Smoke test staging') {
+                    steps {
+                        container('deploy') {
+                            sh '''
+                                set -eu
+                                base=http://cicd-demo.cicd-staging.svc.cluster.local
+                                curl -fsS "$base/healthz"
+                                served=$(curl -fsS "$base/" | sed -n 's/.*"version":"\\([^"]*\\)".*/\\1/p')
+                                echo "staging serves version: $served"
+                                [ "$served" = "$SHA" ] || { echo "staging serves $served, expected $SHA"; exit 1; }
+                            '''
+                        }
+                    }
+                }
+            }
+        }
+
+        // OUTSIDE any agent. The pod above is gone; nothing is held while we wait.
+        // timeout: an approval nobody answers must not wait forever (it would block the next
+        // release through disableConcurrentBuilds, and keep the build in the UI for weeks).
+        stage('Approve prod') {
+            options { timeout(time: 10, unit: 'MINUTES') }
+            steps {
+                input id: 'promote', message: "Promote ${env.SHA} to prod?", ok: 'Promote'
+            }
+        }
+
+        stage('Deploy prod') {
+            agent {
+                kubernetes {
+                    yaml libraryResource('podtemplates/build.yaml')
+                    defaultContainer 'deploy'
+                }
+            }
+            options { skipDefaultCheckout() }      // do not re-checkout main: use the manifests we tested
+            steps {
+                unstash 'manifests'
+                sh '''
+                    set -eu
+                    rm -rf .rendered && mkdir .rendered
+                    sed "s|IMAGE_PLACEHOLDER|$IMAGE|g" k8s/deployment.yaml > .rendered/deployment.yaml
+                    kubectl -n cicd-prod apply -f .rendered/
+                    kubectl -n cicd-prod rollout status deployment/cicd-demo --timeout=90s
+                '''
+            }
+            post {
+                failure {
+                    // Runs on the same pod, only if the rollout (or anything above) failed. Leave
+                    // evidence, then undo: the previous ReplicaSet is still there.
+                    sh '''
+                        echo "--- prod rollout failed; pod state ---"
+                        kubectl -n cicd-prod get pods -l app=cicd-demo -o wide || true
+                        echo "--- rolling back to the previous revision ---"
+                        kubectl -n cicd-prod rollout undo deployment/cicd-demo
+                        kubectl -n cicd-prod rollout status deployment/cicd-demo --timeout=90s
+                    '''
+                }
+            }
+        }
+    }
+
+    post {
+        success { echo "released ${env.SHA} to staging and prod" }
+        failure { echo "FAILED: read the first red stage, not the last" }
+    }
+}

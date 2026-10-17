@@ -1,0 +1,28 @@
+// STARTER for exercises/full-cicd. Replace each TODO with the real stage, one at a
+// time, following the README (steps 2 to 8). Run the job after every step.
+@Library('platform-lib') _
+
+pipeline {
+    agent none
+
+    stages {
+        stage('Build and stage') {
+            agent {
+                kubernetes {
+                    yaml libraryResource('podtemplates/build.yaml')   // python, rootless buildkit, kubectl
+                    defaultContainer 'python'
+                }
+            }
+            stages {
+                stage('Unit tests') {
+                    steps { echo 'TODO step 2: pytest with a JUnit report, published with junit' }
+                }
+                // TODO step 3: build the image and push it, tagged with the git sha
+                // TODO step 4: deploy to namespace cicd-staging and wait for the rollout
+                // TODO step 5: smoke test staging
+            }
+        }
+        // TODO step 6: approval: input + timeout, outside any agent
+        // TODO step 7: deploy to cicd-prod, and roll back in post { failure } if it does not become healthy
+    }
+}

@@ -1,0 +1,53 @@
+# IMAGE_PLACEHOLDER is replaced by the pipeline with registry/repo:<git sha>.
+# The SAME manifest goes to staging and prod; what differs is the namespace and
+# its ConfigMap (release-config: MODE=relaxed in staging, strict in prod).
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: cicd-demo
+  labels: {app: cicd-demo}
+spec:
+  replicas: 1
+  revisionHistoryLimit: 5
+  selector:
+    matchLabels: {app: cicd-demo}
+  strategy:
+    type: RollingUpdate
+    # Never go below the running count while rolling: a bad image stalls the
+    # rollout instead of replacing a good pod. That stall is what
+    # `rollout status` times out on, and what the pipeline then rolls back.
+    rollingUpdate: {maxUnavailable: 0, maxSurge: 1}
+  template:
+    metadata:
+      labels: {app: cicd-demo}
+    spec:
+      containers:
+        - name: cicd-demo
+          image: IMAGE_PLACEHOLDER
+          ports: [{containerPort: 8080, name: http}]
+          envFrom:
+            - configMapRef: {name: release-config}
+          readinessProbe:
+            httpGet: {path: /healthz, port: http}
+            periodSeconds: 5
+            failureThreshold: 3
+          livenessProbe:
+            httpGet: {path: /healthz, port: http}
+            initialDelaySeconds: 15
+            periodSeconds: 10
+          resources:
+            requests: {cpu: 20m, memory: 48Mi}
+            limits: {memory: 192Mi}
+          securityContext:
+            runAsNonRoot: true
+            allowPrivilegeEscalation: false
+---
+apiVersion: v1
+kind: Service
+metadata:
+  name: cicd-demo
+  labels: {app: cicd-demo}
+spec:
+  selector: {app: cicd-demo}
+  ports:
+    - {name: http, port: 80, targetPort: http}

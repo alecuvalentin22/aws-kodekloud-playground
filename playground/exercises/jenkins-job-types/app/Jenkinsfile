@@ -1,0 +1,13 @@
+// The Jenkinsfile the MULTIBRANCH job reads from every branch (step 4).
+// Declarative; runs on the Kubernetes plugin's default agent pod.
+pipeline {
+    agent { label 'jenkins-jenkins-agent' }
+    stages {
+        stage('Test') {
+            steps { sh 'sh ./test.sh' }
+        }
+        stage('Greet') {
+            steps { sh "sh ./greet.sh ${env.BRANCH_NAME ?: 'main'} multibranch" }
+        }
+    }
+}
