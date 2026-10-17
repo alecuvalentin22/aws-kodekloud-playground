@@ -148,6 +148,7 @@ playground/play reset                     # an AWS drill resets via up-aws.sh --
 | 66 | "checkout can't find ledger: 'Name or service not known'" | Kubernetes DNS on EKS: how `dnsPolicy` (ClusterFirst / Default / None / ClusterFirstWithHostNet) builds resolv.conf, CoreDNS vs the VPC resolver, diagnosing with resolv.conf + getent, tuning ndots via `dnsConfig` instead of bypassing cluster DNS |
 | 68 | "CI can't assume the deploy role since the security review" | role trust for CI outside AWS: the exact principal + `sts:ExternalId`, one error message for two causes, never trusting the account root or `*`; on this account changing trust means re-creating the role |
 | 71 | "Block the scanner hammering our API, without taking anyone else down" | security groups (stateful, allow-only) vs network ACLs (per subnet, stateless, ordered, deny): the deny-after-allow trap, ephemeral return ports, blocking a /32 not a range |
+| 72 | "The 2-hour data migration job dies at the 60-minute mark" | STS session duration: MaxSessionDuration, `--duration-seconds`, the 1-hour cap on role chaining, refreshing credentials instead of 12-hour sessions |
 
 `preflight-aws.sh` refuses to start a drill with expired creds or under 20
 minutes left in the 3-hour IAM window. These drills are `VERIFIED=no` until
