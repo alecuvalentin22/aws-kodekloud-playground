@@ -538,3 +538,50 @@ spec:
         app: headlamp
         group: Platform
         layer: front-door
+---
+apiVersion: monitoring.coreos.com/v1
+kind: Probe
+metadata:
+  name: plane-in-cluster
+  namespace: observability
+  labels:
+    app.kubernetes.io/part-of: homelab-uptime
+spec:
+  jobName: blackbox-http
+  interval: 30s
+  scrapeTimeout: 15s
+  module: http_up
+  prober:
+    url: blackbox-exporter.observability.svc.cluster.local:9115
+  targets:
+    staticConfig:
+      static:
+        # Plane's API (what sync.sh and the play hook talk to); public, no login.
+        - http://plane-api.plane.svc.cluster.local:8000/api/instances/
+      labels:
+        app: plane
+        group: Playground
+        layer: in-cluster
+---
+apiVersion: monitoring.coreos.com/v1
+kind: Probe
+metadata:
+  name: plane-front-door
+  namespace: observability
+  labels:
+    app.kubernetes.io/part-of: homelab-uptime
+spec:
+  jobName: blackbox-http
+  interval: 30s
+  scrapeTimeout: 15s
+  module: http_up
+  prober:
+    url: blackbox-exporter.observability.svc.cluster.local:9115
+  targets:
+    staticConfig:
+      static:
+        - http://tracker.192.168.0.23.nip.io/
+      labels:
+        app: plane
+        group: Playground
+        layer: front-door

@@ -108,7 +108,7 @@ import sys
 from django.utils import timezone
 from plane.db.models import User, Profile, Workspace, WorkspaceMember
 from plane.license.models import Instance, InstanceAdmin, InstanceConfiguration
-email, slug, wsname = EMAIL_, SLUG_, WSNAME_
+email, slug, wsname = @@EMAIL@@, @@SLUG@@, @@WSNAME@@
 pw = sys.stdin.readline().rstrip("\n")
 assert pw, "empty password on stdin"
 u = User.objects.filter(email=email).first()
@@ -143,7 +143,7 @@ print("admin %s, instance admin, setup done, signup off, workspace %s" % ("creat
 '
 
 py_with_args() {   # inline the non-secret arguments as Python literals
-  python3 -I -c 'import sys,json; s=sys.stdin.read(); print(s.replace("EMAIL_", json.dumps(sys.argv[1])).replace("SLUG_", json.dumps(sys.argv[2])).replace("WSNAME_", json.dumps(sys.argv[3])))' \
+  python3 -I -c 'import sys,json; s=sys.stdin.read(); print(s.replace("@@EMAIL@@", json.dumps(sys.argv[1])).replace("@@SLUG@@", json.dumps(sys.argv[2])).replace("@@WSNAME@@", json.dumps(sys.argv[3])))' \
     "$EMAIL" "$WS_SLUG" "$WS_NAME"
 }
 
@@ -171,8 +171,8 @@ cmd_admin() {
 TOKEN_PY='
 import secrets
 from plane.db.models import User, APIToken, Workspace
-u = User.objects.get(email=EMAIL_)
-ws = Workspace.objects.filter(slug=SLUG_).first()
+u = User.objects.get(email=@@EMAIL@@)
+ws = Workspace.objects.filter(slug=@@SLUG@@).first()
 t = APIToken.objects.create(user=u, label="playground-tracker", description="playground/tracker (sync.sh, play hook)", workspace=ws, user_type=0)
 print(t.token)
 '

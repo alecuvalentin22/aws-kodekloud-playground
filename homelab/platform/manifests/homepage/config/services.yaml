@@ -92,6 +92,13 @@
         href: http://192.168.0.23:30095
         description: "Sample app deployed by the playground pipeline"
         siteMonitor: http://192.168.0.23:30095/
+    - Tracker:
+        icon: plane.png
+        href: http://tracker.192.168.0.23.nip.io/interview-prep/
+        description: "Plane: one ticket per drill (login admin@homelab.local)"
+        siteMonitor: http://plane-api.plane.svc.cluster.local:8000/api/instances/
+        namespace: plane
+        podSelector: app.name=plane-plane-api
 
 - Cluster:
     - Kubernetes API:
