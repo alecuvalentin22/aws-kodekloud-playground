@@ -20,14 +20,17 @@ Every tile should have a green dot. Bookmark it: every tool is one click away.
 | Tool | Address | Login |
 |---|---|---|
 | Start page | http://home.192.168.0.23.nip.io | none |
-| Playground Jenkins (the drills) | http://192.168.0.23:30094 | admin / parola |
-| Playground Gitea (the drills' git) | http://192.168.0.23:30300 | admin / parola |
-| Platform: Argo CD | http://argocd.192.168.0.23.nip.io | admin / parola |
-| Platform: Grafana | http://grafana.192.168.0.23.nip.io | admin / parola |
-| Platform: Jenkins | http://jenkins.192.168.0.23.nip.io | admin / parola |
-| Platform: Artifactory | http://artifactory.192.168.0.23.nip.io | admin / parola |
+| Playground Jenkins (the drills) | http://192.168.0.23:30094 | admin / shared password |
+| Playground Gitea (the drills' git) | http://192.168.0.23:30300 | admin / shared password |
+| Platform: Argo CD | http://argocd.192.168.0.23.nip.io | admin / shared password |
+| Platform: Grafana | http://grafana.192.168.0.23.nip.io | admin / shared password |
+| Platform: Jenkins | http://jenkins.192.168.0.23.nip.io | admin / shared password |
+| Platform: Artifactory | http://artifactory.192.168.0.23.nip.io | admin / shared password |
 | Platform: Backstage | http://backstage.192.168.0.23.nip.io | guest |
-| Kubernetes UI: Headlamp | http://headlamp.192.168.0.23.nip.io | admin / parola (once) |
+| Kubernetes UI: Headlamp | http://headlamp.192.168.0.23.nip.io | admin / shared password (once) |
+
+The **shared password** is the same for every tool; ask whoever runs the lab (it is
+never written in this repo).
 
 There are two Jenkins: the **playground** one (port 30094) is where the drills
 happen; the **platform** one (`jenkins.` address) is part of the home-lab
