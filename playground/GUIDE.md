@@ -249,6 +249,8 @@ Open the start page and walk through it. For each stop, one or two sentences:
 
 ## When something is broken
 
+- **Nothing answers in the morning or after a break?** The lab sleeps at night and when idle:
+  `ssh homelab-1-wsl homelab-power wake`, then ~15-20 min.
 - **A tool's tile is red on the start page, right after the PC rebooted:** wait.
   Everything comes back on its own; Artifactory is last (about 20 minutes).
 - **`play doctor` shows ✗:** `~/platform-lab/playground/setup/up.sh` on the box.

@@ -324,6 +324,81 @@ Order that works: `lan-kube-api.sh` first (then `secrets.sh` needs no tunnel), `
 - **`wsl-self-heal.sh`** (normal mode) is safe while the lab runs. The repetition is verified by reading the task
   back (`Get-ScheduledTask`); that Windows behaviour is from Microsoft's documentation, not yet seen on the PC.
 
+## Sleep and wake
+
+The heavy part of the lab sleeps at night and when nobody uses it, and wakes on a
+schedule or on demand. Installed by the `homelab` role (`--tags power`), driven by
+`/usr/local/sbin/homelab-power` in WSL.
+
+**What sleeps, in this order:** the static Jenkins agent (`pg-static-01`, if it exists), the
+kind playground containers (`playground-control-plane`, then `kind-registry`; stopped, never
+`kind delete`d), then the three Incus VMs with a graceful `incus stop --timeout 120` (agents first,
+the server and its etcd last; `--force` only after the timeout, and logged). **What stays up:** the
+PC, WSL, Docker, Incus, sshd and HAProxy, so `ssh homelab-1-wsl` keeps working and the Wi-Fi URLs just
+return errors until the wake. What sleep stopped goes into `/var/lib/homelab-power/state`; wake starts
+exactly that (the VMs, the kind containers it stopped, the static agent only if it was running).
+Memory in WSL goes from about 31 GiB used to 1 GiB (measured, `free -g`).
+
+```bash
+homelab/mac/lab.sh status          # state, VMs, containers, last sleep/wake with reason, idle counters, next timers
+homelab/mac/lab.sh sleep           # reason "manual"
+homelab/mac/lab.sh wake            # starts everything, then waits (max 10 min) for 3/3 nodes Ready
+# same thing on the box, e.g. for a candidate:  ssh homelab-1-wsl homelab-power wake
+```
+
+`lab` has passwordless sudo, and `homelab-power` re-runs itself with `sudo`, so no password and
+no sudoers entry of its own. All three commands are safe to repeat: a second `sleep` finds
+nothing running and does nothing; a second `wake` finds everything up.
+
+| Timer (systemd, in WSL) | When | What |
+|---|---|---|
+| `homelab-sleep.timer` | every day 01:00 `Europe/Bucharest` | `homelab-power sleep night` |
+| `homelab-wake.timer` | every day 07:30 `Europe/Bucharest` | `homelab-power wake schedule` |
+| `homelab-idle.timer` | every 15 minutes | `homelab-power idle-check` |
+| `homelab-power-boot.service` | at WSL start | finishes a wake after a Windows restart |
+
+The time zone is part of the `OnCalendar` line (supported since systemd 235; WSL has 255), so the
+schedule follows Bucharest time whatever WSL's own zone says, summer time included. Neither timer is
+`Persistent`: a missed 01:00 is not run later. If Windows restarts while the lab sleeps, Incus' `boot.autostart`
+brings the VMs up anyway and the boot unit starts the kind containers that sleep stopped, so
+nothing is left half awake (and a manual `sleep` does not survive a restart).
+
+**Idle sleep** (default on). Every 15 minutes `idle-check` asks two questions: is there an SSH
+session into WSL (a connection to WSL's sshd on 127.0.0.1:2222, i.e. any Mac or candidate login), and
+did the cumulative session count of HAProxy's frontends (the LAN ports 80, 443, 6443, 30094, 30095,
+30300; read from the stats page on 127.0.0.1:8404) change since the last check? Any "yes" restarts the idle clock.
+After `homelab_power_idle_hours` (3) of continuous "no" it sleeps with reason `idle`, but only
+between 08:00 and 01:00 (the night is the schedule's job) and never within 2 hours after a wake.
+Things it cannot see: a shell opened on the PC itself with `wsl.exe`, and work running purely inside
+the cluster (a Jenkins build nobody watches). An SSH session left open on the Mac keeps the lab awake.
+Test it without sleeping: `homelab/mac/lab.sh idle-check --dry-run` prints the decision.
+
+**How long a wake takes** (measured 2026-10-18 on homelab-1; see the table at the bottom for the
+full numbers): the RKE2 API answers after ~40 s, 3/3 nodes Ready after ~3 min, apps after ~12 min,
+Artifactory ~20 min. Plan for 15-20 minutes before everything is green, the same as after a power cut.
+A sleep takes about 4 minutes (VMs stop in 90-115 s each; the agents in parallel).
+
+**Backups** (`homelab-backup-etcd`) skip with exit 0 and a log line while `rke2-s1` is not running.
+The 6-hourly RKE2 snapshots are not taken while the VMs sleep, and a copy catches up at the next
+timer run after the wake.
+
+**Change or switch off** (variables of the role, in `homelab/inventory.ini` or `-e`, then
+`ansible-playbook -i homelab/inventory.ini playbooks/homelab.yml --tags power`):
+
+| Variable | Default | |
+|---|---|---|
+| `homelab_power_sleep_at`, `homelab_power_wake_at` | `01:00:00`, `07:30:00` | `""` removes that timer |
+| `homelab_power_timezone` | `Europe/Bucharest` | |
+| `homelab_power_idle_hours` | `3` | `0` disables idle sleep (the timer is stopped) |
+| `homelab_power_idle_from`, `homelab_power_idle_until` | `8`, `1` | hours in which idle sleep may fire |
+| `homelab_power_idle_grace_hours` | `2` | no idle sleep this long after a wake |
+| `homelab_power_stop_timeout`, `homelab_power_wake_timeout` | `120`, `600` | seconds |
+| `homelab_power: false` | | do not install any of it (already installed units stay until removed by hand) |
+
+Logs: `journalctl -t homelab-power` (also the output of each timer unit). To keep the lab up
+tonight without changing the role: `ssh homelab-1-wsl 'sudo systemctl stop homelab-sleep.timer homelab-idle.timer'`
+(the role's next `--tags power` run starts them again, as does a restart of WSL).
+
 ## Backups
 
 What is backed up, and where. Check it any time with `homelab/mac/backup-status.sh`.
@@ -418,6 +493,7 @@ Windows 11 Home 10.0.26200, Intel i9-10885H (8c/16t), 64 GB, fresh install.
 | boot without login | rebooted: WSL up 17 s after boot via the `Homelab-WSL` task, no desktop session |
 | full Windows reboot (2026-10-17) | `shutdown /r`, nobody logged in afterwards. From boot: Homelab-WSL task ran **17 s**, Windows sshd + WSL ssh **~71 s**, 3 VMs RUNNING **~72 s**, 3/3 nodes Ready **106 s**; HAProxy, the LAN firewall/Hyper-V rules, incus-docker-forward and the kind playground all up unaided. URLs (200): Backstage + playground Jenkins/Gitea/demo-api **115 s**, Argo CD **135 s**, Grafana **503 s**, start page **513 s**, platform Jenkins **716 s**, Artifactory **1290 s** (~21.5 min). Budget ~12 min after a power cut for everything but Artifactory. |
 | recovery drill (2026-10-17) | `wsl-self-heal.sh --prove`: deliberate `wsl --shutdown`; the 5-minute task brought WSL back **85 s** later with nobody touching it, ssh 1 s after. VMs, 3/3 nodes, the kind playground, HAProxy and the Wi-Fi URLs all came back on their own; ~12 min after the shutdown every URL answered 200 except Artifactory, which needs its usual 10–15 min first start. The VMs returned via Incus' last-state restore; `boot.autostart=true` (servers first) is now set explicitly by the role. The drill also found that the script's first `ssh` swallowed stdin, so a piped `y` silently aborted the prompt: fixed with `ssh -n`. |
+| sleep and wake cycle (2026-10-17/18) | `homelab/mac/lab.sh sleep`: kind containers stopped in 32 s, VMs stopped gracefully (agents in parallel, 87 and 114 s, then the server 94 s), **4 min** in all; WSL memory used 31 -> 1 GiB (`free -g`: free 9 -> 39, available 15 -> 45); HAProxy, sshd and `homelab-backup-etcd` (exit 0, "skipped: rke2-s1 is not running") fine while asleep. `lab.sh wake`: VMs started in 1 s, RKE2 API **39 s**, 3/3 nodes Ready **179 s**; every pod except Artifactory's Ready by **8.5 min**, Artifactory (200 on `/ui/`) **17 min 44 s**, all 15 Argo CD applications Synced/Healthy ~19 min after the start; `play doctor` green. |
 | `wsl-up.sh --ansible` | first run on the real box: `ok=47 changed=28 failed=0` -- Docker 29.8.2, kubectl 1.34.11, helm 3.20.0, terraform 1.14.4, Incus 6.0.6 with `incusbr0` 10.77.0.1/24 |
 | a real VM | `incus launch images:ubuntu/24.04 --vm`: up in 24 s, its own kernel 6.8.0-147, `systemd-detect-virt` = kvm, IP 10.77.0.125 |
 | 3 VMs | `homelab-vms.yml`: `rke2-s1` 10.77.0.31, `rke2-a1` .32, `rke2-a2` .33, 4 vCPU / 8 GiB each (since resized to 12 GiB, see section 3). Real-hardware faults fixed in the role: plain `images:ubuntu/24.04` has no cloud-init (now `/cloud`); Docker's iptables FORWARD DROP blocked VM egress (DOCKER-USER rules + `incus-docker-forward.service`); `lock_passwd: true` made sshd refuse `lab` (UsePAM no) -- now `hashed_passwd: "*"`; the vault `group_vars` symlink broke every playbook (now opt-in); ssh offered agent keys first (`IdentitiesOnly`). Re-run: `ok=8 changed=0` |

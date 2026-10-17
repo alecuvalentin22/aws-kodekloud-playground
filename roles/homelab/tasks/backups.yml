@@ -22,7 +22,10 @@
     - "{{ homelab_backup_dir }}"
     - "{{ homelab_backup_windows_dir }}"
 
+# tags: power -- the "VM is stopped" skip belongs to power management, so
+# `--tags power` installs it without re-running the rest of the role.
 - name: homelab-backup-etcd (pull from the VM, prune, mirror to Windows)
+  tags: [power]
   ansible.builtin.copy:
     dest: /usr/local/sbin/homelab-backup-etcd
     mode: "0755"
@@ -36,6 +39,11 @@
       WIN={{ homelab_backup_windows_dir }}
       KEEP={{ homelab_backup_keep }}
       tmp=$(mktemp -d); trap 'rm -rf "$tmp"' EXIT
+      # Asleep (homelab-power sleep) or still booting: nothing to pull. Not a failure.
+      if [[ "$(incus list "^$VM\$" -c s -f csv 2>/dev/null)" != RUNNING ]]; then
+        echo "skipped: $VM is not running (lab asleep?); nothing to back up, will retry on the next timer run"
+        exit 0
+      fi
       # List on the VM, then pull each file: `incus file pull -r` of a directory
       # also works, but per-file keeps names flat and skips what we already have.
       for f in $(incus exec "$VM" -- ls -1 "$SRC" 2>/dev/null); do

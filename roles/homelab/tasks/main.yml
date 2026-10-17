@@ -204,3 +204,9 @@
   ansible.builtin.import_tasks: backups.yml
   when: homelab_backups | bool
   tags: [backups]
+
+# --- Sleep at night / when idle, wake on schedule or on demand ------------------------------
+- name: Power management (homelab-power)
+  ansible.builtin.import_tasks: power.yml
+  when: homelab_power | bool
+  tags: [power]

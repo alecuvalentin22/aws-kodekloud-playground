@@ -1,0 +1,379 @@
+#!/usr/bin/env bash
+# Installed by roles/homelab (tasks/power.yml, --tags power) to /usr/local/sbin.
+# Settings come from /etc/homelab-power.conf, written by the same role.
+#
+#   homelab-power sleep [night|idle|manual]   stop the heavy part of the lab
+#   homelab-power wake  [schedule|manual|boot] [--no-wait]
+#   homelab-power status
+#   homelab-power idle-check [--dry-run]      what homelab-idle.timer runs
+#   homelab-power boot                        what homelab-power-boot.service runs
+#
+# Asleep = static Jenkins agent, kind playground containers and the Incus VMs
+# (RKE2 cluster) stopped, in that order. Everything else stays up: WSL, sshd,
+# Docker, Incus, HAProxy. Nothing is deleted (no `kind delete`, no `incus delete`).
+# What sleep stopped is written to the state file, and wake starts exactly that.
+set -uo pipefail
+
+CONF=${HOMELAB_POWER_CONF:-/etc/homelab-power.conf}
+VM_SERVER=rke2-s1
+VM_AGENTS="rke2-a1 rke2-a2"
+STATIC_CONTAINER=pg-static-01
+KIND_LABEL=io.x-k8s.kind.cluster
+EXTRA_CONTAINERS=kind-registry
+STOP_TIMEOUT=120
+WAKE_TIMEOUT=600
+IDLE_HOURS=3
+IDLE_FROM=8
+IDLE_UNTIL=1
+IDLE_GRACE_HOURS=2
+TZNAME=Europe/Bucharest
+STATS_PORT=8404
+RKE2_KUBECTL=/var/lib/rancher/rke2/bin/kubectl
+RKE2_KUBECONFIG=/etc/rancher/rke2/rke2.yaml
+SSH_PORT=2222
+# shellcheck disable=SC1090
+[ -r "$CONF" ] && . "$CONF"
+# Test overrides (a different state dir, a different clock, fake inputs).
+IDLE_HOURS=${HOMELAB_POWER_IDLE_HOURS:-$IDLE_HOURS}
+STATE_DIR=${HOMELAB_POWER_DIR:-/var/lib/homelab-power}
+STATE_FILE=$STATE_DIR/state
+IDLE_FILE=$STATE_DIR/idle
+LOCK_FILE=$STATE_DIR/lock
+
+# Everything below needs root (Incus, Docker, /var/lib). `lab` has sudo.
+if [ "$(id -u)" -ne 0 ]; then
+  exec sudo -n "$0" "$@"
+fi
+mkdir -p "$STATE_DIR"
+
+now() { echo "${HOMELAB_POWER_FAKE_NOW:-$(date +%s)}"; }
+fmt_ts() { [ -n "${1:-}" ] && TZ=$TZNAME date -d "@$1" '+%Y-%m-%d %H:%M %Z' || echo "never"; }
+fmt_dur() { local s=$1; printf '%dh%02dm' $((s / 3600)) $((s % 3600 / 60)); }
+log() {
+  local line
+  line="$(TZ=$TZNAME date '+%H:%M:%S') $*"
+  echo "$line"
+  logger -t homelab-power -- "$*" 2>/dev/null || true
+}
+
+# --- state ------------------------------------------------------------------
+STATE=awake SLEPT_AT="" SLEPT_REASON="" WOKE_AT="" WOKE_REASON="" STOPPED_VMS="" STOPPED_CONTAINERS=""
+load_state() {
+  STATE=awake SLEPT_AT="" SLEPT_REASON="" WOKE_AT="" WOKE_REASON="" STOPPED_VMS="" STOPPED_CONTAINERS=""
+  # shellcheck disable=SC1090
+  [ -r "$STATE_FILE" ] && . "$STATE_FILE"
+  return 0
+}
+save_state() {
+  local tmp="$STATE_FILE.tmp"
+  {
+    printf 'STATE=%q\nSLEPT_AT=%q\nSLEPT_REASON=%q\nWOKE_AT=%q\nWOKE_REASON=%q\n' \
+      "$STATE" "$SLEPT_AT" "$SLEPT_REASON" "$WOKE_AT" "$WOKE_REASON"
+    printf 'STOPPED_VMS=%q\nSTOPPED_CONTAINERS=%q\n' "$STOPPED_VMS" "$STOPPED_CONTAINERS"
+  } >"$tmp" && mv "$tmp" "$STATE_FILE"
+}
+IDLE_SINCE="" LAST_COUNTER=""
+load_idle() {
+  IDLE_SINCE="" LAST_COUNTER=""
+  # shellcheck disable=SC1090
+  [ -r "$IDLE_FILE" ] && . "$IDLE_FILE"
+  return 0
+}
+save_idle() {
+  printf 'IDLE_SINCE=%q\nLAST_COUNTER=%q\n' "$IDLE_SINCE" "$LAST_COUNTER" >"$IDLE_FILE.tmp" && mv "$IDLE_FILE.tmp" "$IDLE_FILE"
+}
+
+# --- probes -----------------------------------------------------------------
+vm_state() { incus list "^$1\$" -c s -f csv 2>/dev/null | head -1; }
+container_running() { [ "$(docker inspect -f '{{.State.Running}}' "$1" 2>/dev/null)" = true ]; }
+container_exists() { docker inspect "$1" >/dev/null 2>&1; }
+# Names of the kind node containers (all clusters kind made), then the extras.
+kind_nodes() { docker ps -a --filter "label=$KIND_LABEL" --format '{{.Names}}' 2>/dev/null; }
+all_vms() { echo "$VM_SERVER $VM_AGENTS"; }
+
+ssh_sessions() {
+  [ -n "${HOMELAB_POWER_FAKE_SSH:-}" ] && { echo "$HOMELAB_POWER_FAKE_SSH"; return; }
+  # Connections to WSL's sshd (127.0.0.1:2222; every Mac login arrives there via
+  # the Windows jump host), plus any logind session of an sshd login. The
+  # console session (Service=login) that WSL itself keeps open is not one.
+  local n s
+  n=$(ss -Htn state established "( sport = :$SSH_PORT )" 2>/dev/null | wc -l)
+  s=0
+  while read -r id; do
+    [ -n "$id" ] || continue
+    [ "$(loginctl show-session "$id" -p Service --value 2>/dev/null)" = sshd ] && s=$((s + 1))
+  done < <(loginctl list-sessions --no-legend 2>/dev/null | awk '$3=="lab"{print $1}')
+  # one login normally shows up in both views
+  [ "$s" -gt "$n" ] && n=$s
+  echo "$n"
+}
+# Cumulative sessions of every HAProxy frontend except the stats page.
+haproxy_total() {
+  [ -n "${HOMELAB_POWER_FAKE_COUNTER:-}" ] && { echo "$HOMELAB_POWER_FAKE_COUNTER"; return; }
+  curl -s -m 5 "http://127.0.0.1:$STATS_PORT/;csv" 2>/dev/null |
+    awk -F, '$2=="FRONTEND" && $1!="stats" {s+=$8; n++} END{ if (n) print s; else print "-" }'
+}
+
+in_window() { # in_window <hour 0-23>: inside [IDLE_FROM, IDLE_UNTIL) that wraps midnight
+  local h=$1
+  if [ "$IDLE_FROM" -lt "$IDLE_UNTIL" ]; then
+    [ "$h" -ge "$IDLE_FROM" ] && [ "$h" -lt "$IDLE_UNTIL" ]
+  else
+    [ "$h" -ge "$IDLE_FROM" ] || [ "$h" -lt "$IDLE_UNTIL" ]
+  fi
+}
+
+# --- sleep ------------------------------------------------------------------
+stop_container() {
+  if container_running "$1"; then
+    if docker stop -t 30 "$1" >/dev/null; then
+      log "stopped container $1"
+      STOPPED_CONTAINERS="$STOPPED_CONTAINERS $1"
+    else
+      log "FAILED to stop container $1 (continuing)"; RC=1
+    fi
+  fi
+}
+stop_vm() { # graceful, then --force after the timeout (logged)
+  local vm=$1 t0
+  [ "$(vm_state "$vm")" = RUNNING ] || return 0
+  t0=$(date +%s)
+  if incus stop "$vm" --timeout "$STOP_TIMEOUT" >/dev/null 2>&1; then
+    log "stopped VM $vm gracefully in $(($(date +%s) - t0)) s"
+  else
+    log "VM $vm did not stop within ${STOP_TIMEOUT} s: forcing"
+    incus stop "$vm" --force >/dev/null 2>&1 || { log "FAILED to force-stop VM $vm (continuing)"; RC=1; return 0; }
+    log "force-stopped VM $vm"
+  fi
+}
+
+anything_running() {
+  local x
+  for x in $(all_vms); do [ "$(vm_state "$x")" = RUNNING ] && return 0; done
+  for x in $STATIC_CONTAINER $(kind_nodes) $EXTRA_CONTAINERS; do container_running "$x" && return 0; done
+  return 1
+}
+
+cmd_sleep() {
+  local reason=${1:-manual} vm c t0 pids=() p
+  RC=0
+  load_state
+  if [ "$STATE" = asleep ] && ! anything_running; then
+    log "sleep: already asleep since $(fmt_ts "$SLEPT_AT") (reason: $SLEPT_REASON); nothing to do"
+    return 0
+  fi
+  t0=$(date +%s)
+  log "sleep: starting (reason: $reason)"
+  if command -v docker >/dev/null && docker info >/dev/null 2>&1; then
+    stop_container "$STATIC_CONTAINER"
+    for c in $(kind_nodes); do stop_container "$c"; done
+    for c in $EXTRA_CONTAINERS; do stop_container "$c"; done
+  else
+    log "docker is not answering: skipping containers"; RC=1
+  fi
+  # Agents first (in parallel), the server (etcd) last.
+  for vm in $VM_AGENTS; do
+    if [ "$(vm_state "$vm")" = RUNNING ]; then
+      STOPPED_VMS="$STOPPED_VMS $vm"
+      stop_vm "$vm" &
+      pids+=($!)
+    fi
+  done
+  for p in "${pids[@]+"${pids[@]}"}"; do wait "$p" || true; done
+  if [ "$(vm_state "$VM_SERVER")" = RUNNING ]; then
+    STOPPED_VMS="$STOPPED_VMS $VM_SERVER"
+    stop_vm "$VM_SERVER"
+  fi
+  # Verify what we claim.
+  for vm in $(all_vms); do
+    [ "$(vm_state "$vm")" = RUNNING ] && { log "VM $vm is STILL RUNNING"; RC=1; }
+  done
+  STATE=asleep SLEPT_AT=$(now) SLEPT_REASON=$reason
+  save_state
+  rm -f "$IDLE_FILE"
+  log "sleep: done in $(($(date +%s) - t0)) s ($([ $RC = 0 ] && echo ok || echo WITH ERRORS))"
+  return "$RC"
+}
+
+# --- wake -------------------------------------------------------------------
+nodes_ready() { # prints "ready total" from the RKE2 server
+  timeout 20 incus exec "$VM_SERVER" -- "$RKE2_KUBECTL" --kubeconfig "$RKE2_KUBECONFIG" \
+    get nodes --no-headers 2>/dev/null | awk '{t++; if ($2=="Ready") r++} END{print r+0, t+0}'
+}
+
+cmd_wake() {
+  local reason=manual wait=1 vm c t0 left="" want n_want ready total api_s="" ready_s="" arg
+  for arg in "$@"; do
+    case $arg in
+      --no-wait) wait=0 ;;
+      *) reason=$arg ;;
+    esac
+  done
+  RC=0
+  load_state
+  t0=$(date +%s)
+  log "wake: starting (reason: $reason; state was: $STATE)"
+  # Containers sleep stopped, newest stop last => start in reverse (registry
+  # and kind before the static agent that talks to Jenkins in the cluster).
+  for c in $(echo "$STOPPED_CONTAINERS" | tr ' ' '\n' | grep . | tac); do
+    if ! container_exists "$c"; then
+      log "container $c no longer exists: dropped from the list"
+    elif container_running "$c"; then
+      :
+    elif docker start "$c" >/dev/null 2>&1; then
+      log "started container $c"
+    else
+      log "FAILED to start container $c (continuing)"; RC=1; left="$left $c"
+    fi
+  done
+  # VMs: server first, then the agents. `incus start` returns once QEMU is up.
+  for vm in $(all_vms); do
+    case "$(vm_state "$vm")" in
+      RUNNING) ;;
+      "") log "VM $vm does not exist (continuing)"; RC=1 ;;
+      *) if incus start "$vm" >/dev/null 2>&1; then log "started VM $vm"; else log "FAILED to start VM $vm (continuing)"; RC=1; fi ;;
+    esac
+  done
+  STATE=awake WOKE_AT=$(now) WOKE_REASON=$reason STOPPED_VMS="" STOPPED_CONTAINERS=${left# }
+  save_state
+  # A fresh idle clock: nobody should be put to sleep minutes after waking it.
+  IDLE_SINCE=$(now) LAST_COUNTER=$(haproxy_total)
+  save_idle
+  if [ "$wait" = 1 ]; then
+    want=$(all_vms | wc -w)
+    n_want=$want
+    log "waiting up to ${WAKE_TIMEOUT} s for the RKE2 API and $n_want Ready nodes"
+    while [ $(($(date +%s) - t0)) -lt "$WAKE_TIMEOUT" ]; do
+      read -r ready total < <(nodes_ready)
+      if [ "${total:-0}" -gt 0 ] && [ -z "$api_s" ]; then
+        api_s=$(($(date +%s) - t0)); log "RKE2 API answers after ${api_s} s"
+      fi
+      if [ "${ready:-0}" -ge "$n_want" ]; then
+        ready_s=$(($(date +%s) - t0)); log "$ready/$total nodes Ready after ${ready_s} s"; break
+      fi
+      sleep 5
+    done
+    if [ -z "$ready_s" ]; then
+      log "TIMEOUT: only ${ready:-0}/${n_want} nodes Ready after ${WAKE_TIMEOUT} s (the VMs keep booting; check: homelab-power status)"
+      RC=1
+    fi
+  fi
+  log "wake: done in $(($(date +%s) - t0)) s ($([ $RC = 0 ] && echo ok || echo WITH ERRORS))."
+  log "Pods take longer: apps ~12 min after the nodes, Artifactory ~20 min. Watch: kubectl -n argocd get applications"
+  return "$RC"
+}
+
+# --- status -----------------------------------------------------------------
+cmd_status() {
+  local vm c ready total ssh ctr
+  load_state; load_idle
+  echo "lab is:        $STATE"
+  echo "last sleep:    $(fmt_ts "$SLEPT_AT")${SLEPT_REASON:+  (reason: $SLEPT_REASON)}"
+  echo "last wake:     $(fmt_ts "$WOKE_AT")${WOKE_REASON:+  (reason: $WOKE_REASON)}"
+  [ "$STATE" = asleep ] && echo "sleep stopped: VMs:${STOPPED_VMS:- none}  containers:${STOPPED_CONTAINERS:- none}"
+  echo "VMs:"
+  for vm in $(all_vms); do printf '  %-10s %s\n' "$vm" "$(vm_state "$vm" || true)"; done
+  echo "containers:"
+  for c in $STATIC_CONTAINER $(kind_nodes) $EXTRA_CONTAINERS; do
+    container_exists "$c" || { [ "$c" = "$STATIC_CONTAINER" ] && printf '  %-26s %s\n' "$c" "(not created)"; continue; }
+    printf '  %-26s %s\n' "$c" "$(container_running "$c" && echo running || echo stopped)"
+  done
+  if [ "$(vm_state "$VM_SERVER")" = RUNNING ]; then
+    read -r ready total < <(nodes_ready)
+    echo "k8s nodes:     ${ready:-0}/${total:-0} Ready"
+  fi
+  if [ "$IDLE_HOURS" -gt 0 ]; then
+    ssh=$(ssh_sessions); ctr=$(haproxy_total)
+    echo "idle sleep:    enabled, after ${IDLE_HOURS} h idle, only ${IDLE_FROM}:00-${IDLE_UNTIL}:00 ($TZNAME), not within ${IDLE_GRACE_HOURS} h of a wake"
+    echo "idle counters: ssh sessions now: $ssh; haproxy sessions: $ctr (at last check: ${LAST_COUNTER:--})"
+    if [ -n "$IDLE_SINCE" ] && [ "$STATE" = awake ]; then
+      echo "               idle for $(fmt_dur $(($(now) - IDLE_SINCE))) of ${IDLE_HOURS}h00m (since $(fmt_ts "$IDLE_SINCE"))"
+    fi
+  else
+    echo "idle sleep:    disabled (homelab_power_idle_hours: 0)"
+  fi
+  systemctl list-timers 'homelab-sleep.timer' 'homelab-wake.timer' 'homelab-idle.timer' --no-pager --no-legend 2>/dev/null |
+    awk '{printf "timer:         %-20s next %s %s %s\n", $(NF-1), $2, $3, $4}' | sed 's/\.timer//'
+}
+
+# --- idle check ---------------------------------------------------------------
+cmd_idle_check() {
+  local dry=0 ssh ctr why="" h idle_s need now_s grace_end
+  [ "${1:-}" = --dry-run ] && dry=1
+  if [ "$IDLE_HOURS" -le 0 ]; then
+    echo "idle-check: idle sleep is disabled (homelab_power_idle_hours: 0)"; return 0
+  fi
+  load_state
+  if [ "$STATE" = asleep ]; then
+    echo "idle-check: lab is already asleep; nothing to do"
+    [ "$dry" = 1 ] || rm -f "$IDLE_FILE"
+    return 0
+  fi
+  now_s=$(now)
+  load_idle
+  ssh=$(ssh_sessions)
+  ctr=$(haproxy_total)
+  if [ -z "$IDLE_SINCE" ]; then
+    why="first check, idle clock starts now"; IDLE_SINCE=$now_s
+  elif [ "$ssh" -gt 0 ]; then
+    why="$ssh SSH session(s) open"; IDLE_SINCE=$now_s
+  elif [ "$ctr" != "$LAST_COUNTER" ]; then
+    why="HAProxy saw traffic (sessions $LAST_COUNTER -> $ctr)"; IDLE_SINCE=$now_s
+  fi
+  LAST_COUNTER=$ctr
+  [ "$dry" = 1 ] || save_idle
+  idle_s=$((now_s - IDLE_SINCE))
+  need=$((IDLE_HOURS * 3600))
+  if [ -n "$why" ]; then
+    echo "idle-check: ACTIVE -- $why. Idle for 0 of ${IDLE_HOURS} h."; return 0
+  fi
+  echo "idle-check: no SSH sessions, HAProxy sessions unchanged ($ctr); idle for $(fmt_dur "$idle_s") of ${IDLE_HOURS}h00m"
+  if [ "$idle_s" -lt "$need" ]; then
+    echo "idle-check: decision: stay awake (idle long enough in $(fmt_dur $((need - idle_s))))"; return 0
+  fi
+  h=$((10#$(TZ=$TZNAME date -d "@$now_s" +%H)))
+  if ! in_window "$h"; then
+    echo "idle-check: decision: stay awake (hour $h is outside ${IDLE_FROM}:00-${IDLE_UNTIL}:00; the night schedule handles the night)"; return 0
+  fi
+  if [ -n "$WOKE_AT" ]; then
+    grace_end=$((WOKE_AT + IDLE_GRACE_HOURS * 3600))
+    if [ "$now_s" -lt "$grace_end" ]; then
+      echo "idle-check: decision: stay awake (woke $(fmt_ts "$WOKE_AT"); no idle sleep before $(fmt_ts "$grace_end"))"; return 0
+    fi
+  fi
+  if [ "$dry" = 1 ]; then
+    echo "idle-check: decision: WOULD SLEEP NOW (reason: idle) -- dry run, nothing done"; return 0
+  fi
+  echo "idle-check: decision: SLEEP (idle for $(fmt_dur "$idle_s"))"
+  exec 9>"$LOCK_FILE"
+  flock -n 9 || { echo "idle-check: another sleep/wake is running; skipping"; return 0; }
+  cmd_sleep idle
+}
+
+cmd_boot() {
+  load_state
+  if [ "$STATE" = asleep ]; then
+    log "boot: lab was asleep before the restart, but Incus autostarts the VMs: waking the rest"
+    cmd_wake boot --no-wait
+  else
+    log "boot: lab was awake; nothing to do"
+  fi
+}
+
+usage() {
+  echo "usage: homelab-power sleep [night|idle|manual] | wake [reason] [--no-wait] | status | idle-check [--dry-run] | boot" >&2
+  exit 2
+}
+
+cmd=${1:-}
+[ $# -gt 0 ] && shift
+case $cmd in
+  status) cmd_status ;;
+  idle-check) cmd_idle_check "$@" ;;
+  sleep | wake | boot)
+    exec 9>"$LOCK_FILE"
+    flock -w 900 9 || { echo "another homelab-power is running (waited 15 min)" >&2; exit 1; }
+    "cmd_$cmd" "$@"
+    ;;
+  *) usage ;;
+esac

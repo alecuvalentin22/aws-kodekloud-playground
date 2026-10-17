@@ -1,0 +1,132 @@
+---
+# Sleep at night and when idle, wake on a schedule or on demand.
+#
+#   homelab-power sleep|wake|status|idle-check     /usr/local/sbin, root (lab sudoes itself)
+#   homelab-sleep.timer / homelab-wake.timer       nightly schedule
+#   homelab-idle.timer                             every 15 min: sleep after N idle hours
+#   homelab-power-boot.service                     after a PC restart: finish a wake that boot.autostart started
+# All of it is under `--tags power`; the rest of the role is left alone.
+
+- name: homelab-power
+  ansible.builtin.copy:
+    src: homelab-power
+    dest: /usr/local/sbin/homelab-power
+    owner: root
+    group: root
+    mode: "0755"
+
+- name: homelab-power settings
+  ansible.builtin.template:
+    src: homelab-power.conf.j2
+    dest: /etc/homelab-power.conf
+    owner: root
+    group: root
+    mode: "0644"
+
+- name: homelab-power state directory
+  ansible.builtin.file:
+    path: /var/lib/homelab-power
+    state: directory
+    owner: root
+    group: root
+    mode: "0755"
+
+# Timers. A timer whose time is "" (or idle hours 0) is stopped and disabled.
+- name: homelab-power systemd units
+  ansible.builtin.copy:
+    dest: "/etc/systemd/system/{{ item.name }}"
+    owner: root
+    group: root
+    mode: "0644"
+    content: "{{ item.content }}"
+  loop:
+    - name: homelab-sleep.service
+      content: |
+        [Unit]
+        Description=Put the lab to sleep for the night (VMs, kind playground, static agent)
+        [Service]
+        Type=oneshot
+        TimeoutStartSec=900
+        ExecStart=/usr/local/sbin/homelab-power sleep night
+    - name: homelab-sleep.timer
+      content: |
+        [Unit]
+        Description=Nightly lab sleep
+        [Timer]
+        OnCalendar=*-*-* {{ homelab_power_sleep_at }} {{ homelab_power_timezone }}
+        AccuracySec=10s
+        Persistent=false
+        [Install]
+        WantedBy=timers.target
+    - name: homelab-wake.service
+      content: |
+        [Unit]
+        Description=Wake the lab (VMs, kind playground, static agent)
+        [Service]
+        Type=oneshot
+        TimeoutStartSec=1200
+        ExecStart=/usr/local/sbin/homelab-power wake schedule
+    - name: homelab-wake.timer
+      content: |
+        [Unit]
+        Description=Morning lab wake
+        [Timer]
+        OnCalendar=*-*-* {{ homelab_power_wake_at }} {{ homelab_power_timezone }}
+        AccuracySec=10s
+        Persistent=false
+        [Install]
+        WantedBy=timers.target
+    - name: homelab-idle.service
+      content: |
+        [Unit]
+        Description=Sleep the lab after {{ homelab_power_idle_hours }} h without SSH sessions or LAN traffic
+        [Service]
+        Type=oneshot
+        TimeoutStartSec=900
+        ExecStart=/usr/local/sbin/homelab-power idle-check
+    - name: homelab-idle.timer
+      content: |
+        [Unit]
+        Description=Is the lab idle? (every 15 minutes)
+        [Timer]
+        OnCalendar=*-*-* *:00/15:00
+        AccuracySec=10s
+        Persistent=false
+        [Install]
+        WantedBy=timers.target
+    # Windows restarted while the lab slept: Incus' boot.autostart brings the VMs
+    # up regardless, but Docker leaves the containers sleep stopped alone. This
+    # starts those too, so the lab is not half awake.
+    - name: homelab-power-boot.service
+      content: |
+        [Unit]
+        Description=After a restart: finish waking a lab that was asleep
+        After=incus.service docker.service
+        Wants=incus.service docker.service
+        [Service]
+        Type=oneshot
+        TimeoutStartSec=600
+        ExecStart=/usr/local/sbin/homelab-power boot
+        [Install]
+        WantedBy=multi-user.target
+  loop_control:
+    label: "{{ item.name }}"
+  register: homelab_power_units
+
+- name: homelab-power timers and boot unit
+  ansible.builtin.systemd:
+    name: "{{ item.name }}"
+    enabled: "{{ item.enable }}"
+    state: "{{ ('restarted' if homelab_power_units.changed else 'started') if item.enable else 'stopped' }}"
+    daemon_reload: "{{ homelab_power_units.changed }}"
+  loop:
+    - {name: homelab-sleep.timer, enable: "{{ homelab_power_sleep_at | length > 0 }}"}
+    - {name: homelab-wake.timer, enable: "{{ homelab_power_wake_at | length > 0 }}"}
+    - {name: homelab-idle.timer, enable: "{{ homelab_power_idle_hours | int > 0 }}"}
+  loop_control:
+    label: "{{ item.name }}"
+
+- name: homelab-power-boot.service enabled (runs at boot, not now)
+  ansible.builtin.systemd:
+    name: homelab-power-boot.service
+    enabled: true

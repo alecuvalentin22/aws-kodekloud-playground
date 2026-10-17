@@ -1,0 +1,13 @@
+# Managed by Ansible (roles/homelab, tasks/power.yml). Read by /usr/local/sbin/homelab-power.
+VM_SERVER="{{ homelab_vms | selectattr('role', 'equalto', 'server') | map(attribute='name') | join(' ') }}"
+VM_AGENTS="{{ homelab_vms | rejectattr('role', 'equalto', 'server') | map(attribute='name') | join(' ') }}"
+STATIC_CONTAINER="{{ homelab_power_static_container }}"
+EXTRA_CONTAINERS="{{ homelab_power_extra_containers | join(' ') }}"
+STOP_TIMEOUT={{ homelab_power_stop_timeout }}
+WAKE_TIMEOUT={{ homelab_power_wake_timeout }}
+IDLE_HOURS={{ homelab_power_idle_hours }}
+IDLE_FROM={{ homelab_power_idle_from }}
+IDLE_UNTIL={{ homelab_power_idle_until }}
+IDLE_GRACE_HOURS={{ homelab_power_idle_grace_hours }}
+TZNAME="{{ homelab_power_timezone }}"
+STATS_PORT={{ homelab_lan_ingress_stats_port }}

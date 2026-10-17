@@ -126,3 +126,30 @@ homelab_backup_dir: "/home/{{ homelab_user }}/backups/etcd"
 # On the Windows disk (C:\homelab-backups\etcd), so a lost WSL disk keeps them.
 homelab_backup_windows_dir: /mnt/c/homelab-backups/etcd
 homelab_backup_keep: 24
+
+# --- Power management (tasks/power.yml, --tags power) ---------------------------
+# `homelab-power sleep|wake|status|idle-check` in WSL. Asleep = the static
+# Jenkins agent, the kind playground containers and the Incus VMs (the RKE2
+# cluster) are stopped; WSL, sshd, Docker, Incus and HAProxy stay up.
+homelab_power: true
+# systemd OnCalendar times; the zone suffix needs systemd >= 235 (Ubuntu 24.04 has 255).
+# "" switches that timer off.
+homelab_power_timezone: Europe/Bucharest
+homelab_power_sleep_at: "01:00:00"
+homelab_power_wake_at: "07:30:00"
+# Idle sleep: this many hours of continuous idle (no SSH session into WSL, no new
+# session through HAProxy), checked every 15 minutes. 0 = disabled.
+homelab_power_idle_hours: 3
+# Idle sleep only fires from this hour (inclusive) to that hour (exclusive),
+# wrapping midnight: 8 -> 1 means 08:00-01:00. The night is the schedule's job.
+homelab_power_idle_from: 8
+homelab_power_idle_until: 1
+# ...and never within this many hours after a wake.
+homelab_power_idle_grace_hours: 2
+# Graceful `incus stop` timeout per VM before --force, and the bound on `wake`.
+homelab_power_stop_timeout: 120
+homelab_power_wake_timeout: 600
+# Containers outside the kind label that sleep also stops (and wake restarts),
+# and the optional static Jenkins agent (playground/setup/static-agent.sh).
+homelab_power_extra_containers: [kind-registry]
+homelab_power_static_container: pg-static-01
