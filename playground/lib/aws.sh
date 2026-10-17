@@ -61,7 +61,7 @@ load_creds() {
 
 # Keep one port-forward to the EKS Gitea alive, reused across commands.
 gitea_forward() {
-  curl -fsS -o /dev/null "$GITEA_URL/api/healthz" 2>/dev/null && return 0
+  curl -fsS -m 3 -o /dev/null "$GITEA_URL/api/healthz" 2>/dev/null && return 0
   [[ -f "$STATE/gitea-pf.pid" ]] && kill "$(cat "$STATE/gitea-pf.pid")" 2>/dev/null
   mkdir -p "$STATE/logs"
   nohup kubectl --kubeconfig "$EKS_KUBECONFIG" --context "$CTX" -n git \
@@ -69,7 +69,7 @@ gitea_forward() {
   echo $! > "$STATE/gitea-pf.pid"
   local _
   for _ in $(seq 1 20); do
-    curl -fsS -o /dev/null "$GITEA_URL/api/healthz" 2>/dev/null && return 0
+    curl -fsS -m 3 -o /dev/null "$GITEA_URL/api/healthz" 2>/dev/null && return 0
     sleep 1
   done
   return 1
