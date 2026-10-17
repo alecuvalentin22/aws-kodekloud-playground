@@ -1,0 +1,33 @@
+# Wave 4. Headlamp, the Kubernetes web UI, at http://headlamp.192.168.0.23.nip.io
+# behind admin / the shared password (values/headlamp.yaml says why and what
+# that login grants). Chart 0.45.0 from the kubernetes-sigs Helm repo.
+apiVersion: argoproj.io/v1alpha1
+kind: Application
+metadata:
+  name: headlamp
+  namespace: argocd
+  annotations:
+    argocd.argoproj.io/sync-wave: "4"
+spec:
+  project: homelab
+  destination:
+    server: https://kubernetes.default.svc
+    namespace: headlamp
+  sources:
+    - repoURL: https://kubernetes-sigs.github.io/headlamp/
+      chart: headlamp
+      targetRevision: 0.45.0
+      helm:
+        releaseName: headlamp
+        valueFiles:
+          - $values/homelab/platform/values/headlamp.yaml
+    - repoURL: https://github.com/alecuvalentin22/aws-kodekloud-playground.git
+      targetRevision: feat/playground
+      ref: values
+  syncPolicy:
+    automated: {prune: true, selfHeal: true}
+    syncOptions:
+      - CreateNamespace=true
+      - ServerSideApply=true
+      - ServerSideDiff=true
+      - FailOnSharedResource=true

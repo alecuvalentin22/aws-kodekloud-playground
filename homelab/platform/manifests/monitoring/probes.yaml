@@ -492,3 +492,49 @@ spec:
         app: demo-api
         group: Playground
         layer: front-door
+---
+apiVersion: monitoring.coreos.com/v1
+kind: Probe
+metadata:
+  name: headlamp-in-cluster
+  namespace: observability
+  labels:
+    app.kubernetes.io/part-of: homelab-uptime
+spec:
+  jobName: blackbox-http
+  interval: 30s
+  scrapeTimeout: 15s
+  module: http_up
+  prober:
+    url: blackbox-exporter.observability.svc.cluster.local:9115
+  targets:
+    staticConfig:
+      static:
+        - http://headlamp.headlamp.svc.cluster.local/
+      labels:
+        app: headlamp
+        group: Platform
+        layer: in-cluster
+---
+apiVersion: monitoring.coreos.com/v1
+kind: Probe
+metadata:
+  name: headlamp-front-door
+  namespace: observability
+  labels:
+    app.kubernetes.io/part-of: homelab-uptime
+spec:
+  jobName: blackbox-http
+  interval: 30s
+  scrapeTimeout: 15s
+  module: http_up
+  prober:
+    url: blackbox-exporter.observability.svc.cluster.local:9115
+  targets:
+    staticConfig:
+      static:
+        - http://headlamp.192.168.0.23.nip.io/
+      labels:
+        app: headlamp
+        group: Platform
+        layer: front-door

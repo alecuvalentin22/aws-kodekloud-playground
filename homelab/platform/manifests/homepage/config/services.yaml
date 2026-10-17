@@ -43,6 +43,13 @@
         siteMonitor: http://backstage.backstage.svc.cluster.local:7007/.backstage/health/v1/liveness
         namespace: backstage
         podSelector: app.kubernetes.io/name=backstage
+    - Headlamp:
+        icon: kubernetes.png
+        href: http://headlamp.192.168.0.23.nip.io
+        description: "Kubernetes web UI (login: admin, cluster-admin)"
+        siteMonitor: http://headlamp.headlamp.svc.cluster.local/
+        namespace: headlamp
+        podSelector: app.kubernetes.io/name=headlamp
 
 - CI:
     - Jenkins:
