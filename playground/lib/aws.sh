@@ -79,8 +79,11 @@ gitea_forward() {
 # `play reset` never fails because the EKS lab is gone.
 aws_tier_up() {
   [[ -f "$STATE/creds.env" && -r "$AWS_CREDS_FILE" ]] || return 1
-  ( aws_env; aws sts get-caller-identity >/dev/null 2>&1 ) || return 1
-  K get ns jenkins >/dev/null 2>&1
+  # K needs the lab credentials too (the kubeconfig's exec plugin calls aws), so
+  # both run in the subshell that loaded them. Before 2026-10-17 K ran outside it
+  # and failed whenever the caller had not loaded them itself, so a drill's
+  # reset.sh run on its own silently skipped everything.
+  ( aws_env; aws sts get-caller-identity >/dev/null 2>&1 && K get ns jenkins >/dev/null 2>&1 )
 }
 
 # Console text of a build. jenkins_get prints the body; fine for big logs.
