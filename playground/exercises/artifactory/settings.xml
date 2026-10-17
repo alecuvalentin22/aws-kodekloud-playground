@@ -1,0 +1,27 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<!--
+  Maven client settings for the Artifactory exercise. Nothing secret is in this
+  file: Maven fills the ${env.*} values from environment variables when it runs
+  (the README passes them into the throwaway container).
+
+  <mirrorOf>*</mirrorOf> means "every repository Maven would normally ask
+  (Maven Central, plugin repositories, ...) is replaced by ONE address": your
+  virtual repository. That is how a company makes sure all dependencies, and all
+  plugins, come through the proxy.
+-->
+<settings xmlns="http://maven.apache.org/SETTINGS/1.2.0">
+  <servers>
+    <server>
+      <id>artifactory</id>
+      <username>${env.ART_USER}</username>
+      <password>${env.HOMELAB_ADMIN_PASSWORD}</password>
+    </server>
+  </servers>
+  <mirrors>
+    <mirror>
+      <id>artifactory</id>
+      <mirrorOf>*</mirrorOf>
+      <url>${env.ART_URL}/artifactory/${env.EX_PREFIX}-maven-virtual</url>
+    </mirror>
+  </mirrors>
+</settings>

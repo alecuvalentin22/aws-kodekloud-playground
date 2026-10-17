@@ -1,0 +1,22 @@
+# One possible answer to the Backstage exercise (part 3). Peek only after you tried.
+# The five things that were wrong in broken/catalog-broken.yaml:
+#   1. tags must be lowercase words joined by "-"       ("Finance Team" -> "finance")
+#   2. apiVersion must be backstage.io/v1alpha1         (backstage.io/v1 does not exist)
+#   3. spec.owner is required                           (it was missing)
+#   4. lifecycle should be experimental|production|deprecated   (prod is accepted but nobody can filter on it)
+#   5. spec.system must name a System that exists       (payments-system does not; Backstage accepts the file anyway)
+apiVersion: backstage.io/v1alpha1
+kind: Component
+metadata:
+  name: candidate-ledger
+  description: Keeps the books for the shop. Written in a hurry.
+  tags:
+    - finance
+    - python
+spec:
+  type: service
+  lifecycle: production
+  owner: group:app-team
+  system: candidate-shop
+  dependsOn:
+    - component:default/candidate-orders

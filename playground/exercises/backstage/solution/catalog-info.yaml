@@ -1,0 +1,52 @@
+# One possible answer to the Backstage exercise (part 2). Peek only after you tried.
+# Replace "candidate" with your EX_PREFIX and the source-location with your own repo.
+apiVersion: backstage.io/v1alpha1
+kind: System
+metadata:
+  name: candidate-shop
+  description: The online shop's order handling
+spec:
+  owner: group:app-team
+  domain: delivery
+---
+apiVersion: backstage.io/v1alpha1
+kind: API
+metadata:
+  name: candidate-orders-api
+  description: Create and list customer orders
+spec:
+  type: openapi
+  lifecycle: experimental
+  owner: group:app-team
+  system: candidate-shop
+  definition: |
+    openapi: 3.0.0
+    info:
+      title: Orders API
+      version: 0.1.0
+    paths:
+      /orders:
+        get:
+          summary: List orders
+          responses:
+            '200':
+              description: A list of orders
+---
+apiVersion: backstage.io/v1alpha1
+kind: Component
+metadata:
+  name: candidate-orders
+  description: Takes customer orders and hands them to the ledger
+  annotations:
+    backstage.io/source-location: url:https://github.com/YOUR-USER/YOUR-REPO/tree/main/
+  tags:
+    - python
+spec:
+  type: service
+  lifecycle: experimental
+  owner: group:app-team
+  system: candidate-shop
+  providesApis:
+    - candidate-orders-api
+  dependsOn:
+    - component:default/platform-lib

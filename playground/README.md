@@ -164,6 +164,17 @@ protection and puts `main` back to baseline as new commits. **The drills are
 `VERIFIED=no` until played live**: built and tested offline (fixtures, local bare
 repos), never yet against github.com.
 
+## Exercises (guided, not scored)
+
+Hands-on tours with a `check.sh` that verifies your work, for the tools the job
+lists as nice-to-have. They run against the home-lab platform from any computer
+on the Wi-Fi (`HOMELAB_ADMIN_PASSWORD` or a hidden prompt; nothing installed).
+
+| Exercise | What you do | Talk about afterwards |
+|---|---|---|
+| [`exercises/artifactory/`](exercises/artifactory/README.md) | local + remote + virtual Maven repos, resolve through the proxy, deploy your own jar with checksums | why a proxy cache, local vs remote vs virtual, what OSS cannot do |
+| [`exercises/backstage/`](exercises/backstage/README.md) | model a System + API + Component, register it from your public GitHub repo, find why a broken entity never appears | the catalog model, ownership, templates/TechDocs/plugins |
+
 ## Playing on the home lab
 
 The whole game can run on the Ubuntu/WSL2 box (`homelab-1-wsl`) instead of on

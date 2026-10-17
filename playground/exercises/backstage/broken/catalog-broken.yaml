@@ -1,0 +1,14 @@
+apiVersion: backstage.io/v1
+kind: Component
+metadata:
+  name: candidate-ledger
+  description: Keeps the books for the shop. Written in a hurry.
+  tags:
+    - Finance Team
+    - python
+spec:
+  type: service
+  lifecycle: prod
+  system: payments-system
+  dependsOn:
+    - component:default/candidate-orders

@@ -1,0 +1,60 @@
+# STARTER for the Backstage exercise. Copy it into the root of YOUR public GitHub
+# repository as catalog-info.yaml, then:
+#   1. replace every "candidate" with your EX_PREFIX (sed command in the README),
+#   2. fill in every TODO,
+#   3. check it:  ./bs.sh validate catalog-info.yaml
+#
+# Three entities in one file, separated by "---". Look at catalog/components.yaml,
+# catalog/systems.yaml and catalog/apis.yaml in the platform-lab repo (or the Catalog
+# in the browser) for finished examples of each kind.
+apiVersion: backstage.io/v1alpha1
+kind: System
+metadata:
+  name: candidate-shop
+  description: TODO one sentence about what this group of things does for the business
+spec:
+  owner: TODO            # a Group that exists in the catalog. Which ones are there?
+  domain: delivery       # an existing Domain
+---
+apiVersion: backstage.io/v1alpha1
+kind: API
+metadata:
+  name: candidate-orders-api
+  description: TODO what can a caller do with this API?
+spec:
+  type: openapi
+  lifecycle: TODO        # experimental | production | deprecated
+  owner: TODO
+  system: TODO           # the System above
+  definition: |
+    openapi: 3.0.0
+    info:
+      title: Orders API
+      version: 0.1.0
+    paths:
+      /orders:
+        get:
+          summary: List orders
+          responses:
+            '200':
+              description: A list of orders
+---
+apiVersion: backstage.io/v1alpha1
+kind: Component
+metadata:
+  name: candidate-orders
+  description: TODO what does this service do?
+  annotations:
+    # "View source" link on the entity page. TODO: put YOUR user and repository in.
+    backstage.io/source-location: url:https://github.com/TODO-user/TODO-repo/tree/main/
+  tags:
+    - python
+spec:
+  type: service
+  lifecycle: TODO
+  owner: TODO
+  system: TODO
+  providesApis:
+    - TODO               # the API above: this is what draws the arrow "provides API"
+  dependsOn:
+    - component:default/platform-lib
