@@ -145,8 +145,11 @@ Then give the **platform tour** (section 3) out loud, as if to an interviewer.
 
 Real ECR, IAM, S3, VPC and EKS. Start a KodeKloud AWS playground first; its keys go
 in `~/.config/platform-lab/aws-lab-creds.env` (mode 600, never `~/.aws/credentials`).
-**Today the AWS drills run from the lab owner's Mac** (it has the AWS CLI and the
-keys; the lab box does not yet), so do this session together with them.
+**The AWS drills run on the lab box** (it has the AWS CLI, `make` and kubectl). The
+keys get there one of two ways: the lab owner runs `homelab/mac/send-aws.sh` on their
+Mac (keys, EKS kubeconfig and the Jenkins/Gitea logins, then three checks), or you paste
+your own with `playground/setup/aws-creds.sh` on the box (hidden, validated, never
+`~/.aws`). Then `ssh homelab-1-wsl` and play from there; the EKS lab must already be up.
 
 ```bash
 make state && make eks && make kubeconfig  # the EKS cluster (~20 min: start it first)

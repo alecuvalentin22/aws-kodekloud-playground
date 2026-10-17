@@ -16,6 +16,7 @@
     # WSL2 kernels are named like 5.15.153.1-microsoft-standard-WSL2.
     playground_is_wsl: "{{ ansible_kernel is search('(?i)microsoft') }}"
     playground_has_systemd: "{{ ansible_service_mgr == 'systemd' }}"
+  tags: [always]
 
 # --- WSL: systemd, so dockerd is a normal service ----------------------------
 # Merged into /etc/wsl.conf rather than templated over it: a user's own
@@ -180,6 +181,11 @@
       - playground_versions.results[1].stdout == playground_helm_version
       - (playground_versions.results[2].stdout | from_json).terraform_version == playground_terraform_version
     quiet: true
+
+# --- AWS CLI v2 + make (AWS tier of the interview game) ----------------------------
+- name: AWS CLI v2, make
+  ansible.builtin.import_tasks: aws-cli.yml
+  tags: [awscli]
 
 # --- the repo --------------------------------------------------------------------
 - name: Clone platform-lab ({{ playground_repo_version }})

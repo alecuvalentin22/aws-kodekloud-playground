@@ -261,6 +261,20 @@ keep these ports free; the role refuses to start on top of another listener in W
 script warns if Windows itself listens on them. To drop only some ports, edit
 `homelab_lan_tcp_forwards` and re-run with `-Ports` (without them) for the firewall.
 
+## AWS from the box
+
+The AWS tier of the interview game (drills 11-19, 61-69) can be played from the box.
+Tools: AWS CLI v2 and `make` come from the role, `ansible-playbook -i homelab/inventory.ini playbooks/homelab.yml --tags awscli` (the CLI zip is sha256-pinned in `roles/playground/defaults`).
+Credentials never go in `~/.aws`; the box reads `~/.config/platform-lab/aws-lab-creds.env`.
+
+```bash
+homelab/mac/send-aws.sh                 # owner: keys + Jenkins/Gitea logins + EKS kubeconfig (+ terraform.tfvars), then 3 checks
+homelab/mac/send-aws.sh --creds-only    # a new KodeKloud session: only the keys
+ssh homelab-1-wsl 'playground/setup/aws-creds.sh'   # a candidate with her own keys: pasted hidden, validated, written 600
+```
+
+The EKS API admits only the home's public IP (`public_access_cidrs`), which the box shares with the Mac.
+
 ## Another computer's SSH key
 
 SSH is key-only and, after bootstrap, only this Mac's key gets in. To let another

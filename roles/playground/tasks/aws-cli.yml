@@ -1,0 +1,55 @@
+---
+# AWS CLI v2 + make, for the AWS tier of the interview game
+# (playground/setup/aws-creds.sh, scripts/eks-up.sh, `make eks`).
+# Run on its own: ansible-playbook -i homelab/inventory.ini playbooks/homelab.yml --tags awscli
+#
+# Integrity: get_url's `checksum` below is a sha256 PINNED in defaults/main.yml.
+# AWS publishes a PGP signature (.zip.sig), but no sha256 file to fetch.
+- name: make and unzip
+  ansible.builtin.apt:
+    name: [make, unzip]
+    state: present
+    install_recommends: false
+    update_cache: true
+    cache_valid_time: 3600
+
+- name: Download cache (AWS CLI)
+  ansible.builtin.file:
+    path: "{{ playground_cache }}"
+    state: directory
+    owner: root
+    group: root
+    mode: "0755"
+
+- name: Installed AWS CLI version
+  ansible.builtin.shell: "set -o pipefail; /usr/local/bin/aws --version 2>/dev/null | sed -E 's|^aws-cli/([^ ]+).*|\\1|'"
+  args:
+    executable: /bin/bash
+  register: playground_awscli_have
+  changed_when: false
+  failed_when: false
+
+- name: AWS CLI {{ playground_awscli_version }} (archive, sha256 pinned)
+  ansible.builtin.get_url:
+    url: "https://awscli.amazonaws.com/awscli-exe-linux-{{ ansible_architecture }}-{{ playground_awscli_version }}.zip"
+    checksum: "sha256:{{ playground_awscli_sha256[ansible_architecture] }}"
+    dest: "{{ playground_cache }}/awscli-{{ playground_awscli_version }}.zip"
+    mode: "0644"
+  when: playground_awscli_have.stdout != playground_awscli_version
+
+- name: AWS CLI {{ playground_awscli_version }} (unpack)
+  ansible.builtin.unarchive:
+    src: "{{ playground_cache }}/awscli-{{ playground_awscli_version }}.zip"
+    dest: "{{ playground_cache }}"
+    remote_src: true
+  when: playground_awscli_have.stdout != playground_awscli_version
+
+- name: AWS CLI {{ playground_awscli_version }} (install)
+  ansible.builtin.command: "{{ playground_cache }}/aws/install --update -i /usr/local/aws-cli -b /usr/local/bin"
+  when: playground_awscli_have.stdout != playground_awscli_version
+
+- name: AWS CLI is the pinned version
+  ansible.builtin.command: /usr/local/bin/aws --version
+  register: playground_awscli_check
+  changed_when: false
+  failed_when: playground_awscli_check.stdout is not search('^aws-cli/' ~ playground_awscli_version ~ ' ')

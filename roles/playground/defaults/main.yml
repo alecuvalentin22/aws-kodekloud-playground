@@ -36,6 +36,13 @@ playground_helm_version: v3.20.0
 # Semaphore image pins the same, see playground/semaphore/ENGINE-CHANGES.md):
 # terraform refuses state written by a newer version.
 playground_terraform_version: 1.14.4
+# AWS CLI v2, from the official zip. 2.37.9 was published 2026-10-02 (aws-cli
+# CHANGELOG; zip Last-Modified). The sha256 is one *we computed* from the file
+# downloaded from awscli.amazonaws.com on 2026-10-17, not a published value (AWS
+# publishes only a PGP .sig); bump the version and the hash together.
+playground_awscli_version: 2.37.9
+playground_awscli_sha256:
+  x86_64: 6b3a6a3d7bb3997928f0bdf7b866914224abf242c2e54e1dcebbe84bee64f356
 
 playground_packages:
   - ca-certificates
