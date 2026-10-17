@@ -1,5 +1,8 @@
 # Playground: interview drills for a CI/CD platform role
 
+> **Preparing for an interview? Start with [GUIDE.md](GUIDE.md)**: a 7-session plan,
+> the logins, and what to say out loud. This page is the reference for the game itself.
+
 A game for practising the job, not reading about it. Each drill is an
 **incident**: something gets broken the way it breaks at work, you get a ticket
 from the developer who hit it, and a clock runs until `play check` confirms it
@@ -81,6 +84,14 @@ is a set of real incident stories in your own words.
 | 07 | "Every team red at 9:05" | jenkins | shared-library blast radius, revert vs force-push, pinning, release strategy |
 | 08 | "Remove one bucket, not three" | terraform | count vs for_each, `moved` blocks, reading a plan as a review artifact |
 
+Home-lab tier (`NEEDS=homelab`: they break the home lab's RKE2 cluster itself, so
+`play` runs them from the **Mac**, `playground/play start 21`; see "Playing on the home lab"):
+
+| ID | Ticket | Track | What it trains |
+|---|---|---|---|
+| 21 | "Jenkins down, nobody can deploy" | kubernetes | a node dies: what moves, what cannot, and why |
+| 24 | "Someone deleted payroll; it was never in git" | kubernetes | restoring from an etcd snapshot, and its blast radius |
+
 Suggested first pass: 01 → 02 → 08 → 03 → 05 → 04 → 07 → 06, then
 `play start` with no ID until nothing is left, then replay for score.
 
@@ -136,30 +147,22 @@ git -C ~/platform-lab pull          # branch feat/playground
 ~/platform-lab/playground/play start 01   # then work in ~/platform-playground, as usual
 ```
 
-kind publishes Jenkins, Gitea and demo-api on the box's `127.0.0.1` only, so
-from the Mac you reach them through an SSH tunnel:
+From the Mac (or any device on the home Wi-Fi) the playground is at
+http://192.168.0.23:30094 (Jenkins), http://192.168.0.23:30300 (Gitea) and
+http://192.168.0.23:30095 (demo-api): HAProxy in WSL forwards those ports
+(`homelab/mac/lan-ingress.sh`, `homelab/README.md` "LAN access"). The logins are
+in `~/.local/state/platform-lab-playground/creds.env` **on the box** (admin / the
+shared password, if it was set with `PLAYGROUND_ADMIN_PASSWORD`).
 
-```bash
-ssh -N -o ExitOnForwardFailure=yes \
-    -L 30094:localhost:30094 -L 30300:localhost:30300 -L 30095:localhost:30095 homelab-1-wsl
-# Jenkins http://localhost:30094   Gitea http://localhost:30300   demo-api http://localhost:30095
-```
+The **home-lab tier** (21, 24) is the exception: run those from the **Mac**,
+`playground/play start 21`. They use `homelab/generated/rke2-lan.kubeconfig` and
+`ssh homelab-1-wsl`, and the answer files go to `~/platform-playground-homelab/answers/`
+on the Mac.
 
-The logins are in `~/.local/state/platform-lab-playground/creds.env` **on the box**.
-
-**If your Mac's own playground is running, that command fails** ("Address
-already in use": kind there holds the same three ports). Keep
-`ExitOnForwardFailure=yes`: without it ssh carries on without the forward and
-`localhost:30094` quietly answers from your *Mac's* Jenkins, not the box's.
-Either `playground/setup/down.sh` on the Mac first, or use other local ports:
-
-```bash
-ssh -N -o ExitOnForwardFailure=yes \
-    -L 31094:localhost:30094 -L 31300:localhost:30300 -L 31095:localhost:30095 homelab-1-wsl
-# Jenkins http://localhost:31094   Gitea http://localhost:31300   demo-api http://localhost:31095
-```
-
-(Gitea's clone URLs on its pages still say `localhost:30300`; that is only text.)
+Off the Wi-Fi, an SSH tunnel still works (`-L 31094:localhost:30094 -L
+31300:localhost:30300 -L 31095:localhost:30095 homelab-1-wsl`; other local ports than
+30094/30300/30095 if the Mac's own playground holds them). Gitea's clone URLs on its
+pages say `localhost:30300`; that is only text.
 
 ## When the playground itself breaks
 
