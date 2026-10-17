@@ -109,7 +109,7 @@ Suggested first pass: 01 → 02 → 08 → 03 → 05 → 04 → 07 → 06, then
 3. `play close` on both. Re-read yesterday's journal entries.
 4. `play reveal` on the one you found hardest, and compare.
 
-## AWS tier: drills 11–16 (needs a KodeKloud session)
+## AWS tier: drills 11–17 (needs a KodeKloud session)
 
 Same game, same Gitea-and-Jenkins mechanics, but on the EKS lab with real
 **ECR** and real **IAM**. Its state and clones are separate
@@ -131,6 +131,7 @@ playground/play reset                     # an AWS drill resets via up-aws.sh --
 | 14 | "Pentest: any pod can push to ECR" | node role vs IRSA / Pod Identity, and proving what a locked-down account allows |
 | 15 | "Terraform says the state is locked" | stale S3 lockfile, who holds it, force-unlock vs -lock=false / deleting state, plan before apply |
 | 16 | "New pods can't pull; the image is gone from ECR" | lifecycle policies (tagStatus, countType, rule priority), why running pods hide it, rebuild + keep-last-N per prefix |
+| 17 | "Ledger DB stuck Pending after the node went away" | EBS is zonal and the PV pins the pod to its AZ; restore capacity in that AZ or snapshot-and-restore elsewhere; never delete the PVC; node group per AZ, and EFS for shared files |
 
 `preflight-aws.sh` refuses to start a drill with expired creds or under 20
 minutes left in the 3-hour IAM window. These drills are `VERIFIED=no` until
@@ -209,6 +210,17 @@ Off the Wi-Fi, an SSH tunnel still works (`-L 31094:localhost:30094 -L
 31300:localhost:30300 -L 31095:localhost:30095 homelab-1-wsl`; other local ports than
 30094/30300/30095 if the Mac's own playground holds them). Gitea's clone URLs on its
 pages say `localhost:30300`; that is only text.
+
+## Tracker: the drills as tickets on a Jira-like board
+
+Every drill and exercise is also a ticket in **Plane** on the home lab
+(http://tracker.192.168.0.23.nip.io/interview-prep/, login `admin@homelab.local` /
+the shared password), grouped by the days of [GUIDE.md](GUIDE.md). `play start`
+moves its ticket to In Progress, a solved `play check` to Done (score as a comment),
+`play close` posts the journal entry, `play reveal` while running moves it to
+Needs replay. Optional: without `~/.config/platform-lab/tracker.env` nothing changes,
+and a tracker that is down only prints a warning. Token, `tracker/sync.sh` and the
+hook: [tracker/README.md](tracker/README.md).
 
 ## When the playground itself breaks
 
