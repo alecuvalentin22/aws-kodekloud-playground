@@ -145,6 +145,7 @@ playground/play reset                     # an AWS drill resets via up-aws.sh --
 | 62 | "The release manifest is gone, and the one there now is wrong" | S3 versioning: delete markers vs versions, restoring the RIGHT version forward with copy-object, why a laptop re-upload is not recovery |
 | 63 | "Terraform wants to create a bucket that already exists" | adopting hand-made infra: import blocks for the bucket and its versioning, config that matches reality (tags, versioning), reading the plan before apply, never delete-and-recreate |
 | 65 | "Hotfix release won't push: the tag already exists" | ECR tag immutability: why reused version tags and `latest` are dangerous, immutable repos as a supply-chain guardrail, unique tags (version + build id or sha), deploying by digest |
+| 68 | "CI can't assume the deploy role since the security review" | role trust for CI outside AWS: the exact principal + `sts:ExternalId`, one error message for two causes, never trusting the account root or `*`; on this account changing trust means re-creating the role |
 | 71 | "Block the scanner hammering our API, without taking anyone else down" | security groups (stateful, allow-only) vs network ACLs (per subnet, stateless, ordered, deny): the deny-after-allow trap, ephemeral return ports, blocking a /32 not a range |
 
 `preflight-aws.sh` refuses to start a drill with expired creds or under 20
