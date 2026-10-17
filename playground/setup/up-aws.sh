@@ -48,7 +48,14 @@ if [[ ${1:-} == --reset ]]; then
     fi
     rm -rf "$dir"
   done
-  rm -f "$HOME/.local/state/platform-lab-playground/current.env"
+  # Clear the current-drill marker only if it is an AWS-tier drill (11-19). The
+  # default state dir is shared with the local tier: an unconditional rm here
+  # deleted a LOCAL drill's marker mid-run (2026-10-17, drill 45 on the Mac).
+  for c in "$HOME/.local/state/platform-lab-playground/current.env" "$STATE/current.env"; do
+    [[ -f $c ]] || continue
+    id=$(sed -n 's/^ID=//p' "$c" | tr -d "'\"" | head -1)
+    [[ $id =~ ^1[1-9]$ ]] && rm -f "$c"
+  done
   b=$(build_main_and_wait 900) || die "baseline build did not finish"
   [[ $(jq -r .result <<<"$b") == SUCCESS ]] || die "baseline build: $b"
   c_ok "baseline main build green: $b. git pull in $WORK."

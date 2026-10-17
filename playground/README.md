@@ -84,6 +84,11 @@ is a set of real incident stories in your own words.
 | 07 | "Every team red at 9:05" | jenkins | shared-library blast radius, revert vs force-push, pinning, release strategy |
 | 08 | "Remove one bucket, not three" | terraform | count vs for_each, `moved` blocks, reading a plan as a review artifact |
 | 09 | "Three copies of the same test block" | jenkins | writing a shared-library step (`vars/`, `call`), releasing it as a semver tag, testing it from a branch, pinning the pilot team, leaving other teams untouched |
+| 41 | "Green build, but the bug shipped" | jenkins | a pipeline that cannot fail (`\|\| true`, `allowEmptyResults`), starting from what is running not the build colour, proving a gate with a failing-test canary |
+| 42 | "Deploy stage can't find what Build produced" | jenkins | per-stage agents = new pod and workspace; stash/unstash vs env vs one agent vs registry; why the controller is not a hand-off |
+| 43 | "Waiting for approval froze every team's builds" | jenkins | `input` inside an agent holds the pod; the cloud's agent cap; `agent none` + stage agents; timeouts; aborting parked builds instead of raising the cap |
+| 44 | "Our deploy says credentials not found, payments' works" | jenkins | credential scope (global vs folder stores), a least-privilege move exposing a hidden dependency, a per-team credential, masking limits |
+| 45 | "Pushes don't start builds anymore" | jenkins | how a multibranch job is triggered (indexing vs webhook vs polling), reading the scan log, "Suppress automatic SCM triggering", UI drift from JCasC |
 
 Home-lab tier (`NEEDS=homelab`: they break the home lab's RKE2 cluster itself, so
 `play` runs them from the **Mac**, `playground/play start 21`; see "Playing on the home lab"):
