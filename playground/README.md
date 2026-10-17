@@ -154,6 +154,7 @@ playground/play reset                     # an AWS drill resets via up-aws.sh --
 | 73 | "The API lost its database after the security group cleanup" | security-group references vs CIDRs: a rule follows the source group's ID, so replacing the group strands it; reference the new group and revoke the old rule instead of opening 5432 to the VPC; AWS refuses to delete a referenced group |
 | 74 | "After the Helm chart migration: connection refused, pods are all Running" | Service -> EndpointSlice -> pod label selector; empty endpoints while every pod is Ready; immutable Deployment selectors; fix the Service, not the pods or IPs |
 | 75 | "Asset publish fails: AccessControlListNotSupported" | S3 Object Ownership: new buckets are BucketOwnerEnforced (ACLs off); drop `--acl public-read` instead of re-enabling ACLs or opening the bucket; access via policy, presigned URLs or a CDN |
+| 76 | "The new public subnet can't be reached from the internet" | VPC routing: public = a route table with 0.0.0.0/0 to an attached IGW; new subnets silently use the main table; never put an IGW route on the main table (it exposes private subnets) |
 
 `preflight-aws.sh` refuses to start a drill with expired creds or under 20
 minutes left in the 3-hour IAM window. These drills are `VERIFIED=no` until
