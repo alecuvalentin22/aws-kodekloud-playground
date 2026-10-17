@@ -5,11 +5,13 @@
 # LOGIN. Headlamp normally asks every visitor for a Kubernetes token. Here it
 # runs as its own ServiceAccount instead (unsafeUseServiceAccountToken), which
 # the chart documents as safe ONLY behind an auth proxy -- so the Ingress below
-# puts ingress-nginx basic auth in front: admin / the shared password, the same
-# Secret format as the registry UI (key `auth`, htpasswd bcrypt), Secret
-# `headlamp-auth` in namespace headlamp, created from the Mac, never in git
-# (homelab/platform/README.md "Headlamp"). Without that Secret ingress-nginx
-# answers 503: it fails closed, never open.
+# checks every request against manifests/headlamp/auth.yaml (ingress-nginx
+# auth-url): one login prompt (admin / the shared password, Secret
+# headlamp-auth, same htpasswd format as the registry UI), then a session
+# cookie. Plain basic auth on this Ingress was tried first and made the
+# browser re-prompt endlessly (auth.yaml says why). Secrets headlamp-auth and
+# headlamp-session are created from the Mac, never in git
+# (homelab/platform/README.md "Headlamp"); without them it fails closed.
 #
 # WHAT THAT GRANTS: the ServiceAccount is bound to cluster-admin (chart
 # default), so admin/<password> on the Wi-Fi = cluster-admin in a browser. That
@@ -30,9 +32,8 @@ ingress:
   enabled: true
   ingressClassName: nginx
   annotations:
-    nginx.ingress.kubernetes.io/auth-type: basic
-    nginx.ingress.kubernetes.io/auth-secret: headlamp-auth
-    nginx.ingress.kubernetes.io/auth-realm: "Home lab Headlamp"
+    nginx.ingress.kubernetes.io/auth-url: http://headlamp-auth.headlamp.svc.cluster.local:8080/check
+    nginx.ingress.kubernetes.io/auth-signin: http://headlamp.192.168.0.23.nip.io/_auth/login
   hosts:
     - host: headlamp.192.168.0.23.nip.io
       paths:

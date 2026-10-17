@@ -24,6 +24,10 @@ spec:
     - repoURL: https://github.com/alecuvalentin22/aws-kodekloud-playground.git
       targetRevision: feat/playground
       ref: values
+    # The cookie login in front of it (Deployment, Service, login Ingress).
+    - repoURL: https://github.com/alecuvalentin22/aws-kodekloud-playground.git
+      targetRevision: feat/playground
+      path: homelab/platform/manifests/headlamp
   syncPolicy:
     automated: {prune: true, selfHeal: true}
     syncOptions:

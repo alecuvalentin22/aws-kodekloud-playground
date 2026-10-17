@@ -1,0 +1,129 @@
+# Login for Headlamp: ONE password prompt, then a cookie.
+#
+# Why not plain basic auth on the Ingress (the first version): browsers do not
+# resend basic-auth credentials on everything a single-page app opens -- the
+# WebSocket watches (?watch=1) and the <link rel=manifest>/favicon requests went
+# out without them, got 401 + WWW-Authenticate, and the browser popped the login
+# box again and again (ingress logs, 2026-10-17). Cookies are sent on all of them.
+#
+# How: the headlamp Ingress (values/headlamp.yaml) asks this nginx, per request,
+# `GET /check` (ingress-nginx auth-url). 200 if the request carries the cookie
+# hl_session=<token>, else 401 -> ingress-nginx redirects the browser to
+# /_auth/login (auth-signin), the Ingress below, which is basic auth (admin /
+# shared password, Secret headlamp-auth, htpasswd) and on success sets the
+# cookie (30 days) and sends the browser back to /.
+# The token is a random value in Secret headlamp-session (key `token`), created
+# from the Mac and never in git (README "Headlamp"); without it this pod does not
+# start, /check fails, and Headlamp answers 500: closed, never open.
+# Plain HTTP like everything here: the cookie crosses the Wi-Fi in clear, as the
+# basic-auth password does on every other tool (the user's choice, 2026-10-16).
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: headlamp-auth-nginx
+  namespace: headlamp
+data:
+  # The image's entrypoint runs envsubst over /etc/nginx/templates/*.template
+  # with only the variables that exist in the environment, so nginx's own
+  # $cookie_hl_session stays as it is and ${HL_SESSION} is the token. Named
+  # default.conf so it replaces the image's default server.
+  default.conf.template: |
+    server {
+      listen 8080;
+      access_log off;
+      # ingress-nginx auth subrequest. `return` runs in the rewrite phase,
+      # before any access check -- fine here, this location has none.
+      location = /check {
+        if ($cookie_hl_session = "${HL_SESSION}") { return 200; }
+        return 401;
+      }
+      # The login. NO `return` here: it would run before auth_basic and skip it.
+      # The page is served by the content phase, i.e. only after auth_basic passed.
+      location = /_auth/login {
+        auth_basic "Home lab Headlamp";
+        auth_basic_user_file /etc/headlamp-auth/auth;
+        add_header Set-Cookie "hl_session=${HL_SESSION}; Path=/; HttpOnly; SameSite=Lax; Max-Age=2592000" always;
+        add_header Cache-Control "no-store" always;
+        default_type text/html;
+        alias /etc/nginx/html/login.html;
+      }
+      location = /healthz { return 200; }
+    }
+  login.html: |
+    <!doctype html><meta charset="utf-8"><meta http-equiv="refresh" content="0;url=/">
+    <title>Headlamp</title><p>Signed in. <a href="/">Continue to Headlamp</a></p>
+---
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: headlamp-auth
+  namespace: headlamp
+spec:
+  replicas: 1
+  selector:
+    matchLabels: {app: headlamp-auth}
+  template:
+    metadata:
+      labels: {app: headlamp-auth}
+    spec:
+      automountServiceAccountToken: false
+      containers:
+        - name: nginx
+          # nginx 1.28.0 (stable, April 2025), the non-root image: listens 8080, uid 101.
+          image: nginxinc/nginx-unprivileged:1.28.0-alpine
+          ports:
+            - {name: http, containerPort: 8080}
+          env:
+            - name: HL_SESSION
+              valueFrom:
+                secretKeyRef: {name: headlamp-session, key: token}
+          volumeMounts:
+            - {name: conf, mountPath: /etc/nginx/templates/default.conf.template, subPath: default.conf.template}
+            - {name: conf, mountPath: /etc/nginx/html/login.html, subPath: login.html}
+            - {name: htpasswd, mountPath: /etc/headlamp-auth, readOnly: true}
+          readinessProbe:
+            httpGet: {path: /healthz, port: http}
+            periodSeconds: 10
+          livenessProbe:
+            httpGet: {path: /healthz, port: http}
+            periodSeconds: 20
+          resources:
+            requests: {cpu: 5m, memory: 16Mi}
+            limits: {memory: 64Mi}
+          securityContext:
+            allowPrivilegeEscalation: false
+            runAsNonRoot: true
+            capabilities: {drop: [ALL]}
+      volumes:
+        - name: conf
+          configMap: {name: headlamp-auth-nginx}
+        - name: htpasswd
+          secret: {secretName: headlamp-auth}
+---
+apiVersion: v1
+kind: Service
+metadata:
+  name: headlamp-auth
+  namespace: headlamp
+spec:
+  selector: {app: headlamp-auth}
+  ports:
+    - {name: http, port: 8080, targetPort: http}
+---
+# The login page itself, on Headlamp's host but WITHOUT the auth-url check
+# (it is what sets the cookie that check looks for).
+apiVersion: networking.k8s.io/v1
+kind: Ingress
+metadata:
+  name: headlamp-login
+  namespace: headlamp
+spec:
+  ingressClassName: nginx
+  rules:
+    - host: headlamp.192.168.0.23.nip.io
+      http:
+        paths:
+          - path: /_auth/login
+            pathType: Exact
+            backend:
+              service: {name: headlamp-auth, port: {number: 8080}}
