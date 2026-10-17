@@ -112,7 +112,7 @@ Suggested first pass: 01 → 02 → 08 → 03 → 05 → 04 → 07 → 06, then
 3. `play close` on both. Re-read yesterday's journal entries.
 4. `play reveal` on the one you found hardest, and compare.
 
-## AWS tier: drills 11–17 (needs a KodeKloud session)
+## AWS tier: drills 11–19 and 61–69 (needs a KodeKloud session)
 
 Same game, same Gitea-and-Jenkins mechanics, but on the EKS lab with real
 **ECR** and real **IAM**. Its state and clones are separate
@@ -135,6 +135,7 @@ playground/play reset                     # an AWS drill resets via up-aws.sh --
 | 15 | "Terraform says the state is locked" | stale S3 lockfile, who holds it, force-unlock vs -lock=false / deleting state, plan before apply |
 | 16 | "New pods can't pull; the image is gone from ECR" | lifecycle policies (tagStatus, countType, rule priority), why running pods hide it, rebuild + keep-last-N per prefix |
 | 17 | "Ledger DB stuck Pending after the node went away" | EBS is zonal and the PV pins the pod to its AZ; restore capacity in that AZ or snapshot-and-restore elsewhere; never delete the PVC; node group per AZ, and EFS for shared files |
+| 61 | "Upload job: AccessDenied, and our IAM policy allows s3:PutObject" | "explicit deny in a resource-based policy": a bucket-policy Deny beats any IAM allow; two Denies (SSE header, TLS) behind one message; fix the client, never weaken the guardrail or disable TLS verification |
 
 `preflight-aws.sh` refuses to start a drill with expired creds or under 20
 minutes left in the 3-hour IAM window. These drills are `VERIFIED=no` until
