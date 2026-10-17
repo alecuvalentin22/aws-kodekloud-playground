@@ -371,7 +371,7 @@ Verified 2026-10-16 from the Mac over the Wi-Fi, real nip.io DNS, real logins:
 | Artifactory | http://artifactory.192.168.0.23.nip.io | 200 | `/api/repositories` 200 |
 | Backstage | http://backstage.192.168.0.23.nip.io | 200 | guest (read-only) |
 | Registry UI | http://registry.192.168.0.23.nip.io | 200 | admin / shared password (basic auth; no credentials: 401) |
-| Headlamp (Kubernetes UI) | http://headlamp.192.168.0.23.nip.io | 200 | admin / shared password (basic auth, then cluster-admin; see [Headlamp](#headlamp)) |
+| Headlamp (Kubernetes UI) | http://headlamp.192.168.0.23.nip.io | 200 | admin / shared password once, then a cookie (cluster-admin; see [Headlamp](#headlamp)) |
 | Homepage (start page) | http://192.168.0.23/ and http://home.192.168.0.23.nip.io | 200 | none (see [Start page and dashboards](#start-page-and-dashboards)) |
 | Kubernetes API | https://192.168.0.23:6443 | — | `homelab/generated/rke2-lan.kubeconfig` (`homelab/mac/lan-kube-api.sh`) |
 
@@ -411,23 +411,34 @@ still answers.
 
 Headlamp (`apps/46-headlamp.yaml`, `values/headlamp.yaml`) is the Kubernetes web
 UI: workloads, logs, exec, events, YAML edit. It runs as its own ServiceAccount
-(bound to `cluster-admin`), so it does not ask for a token; in front of it is the
-same ingress-nginx basic auth as the registry UI, from Secret `headlamp-auth` in
-namespace `headlamp`, **not in git**. The quickest way is to copy the registry
-UI's (same `admin` / shared password, nothing is decoded or printed):
+(bound to `cluster-admin`), so it does not ask for a token. In front of it is a
+cookie login (`manifests/headlamp/auth.yaml`): the first visit is redirected to
+`/_auth/login`, which asks once for admin / the shared password and sets a 30-day
+cookie; every request after that (WebSocket watches included) is checked for the
+cookie by ingress-nginx `auth-url`. Plain basic auth on the Ingress was tried
+first: the browser kept re-prompting, because it does not resend basic-auth
+credentials on WebSockets and on the manifest/favicon requests.
+
+Two Secrets in namespace `headlamp`, **not in git**. `headlamp-auth` is the
+password (htpasswd, key `auth`); the quickest is a copy of the registry UI's
+(nothing is decoded or printed). `headlamp-session` is the random cookie value;
+replacing it (and restarting `deploy/headlamp-auth`) logs every browser out.
 
 ```sh
 export KUBECONFIG=$PWD/homelab/generated/rke2-lan.kubeconfig
 kubectl -n registry get secret registry-ui-auth -o jsonpath='{.data.auth}' \
   | python3 -c 'import sys,json; print(json.dumps({"apiVersion":"v1","kind":"Secret","metadata":{"name":"headlamp-auth","namespace":"headlamp"},"type":"Opaque","data":{"auth":sys.stdin.read().strip()}}))' \
   | kubectl apply -f -
+kubectl -n headlamp create secret generic headlamp-session --from-literal=token="$(openssl rand -hex 32)"
 ```
 
-or build it from `$HOMELAB_ADMIN_PASSWORD` exactly like `registry-ui-auth` above
-(namespace `headlamp`, name `headlamp-auth`). Without it the Ingress answers 503.
-The login is therefore cluster-admin from any device on the Wi-Fi, the same reach as
-Argo CD's admin; for a read-only UI set `clusterRoleBinding.clusterRoleName: view`
-in `values/headlamp.yaml`.
+Without them the login pod does not start and Headlamp answers 500: closed, never
+open. Verified 2026-10-17 over the Wi-Fi: no cookie -> 302 to the login; login
+without / with a wrong password 401; admin 200 + cookie; with the cookie `/`,
+`/manifest.json`, `/favicon.ico` and the API 200, a WebSocket watch 101; a forged
+cookie -> 302. The login is cluster-admin from any device on the Wi-Fi, the same
+reach as Argo CD's admin; for a read-only UI set
+`clusterRoleBinding.clusterRoleName: view` in `values/headlamp.yaml`.
 
 Prometheus and Alertmanager have **no Ingress** (neither authenticates):
 `kubectl -n observability port-forward svc/kube-prometheus-stack-prometheus 9090`
