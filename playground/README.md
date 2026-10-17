@@ -136,6 +136,7 @@ playground/play reset                     # an AWS drill resets via up-aws.sh --
 | 16 | "New pods can't pull; the image is gone from ECR" | lifecycle policies (tagStatus, countType, rule priority), why running pods hide it, rebuild + keep-last-N per prefix |
 | 17 | "Ledger DB stuck Pending after the node went away" | EBS is zonal and the PV pins the pod to its AZ; restore capacity in that AZ or snapshot-and-restore elsewhere; never delete the PVC; node group per AZ, and EFS for shared files |
 | 61 | "Upload job: AccessDenied, and our IAM policy allows s3:PutObject" | "explicit deny in a resource-based policy": a bucket-policy Deny beats any IAM allow; two Denies (SSE header, TLS) behind one message; fix the client, never weaken the guardrail or disable TLS verification |
+| 62 | "The release manifest is gone, and the one there now is wrong" | S3 versioning: delete markers vs versions, restoring the RIGHT version forward with copy-object, why a laptop re-upload is not recovery |
 
 `preflight-aws.sh` refuses to start a drill with expired creds or under 20
 minutes left in the 3-hour IAM window. These drills are `VERIFIED=no` until
