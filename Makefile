@@ -46,13 +46,14 @@ whoami: ## show which AWS account and cluster you are pointed at
 	  || echo "  no AWS credentials in this shell"
 	@kubectl config current-context 2>/dev/null | sed 's/^/  kube context: /' || true
 
-# Every stack whose backend.tf is S3. A new KodeKloud account means a new
-# account ID and so a NEW bucket (andrei-lab-tfstate-<account>): a stack left
+# The ACTIVE stacks whose backend.tf is S3 (terraform/README.md). ecs and
+# eks-module are S3-backed too but LEGACY: add them with STATE_STACKS=... if
+# needed. A new KodeKloud account means a new account ID and so a NEW bucket (andrei-lab-tfstate-<account>): a stack left
 # initialised against the old one fails with "S3 bucket ... does not exist".
-STATE_STACKS ?= aws eks ecs eks-module
+STATE_STACKS ?= aws eks
 
 .PHONY: state
-state: ## create the S3 state bucket and init every S3-backed stack (STATE_STACKS)
+state: ## create the S3 state bucket and init the active S3-backed stacks (STATE_STACKS)
 	@for s in $(STATE_STACKS); do ./scripts/tf-init.sh $$s || exit 1; done
 
 # --- infrastructure ---------------------------------------------------------

@@ -1,5 +1,27 @@
 # Playground game console (Semaphore)
 
+**Status: OPTIONAL (new, attach step not yet run).** The only Terraform in this
+folder is `provider.tf` + `project.tf`: they configure a Semaphore *project*
+(one project, one repository, one environment, 10 templates) through the
+`semaphoreui/semaphore` provider `= 0.3.9`; `required_version >= 1.5.0`.
+Nothing cloud is created. **Not a KodeKloud stack**: no AWS/GCP resources, no
+playground limits apply. It only touches your local Semaphore at
+`http://127.0.0.1:3000/api` (variable `api_base_url`).
+
+- **State**: `backend "local" {}` with the path given at init
+  (`-backend-config=path=$HOME/.local/state/platform-lab-playground/semaphore.tfstate`),
+  deliberately outside the repo. Not S3, so `tf-init.sh` / `make state` do not
+  apply and a new KodeKloud account changes nothing here.
+- **Credentials**: `SEMAPHOREUI_API_TOKEN` in the environment (never in tfvars).
+- **Used by**: only this folder's own docs and `roles/playground/defaults/main.yml`
+  (image pin comment). No `make` target, script or CI job. CI does not validate
+  it (`.github/workflows/ci.yml` lists other folders; `terraform fmt -check` covers it).
+- **Evidence**: one commit, `2be3a5b` (2026-10-16). Its own table below says
+  `terraform apply` against the live instance was not run.
+- **Run / destroy**: the three-step "Attach it" block below (you run it; it
+  restarts your Semaphore). Remove with `terraform -chdir=playground/semaphore
+  destroy` using the same backend path.
+
 Buttons for `playground/play`. The candidate investigates in his own terminal
 (Jenkins, `kubectl`, `git`); Semaphore starts incidents, gives hints, checks
 fixes and keeps the history. **Red task = not fixed yet. Green = solved.**

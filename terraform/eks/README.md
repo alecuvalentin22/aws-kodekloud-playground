@@ -1,5 +1,89 @@
 # EKS — a managed control plane, for comparison
 
+**Status: ACTIVE -- this is THE cluster of the lab.** `make eks` ->
+`scripts/eks-up.sh` -> this folder. Everything GitOps/Jenkins/playground-AWS
+runs on it. KodeKloud AWS playground; see "Current state" for the limit risks.
+
+## Current state (read this first; checked 2026-10-17)
+
+The rest of this file is the 2026-08-18 write-up, when only the control plane
+could be built. Since then the folder gained self-managed nodes, and the lab
+runs on them. What changed:
+
+- **What it creates** (`main.tf`, `self-managed-nodes.tf`, `fargate.tf`):
+  - EKS cluster `<prefix>-eks` (`andrei-lab-eks`), Kubernetes `1.33`,
+    public+private endpoint locked to `public_access_cidrs`, access entries
+    (`API_AND_CONFIG_MAP`), control-plane logs to CloudWatch.
+  - IAM roles with the three names the boundary policy allows
+    (`eksClusterRole`, `eksWorkerNodeRole`, `AmazonEKSFargatePodExecutionRole`).
+  - Self-managed nodes (`create_self_managed_nodes`): AL2023 launch template
+    (`t3.medium`, `cpu_credits = "standard"`, IMDSv2, `maxPods` 110 via nodeadm),
+    autoscaling group, instance profile, `EC2_LINUX` access entry.
+  - NodePort ingress rules on the cluster security group for 15 named ports
+    (Argo CD, Flux UI, Grafana, Jenkins, APISIX, Artifactory, ...) from
+    `node_service_cidrs` (**default `0.0.0.0/0`**; Flux UI and Prometheus have no
+    auth).
+  - Optional and OFF: managed node group (`create_node_group`, denied by the
+    playground), private subnets + NAT + Fargate profiles (`create_fargate`,
+    denied by an SCP, and a NAT costs money).
+- **Your `terraform.tfvars` (gitignored)**: `create_iam_roles = true`,
+  `create_node_group = false`, `create_fargate = false`,
+  `create_self_managed_nodes = true`, `node_desired_size = 3`,
+  `node_max_size = 5`, plus your `public_access_cidrs`.
+  `terraform.tfvars.example` is **stale** (mentions `existing_*_role_name`
+  variables that no longer exist and does not set the two node flags): the
+  variable defaults are `create_node_group = true` and
+  `create_self_managed_nodes = false`, which is the wrong way round for the
+  playground. A fresh `terraform.tfvars` must set them as above.
+- **Providers**: `aws ~> 5.0`; `required_version >= 1.10`.
+  Outputs: `cluster_name`, `cluster_endpoint`, `cluster_version`,
+  `kubeconfig_command`, `next_steps`, `node_group_status`.
+- **State**: S3, key `platform-lab/eks/terraform.tfstate`, bucket
+  `andrei-lab-tfstate-<account-id>` supplied by `./scripts/tf-init.sh eks`.
+  New KodeKloud account = new bucket, so this folder's `.terraform/` must be
+  re-initialised (`./scripts/tf-init.sh eks`, or `make state` for all S3 stacks).
+  Do not run `terraform init` / `apply` while another apply holds the state lock.
+- **Callers**: `make eks` -> `scripts/eks-up.sh` (four phases, `cd`s here and runs
+  `terraform apply` twice, with `node_desired_size=0` first, then the real count;
+  never use plain `terraform apply`, nodes would boot at 17 pods/node);
+  `make destroy` (eks, then aws); `scripts/gitops-install.sh`,
+  `scripts/gitops-addons.sh` and `playground/setup/up-aws.sh` use the cluster
+  and the NodePorts opened here; `drills/10`, `drills/13`; CI validates it.
+- **Git**: last changes 2026-10-15 (`327fb8f`, `b6fe7b0`), 2026-09-02.
+- **KodeKloud limits** (`docs/kodekloud-limits.md`):
+  - credits `standard`: OK, `self-managed-nodes.tf:83-85`.
+  - instance type: `t3.medium` only (`variables.tf:80`), OK.
+  - **EC2 budget**: `node_max_size` default 4 (`variables.tf:107`), validated
+    `<= 5`; your tfvars says 5. 5 x t3.medium is the entire 10 vCPU / 20 GiB.
+    Nothing else (e.g. `terraform/aws`) may run beside five nodes.
+  - root volume: the launch template sets no block device, so the AMI default
+    applies (expected 20 GiB, under the 30 GB cap; not verified).
+    `node_disk_size` is only used by the (off) managed node group.
+  - per-pod/namespace EKS caps are not enforced in code; the measured cluster
+    exceeds the published ones (table in `docs/kodekloud-limits.md`). No
+    violation has been reported for EKS so far.
+  - 3-hour IAM window applies; `eks:UpdateClusterConfig` and
+    `eks:DeleteAccessEntry` are denied (AGENTS.md section 6), so the API CIDR
+    cannot be changed after create and `terraform destroy` stops at the access
+    entry. The workaround there is `aws eks delete-cluster`, then
+    `terraform -chdir=terraform/eks state rm 'aws_eks_access_entry.node[0]'`.
+- **Run / destroy** (repo root, credentials in the shell, see
+  `terraform/README.md` "Fresh KodeKloud account"):
+
+  ```bash
+  make state          # or ./scripts/tf-init.sh eks
+  make eks            # = ./scripts/eks-up.sh, about 25 min
+  make kubeconfig     # dedicated ~/.kube/andrei-lab-eks, MAXPODS must read 110
+  make destroy        # asks; may need the manual delete-cluster workaround
+  ```
+
+---
+
+*Below: the original 2026-08-18 write-up (control plane only, before
+self-managed nodes). Kept because the denial findings are still true; the
+"3 pods per namespace" framing and `create_node_group = false` advice are
+superseded by the section above.*
+
 This is a **30-minute exercise, not the lab host.** The lab stack (Rancher,
 Kong, Elasticsearch) runs on k3s/RKE2 on EC2. This module exists so there is a
 real, Terraform-provisioned EKS cluster to point at and to have used.
