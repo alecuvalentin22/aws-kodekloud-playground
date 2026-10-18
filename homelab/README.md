@@ -326,6 +326,13 @@ Order that works: `lan-kube-api.sh` first (then `secrets.sh` needs no tunnel), `
 
 ## Sleep and wake
 
+**Stop until further notice, from the Mac:** `homelab/mac/lab-functions.zsh` (sourced from
+`~/.zshrc`) gives `lab-stop` (VMs + playground down, AND timers, boot hook and VM autostart
+off, a hold marker in `/var/lib/homelab-power/hold`, so nothing brings it back on its own),
+`lab-start` (undo all of that and wake) and `lab-status`. Windows and WSL stay on, so SSH and
+`lab-start` keep working. Re-running the role with `--tags power` also re-enables timers and
+autostart.
+
 The heavy part of the lab sleeps at night and when nobody uses it, and wakes on a
 schedule or on demand. Installed by the `homelab` role (`--tags power`), driven by
 `/usr/local/sbin/homelab-power` in WSL.
