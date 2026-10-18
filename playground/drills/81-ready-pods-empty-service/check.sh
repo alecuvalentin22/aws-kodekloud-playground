@@ -78,7 +78,7 @@ rendered=$(HELM template "$REL" "$scratch/chart/demo-api" -n "$NS" -f "$scratch/
 sel_matches <<<"$rendered" || drift=1
 if (( drift && ! selectorless )); then
   echo "PENALTY 20 The Service works because of a change made to the live object (kubectl edit/patch), not because the chart renders a matching selector. The next helm upgrade or pipeline run puts the bug back. Fix the template."
-else
+elif (( ! selectorless )); then
   c_ok "the chart on main renders a Service that selects its own pods; live matches helm's manifest"
 fi
 exit 0
