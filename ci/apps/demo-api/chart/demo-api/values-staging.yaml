@@ -2,7 +2,7 @@
 # home-lab Argo CD Application uses (homelab/platform/apps/90-demo-api-helm.yaml),
 # which is why the image tag is pinned here: in GitOps the tag in git IS the
 # deploy. Jenkins ignores it and passes --set image.tag=<what it just built>.
-replicaCount: 2
+replicaCount: 3
 
 image:
   repository: 10.77.0.31:30500/platform-lab/demo-api
@@ -15,3 +15,4 @@ resources:
 
 config:
   FAIL_HEALTH: "false"
+  DEMO_NOTE: "rolled-by-git"
