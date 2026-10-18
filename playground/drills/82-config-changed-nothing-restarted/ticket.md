@@ -8,7 +8,7 @@ From: Tomas (QA, release train)                               #help-platform
 
     curl http://demo-api/        ->  {"app":"demo-api","version":"2026.10.1"}
 
-  and kubectl shows the pods are 20 minutes old. The ConfigMap does say
+  and kubectl shows the pods started before the deploy. The ConfigMap does say
   2026.10.2, I looked. Sign-off needs the endpoint to show the new label.
   If somebody tells me to "just delete the pods", fine, but then why did
   helm say deployed, and will it happen again on the next release?

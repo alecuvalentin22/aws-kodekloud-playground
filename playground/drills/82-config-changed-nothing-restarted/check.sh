@@ -25,6 +25,9 @@ all_pods_run() {
   (( n >= 1 && n == good && n >= ${want_n:-1} ))
 }
 
+restarted=$(K -n "$NS" get deploy "$FULL" -o json 2>/dev/null | jq -r '.spec.template.metadata.annotations["kubectl.kubernetes.io/restartedAt"] // empty')
+hand_msg="The pods were restarted by hand (kubectl rollout restart / delete pods). That shows the new label once; the next config change would not roll them again, because the template still does not change with the config."
+
 # 1. The release.
 st=$(rel_field .info.status); rev=$(rel_field .version)
 [[ -n $st ]] || { c_bad "release $REL is gone from $NS (helm -n $NS list)"; exit 1; }
@@ -34,7 +37,9 @@ if [[ $uid != "$V1_UID" ]]; then
   c_warn "release $REL was uninstalled and installed again (revision history lost)"
   echo "PENALTY 10 helm uninstall + install throws away the release history. A template fix is a helm upgrade."
 elif (( rev <= BREAK_REV )); then
-  c_bad "release $REL is still at revision $rev, the one where the label did not reach the pods. Fix the chart and upgrade (or run the job)."; exit 1
+  c_bad "release $REL is still at revision $rev, the one where the label did not reach the pods. Fix the chart and upgrade (or run the job)."
+  [[ -n $restarted ]] && c_bad "$hand_msg"
+  exit 1
 else
   c_ok "release $REL moved from revision $BREAK_REV to $rev"
 fi
@@ -52,15 +57,14 @@ has_ck=0; has_rand=0
 grep -Eq 'checksum|sha256sum' <<<"$dep" && grep -q 'configmap.yaml' <<<"$dep" && has_ck=1
 grep -Eq 'randAlpha|randNumeric|randAscii|uuidv4|(^|[^[:alnum:]_])now([^[:alnum:]_]|$)|[^[:alnum:]_]date[[:space:]]' <<<"$dep" && has_rand=1
 live_ann=$(K -n "$NS" get deploy "$FULL" -o json | jq -r '(.spec.template.metadata.annotations // {}) | del(.["kubectl.kubernetes.io/restartedAt"]) | keys | join(",")')
-restarted=$(K -n "$NS" get deploy "$FULL" -o json | jq -r '.spec.template.metadata.annotations["kubectl.kubernetes.io/restartedAt"] // empty')
 if (( ! has_ck && ! has_rand )); then
   c_bad "templates/deployment.yaml on main has no annotation that changes when the ConfigMap changes (no checksum/config)."
-  [[ -n $restarted ]] && c_bad "The pods were restarted by hand (kubectl rollout restart, $restarted). That shows the new label once; the next config change would not roll them again."
+  [[ -n $restarted ]] && c_bad "$hand_msg"
   exit 1
 fi
 if [[ -z $live_ann ]]; then
   c_bad "the running Deployment's pod template carries no rollout annotation: the fixed chart is not what runs (push, then run the $JOB job / helm upgrade)."
-  [[ -n $restarted ]] && c_bad "Restarting the pods by hand is not the fix: the next config change would not roll them."
+  [[ -n $restarted ]] && c_bad "$hand_msg"
   exit 1
 fi
 c_ok "the pod template on main and in the cluster carries a rollout trigger (${live_ann})"
