@@ -1,0 +1,43 @@
+# `helm test <release>` creates this pod, waits for it to finish, and reports
+# its exit code. It is NOT part of install/upgrade: the hook annotation keeps it
+# out of the release's normal manifest. It asks the Service (not the pod) for
+# /healthz, so it proves the whole chain: Service selector -> pod -> app.
+# It reuses the app image (python is already there) so the test needs no
+# second image from a registry that may be unreachable.
+apiVersion: v1
+kind: Pod
+metadata:
+  name: {{ include "demo-api.fullname" . }}-test-connection
+  # Deliberately NOT the standard labels: those include the Service's selector
+  # labels, which would make the Service send real traffic to this pod.
+  labels:
+    helm.sh/chart: {{ include "demo-api.chart" . }}
+    app.kubernetes.io/name: {{ include "demo-api.name" . }}-test
+    app.kubernetes.io/instance: {{ .Release.Name }}
+    app.kubernetes.io/component: test
+    app.kubernetes.io/managed-by: {{ .Release.Service }}
+  annotations:
+    "helm.sh/hook": test
+    # Leave the finished pod in place (so `helm test --logs` and `kubectl logs`
+    # can read it) and replace it on the next run. Do not add hook-succeeded:
+    # with Helm 3 that deletes the pod BEFORE --logs reads it.
+    "helm.sh/hook-delete-policy": before-hook-creation
+spec:
+  restartPolicy: Never
+  automountServiceAccountToken: false
+  securityContext:
+    {{- toYaml .Values.podSecurityContext | nindent 4 }}
+  containers:
+    - name: probe
+      image: {{ include "demo-api.image" . | quote }}
+      imagePullPolicy: {{ .Values.image.pullPolicy }}
+      securityContext:
+        {{- toYaml .Values.securityContext | nindent 8 }}
+      command: ["python", "-c"]
+      args:
+        - |
+          import json, urllib.request
+          url = "http://{{ include "demo-api.fullname" . }}:{{ .Values.service.port }}/healthz"
+          body = json.load(urllib.request.urlopen(url, timeout={{ .Values.test.timeoutSeconds }}))
+          print(url, body)
+          assert body == {"status": "ok"}, body

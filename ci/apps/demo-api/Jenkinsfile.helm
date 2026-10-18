@@ -1,0 +1,210 @@
+// OPT-IN second pipeline for demo-api: ship the app as a HELM CHART.
+//
+// The default Jenkinsfile (standardPipeline) is untouched and still deploys by
+// rendering k8s/deployment.yaml and `kubectl apply`. This file is for the
+// "how is an app packaged and released with Helm?" conversation. Point a
+// Jenkins job at it (Script Path = Jenkinsfile.helm) to run it.
+//
+//   lint -> template -> package -> [build image] -> push chart (OCI) ->
+//   helm upgrade --install --atomic --wait -> helm test
+//
+// Why the logic is HERE and not in a shared-library step (helmRelease.groovy):
+// see "Why no helmRelease step" in chart/demo-api/README.md. Short version: a new
+// vars/ file is a platform-lib RELEASE, the playground's v1.0.0/baseline are
+// frozen on purpose (drills 07 and 09 are about exactly that), and a step that
+// exists only on a freshly seeded library would break this file on every
+// already-seeded environment.
+//
+// Where helm runs: in the library's own `deploy` container (alpine/k8s:1.33.13,
+// pinned in resources/podtemplates/build.yaml). It ships Helm 4.2.1, so no extra
+// image and no change to shared config. Helm talks to the cluster as the agent's
+// ServiceAccount, which needs a Role in the TARGET namespace that can write
+// Secrets (Helm stores each release revision as one): chart/ci-rbac.yaml.
+@Library('platform-lib') _
+import org.platformlab.ImageTag
+
+pipeline {
+    agent {
+        kubernetes {
+            yaml libraryResource('podtemplates/build.yaml')
+            defaultContainer 'deploy'
+        }
+    }
+    parameters {
+        choice(name: 'ENVIRONMENT', choices: ['staging', 'prod'],
+               description: 'Selects chart/demo-api/values-<ENVIRONMENT>.yaml')
+        string(name: 'NAMESPACE', defaultValue: 'demo-helm-ci',
+               description: 'Target namespace. It must already exist and grant the agent a Role (chart/ci-rbac.yaml).')
+        string(name: 'RELEASE', defaultValue: 'demo-api', description: 'Helm release name')
+        string(name: 'IMAGE_TAG', defaultValue: '',
+               description: 'Deploy this existing image tag. Blank = build the image from this checkout first.')
+        string(name: 'EXTRA_SET', defaultValue: '',
+               description: 'One optional --set value, e.g. config.FAIL_HEALTH=true (this is how you ship a bad release on purpose).')
+        string(name: 'TIMEOUT', defaultValue: '3m', description: '--timeout for --wait. --atomic rolls back when it expires.')
+    }
+    options {
+        timestamps()
+        timeout(time: 20, unit: 'MINUTES')
+        buildDiscarder(logRotator(numToKeepStr: '20'))
+        disableConcurrentBuilds()
+    }
+    environment {
+        // Helm writes cache/config/data under $HOME by default; keep them in the
+        // workspace so the build never depends on the container's home directory.
+        HELM_CACHE_HOME  = "${WORKSPACE}/.helm/cache"
+        HELM_CONFIG_HOME = "${WORKSPACE}/.helm/config"
+        HELM_DATA_HOME   = "${WORKSPACE}/.helm/data"
+    }
+    stages {
+        stage('Locate') {
+            steps {
+                script {
+                    // Two layouts, one file: in the platform-lab repo the app is
+                    // ci/apps/demo-api; in the team's own repo (the playground's
+                    // payments/demo-api) it is the repo root.
+                    // The very first run of a job has no parameters yet (Jenkins
+                    // learns them from this file by running it), so params.X is
+                    // null then. Fall back to the declared defaults.
+                    env.ENVIRONMENT = params.ENVIRONMENT ?: 'staging'
+                    env.NAMESPACE   = params.NAMESPACE   ?: 'demo-helm-ci'
+                    env.RELEASE     = params.RELEASE     ?: 'demo-api'
+                    env.TIMEOUT     = params.TIMEOUT     ?: '3m'
+                    env.EXTRA_SET   = params.EXTRA_SET   ?: ''
+                    env.APP_DIR = fileExists('ci/apps/demo-api/Dockerfile') ? 'ci/apps/demo-api' : '.'
+                    env.CHART   = "${env.APP_DIR}/chart/demo-api"
+                    env.VALUES  = "${env.CHART}/values-${env.ENVIRONMENT}.yaml"
+                    if (!fileExists(env.VALUES)) { error("no ${env.VALUES}") }
+
+                    // Resolved like standardPipeline does: the Jenkins instance
+                    // owns the registry (PLATFORM_REGISTRY), ECR is the fallback.
+                    String registry = env.PLATFORM_REGISTRY ?: ''
+                    if (!registry) {
+                        String acct = sh(returnStdout: true,
+                                         script: 'aws sts get-caller-identity --query Account --output text').trim()
+                        registry = "${acct}.dkr.ecr.us-east-1.amazonaws.com"
+                    }
+                    env.REGISTRY    = registry
+                    env.PLAIN_HTTP  = (env.PLATFORM_REGISTRY_INSECURE == 'true') ? '--plain-http' : ''
+                    env.IMAGE_REPO  = "${registry}/platform-lab/demo-api"
+                    env.CHART_REPO  = "oci://${registry}/platform-lab/charts"
+
+                    // Chart version = Chart.yaml's version + a build suffix. A
+                    // registry tag must be unique and immutable BY CONVENTION;
+                    // pushing "0.1.0" again on every build would overwrite it.
+                    // A SemVer pre-release ("0.1.0-build.7") sorts below the
+                    // release and is never mistaken for it.
+                    String base = sh(returnStdout: true,
+                                     script: "sed -n 's/^version: *//p' ${env.CHART}/Chart.yaml").trim()
+                    env.CHART_VERSION = "${base}-build.${env.BUILD_NUMBER}"
+                    env.TAG = (params.IMAGE_TAG ?: '').trim() ?: ImageTag.of(env.BRANCH_NAME ?: 'helm', env.GIT_COMMIT, env.BUILD_NUMBER)
+                    echo "app=${env.APP_DIR} chart=${env.CHART_VERSION} image=${env.IMAGE_REPO}:${env.TAG} registry=${env.REGISTRY}"
+                    sh 'helm version --short'
+                }
+            }
+        }
+        stage('Lint') {
+            // The schema is enforced here: a typo in any values file fails the
+            // build before any image is built or anything touches the cluster.
+            steps {
+                sh '''
+                    set -eu
+                    helm lint "$CHART"
+                    for f in "$CHART"/values-*.yaml; do
+                      echo "--- lint with $f"
+                      helm lint "$CHART" -f "$f"
+                    done
+                '''
+            }
+        }
+        stage('Template') {
+            // What Argo CD would apply, and the only thing you can diff in a PR.
+            steps {
+                sh '''
+                    set -eu
+                    helm template "$RELEASE" "$CHART" -n "$NAMESPACE" -f "$VALUES" \
+                      --set image.repository="$IMAGE_REPO" --set image.tag="$TAG" > rendered.yaml
+                    echo "rendered kinds:"; grep '^kind:' rendered.yaml | sort | uniq -c
+                '''
+                archiveArtifacts artifacts: 'rendered.yaml', allowEmptyArchive: true
+            }
+        }
+        stage('Package') {
+            steps {
+                sh 'set -eu; mkdir -p dist; helm package "$CHART" --version "$CHART_VERSION" -d dist; ls -l dist'
+            }
+        }
+        stage('Build image') {
+            when { expression { !params.IMAGE_TAG } }
+            steps {
+                script {
+                    buildImage(repository: env.IMAGE_REPO, tag: env.TAG, context: env.APP_DIR, push: true)
+                }
+            }
+        }
+        stage('Push chart (OCI)') {
+            steps {
+                // ECR path mirrors buildImage's login (token minted from the node
+                // role, never printed). NOT exercised in the local playground,
+                // whose kind-registry is anonymous plain HTTP. ECR also needs the
+                // repository platform-lab/charts/demo-api to exist first.
+                sh '''
+                    set -eu
+                    case "$REGISTRY" in
+                      *.dkr.ecr.*)
+                        set +x
+                        aws ecr get-login-password --region us-east-1 \
+                          | helm registry login "$REGISTRY" --username AWS --password-stdin
+                        set -x ;;
+                    esac
+                    helm push "dist/demo-api-${CHART_VERSION}.tgz" "$CHART_REPO" $PLAIN_HTTP
+                    echo "--- what the registry now holds:"
+                    helm show chart "$CHART_REPO/demo-api" --version "$CHART_VERSION" $PLAIN_HTTP | head -8
+                '''
+            }
+        }
+        stage('Deploy') {
+            steps {
+                script {
+                    // Install FROM the registry, not from the local directory:
+                    // what was pushed is what runs. The env file stays a plain -f
+                    // (per-environment values are not in the package).
+                    // EXTRA_SET is passed as ONE quoted argument, never spliced
+                    // into the command line.
+                    int rc = sh(returnStatus: true, script: '''
+                        set -u
+                        set --
+                        if [ -n "$EXTRA_SET" ]; then set -- --set "$EXTRA_SET"; fi
+                        helm upgrade --install "$RELEASE" "$CHART_REPO/demo-api" --version "$CHART_VERSION" $PLAIN_HTTP \
+                          -n "$NAMESPACE" -f "$VALUES" \
+                          --set image.repository="$IMAGE_REPO" --set image.tag="$TAG" "$@" \
+                          --atomic --wait --timeout "$TIMEOUT" \
+                          --description "jenkins $JOB_NAME #$BUILD_NUMBER: $TAG"
+                    ''')
+                    if (rc != 0) {
+                        sh '''
+                            echo "--- helm upgrade failed; --atomic has already rolled back. History:"
+                            helm -n "$NAMESPACE" history "$RELEASE" || true
+                            kubectl -n "$NAMESPACE" get pods -l app.kubernetes.io/instance="$RELEASE" -o wide || true
+                        '''
+                        error("helm upgrade of ${env.RELEASE} to ${env.TAG} failed; --atomic rolled back to the last good revision.")
+                    }
+                }
+            }
+        }
+        stage('Test') {
+            steps {
+                // Keep the timeout short: with Helm 4.2.1 `helm test` spends about
+                // its whole --timeout on hook bookkeeping even when the test pod
+                // finishes in 3 s (measured: 98 s with --timeout 90s, 35 s with 15s).
+                sh 'helm -n "$NAMESPACE" test "$RELEASE" --timeout 30s --logs'
+            }
+        }
+    }
+    post {
+        always {
+            sh 'helm -n "$NAMESPACE" history "$RELEASE" || true; helm -n "$NAMESPACE" list || true'
+        }
+        success { echo "OK: ${env.RELEASE} ${env.CHART_VERSION} image ${env.TAG} in ${env.NAMESPACE}" }
+        failure { echo "FAILED: read the first red stage, not the last" }
+    }
+}

@@ -1,0 +1,21 @@
+apiVersion: v2
+name: demo-api
+description: The lab's own sample service (Flask, /healthz), packaged as a Helm chart.
+# application = something you install. The other type is "library" (only
+# helpers other charts import; it cannot be installed).
+type: application
+# version = the version of THIS PACKAGING (templates, values, schema). Bump it
+# whenever anything under this directory changes. SemVer, and an OCI registry
+# tag is built from it, so it must be unique per published chart.
+version: 0.1.0
+# appVersion = the version of the SOFTWARE being deployed. Informational only
+# (shown by `helm list`); it does not choose the image. The image comes from
+# values.yaml -> image.tag. The two move independently: a new image tag does not
+# need a new chart version, and a new probe in the template does not need a new
+# image.
+appVersion: "1.0.0"
+kubeVersion: ">=1.25.0-0"
+keywords: [demo, flask, platform-lab]
+maintainers:
+  - name: platform-lab
+home: https://github.com/alecuvalentin22/aws-kodekloud-playground

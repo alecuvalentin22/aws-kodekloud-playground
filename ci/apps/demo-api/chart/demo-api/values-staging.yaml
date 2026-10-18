@@ -1,0 +1,17 @@
+# Staging overrides. Only what DIFFERS from values.yaml. This is the file the
+# home-lab Argo CD Application uses (homelab/platform/apps/90-demo-api-helm.yaml),
+# which is why the image tag is pinned here: in GitOps the tag in git IS the
+# deploy. Jenkins ignores it and passes --set image.tag=<what it just built>.
+replicaCount: 2
+
+image:
+  repository: 10.77.0.31:30500/platform-lab/demo-api
+  tag: main-488bac7e-3
+
+# Small: the home lab has 35 GiB for ~13 other apps.
+resources:
+  requests: {cpu: 20m, memory: 48Mi}
+  limits: {memory: 128Mi}
+
+config:
+  FAIL_HEALTH: "false"

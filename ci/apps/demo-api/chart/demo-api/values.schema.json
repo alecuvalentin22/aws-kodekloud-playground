@@ -1,0 +1,133 @@
+{
+  "$schema": "http://json-schema.org/draft-07/schema#",
+  "title": "demo-api chart values",
+  "description": "Checked by helm lint, template, install and upgrade. A value that does not match stops the command BEFORE anything reaches the cluster.",
+  "type": "object",
+  "additionalProperties": false,
+  "required": ["image", "service", "replicaCount"],
+  "properties": {
+    "global": {"type": "object"},
+    "nameOverride": {"type": "string"},
+    "fullnameOverride": {"type": "string"},
+    "replicaCount": {"type": "integer", "minimum": 0, "maximum": 50},
+    "revisionHistoryLimit": {"type": "integer", "minimum": 0},
+    "image": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["repository", "tag"],
+      "properties": {
+        "repository": {"type": "string", "minLength": 1, "pattern": "^[^\\s:]+(:[0-9]+)?(/[^\\s:@]+)*$"},
+        "tag": {
+          "type": "string",
+          "description": "Required. A real, fixed tag: never empty, never 'latest' (a moving tag makes two deploys of the same chart different).",
+          "pattern": "^[A-Za-z0-9_][A-Za-z0-9._-]{0,127}$",
+          "not": {"const": "latest"}
+        },
+        "pullPolicy": {"enum": ["Always", "IfNotPresent", "Never"]}
+      }
+    },
+    "imagePullSecrets": {"type": "array", "items": {"type": "object"}},
+    "serviceAccount": {
+      "type": "object",
+      "additionalProperties": false,
+      "properties": {
+        "create": {"type": "boolean"},
+        "name": {"type": "string"},
+        "annotations": {"type": "object"},
+        "automount": {"type": "boolean"}
+      }
+    },
+    "config": {
+      "type": "object",
+      "description": "Environment variables. Scalars only (a list or map here is a mistake); the ConfigMap template turns them into strings, so --set config.FAIL_HEALTH=true works.",
+      "additionalProperties": {"type": ["string", "boolean", "number"]}
+    },
+    "env": {"type": "array", "items": {"type": "object", "required": ["name"]}},
+    "strategy": {
+      "type": "object",
+      "properties": {
+        "type": {"enum": ["RollingUpdate", "Recreate"]},
+        "rollingUpdate": {"type": "object"}
+      },
+      "required": ["type"]
+    },
+    "service": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["type", "port"],
+      "properties": {
+        "type": {"enum": ["ClusterIP", "NodePort", "LoadBalancer"]},
+        "port": {"type": "integer", "minimum": 1, "maximum": 65535},
+        "nodePort": {"type": ["integer", "null"], "minimum": 30000, "maximum": 32767}
+      }
+    },
+    "containerPort": {"type": "integer", "minimum": 1, "maximum": 65535},
+    "livenessProbe": {"type": "object"},
+    "readinessProbe": {"type": "object"},
+    "resources": {
+      "type": "object",
+      "additionalProperties": false,
+      "properties": {
+        "requests": {"type": "object"},
+        "limits": {"type": "object"}
+      }
+    },
+    "podAnnotations": {"type": "object"},
+    "podLabels": {"type": "object"},
+    "backstageKubernetesId": {"type": "string", "minLength": 1},
+    "podSecurityContext": {"type": "object"},
+    "securityContext": {"type": "object"},
+    "nodeSelector": {"type": "object"},
+    "tolerations": {"type": "array"},
+    "affinity": {"type": "object"},
+    "ingress": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["enabled"],
+      "properties": {
+        "enabled": {"type": "boolean"},
+        "className": {"type": "string"},
+        "annotations": {"type": "object"},
+        "hosts": {
+          "type": "array",
+          "items": {
+            "type": "object",
+            "required": ["host", "paths"],
+            "properties": {
+              "host": {"type": "string", "minLength": 1},
+              "paths": {
+                "type": "array",
+                "minItems": 1,
+                "items": {
+                  "type": "object",
+                  "required": ["path", "pathType"],
+                  "properties": {
+                    "path": {"type": "string"},
+                    "pathType": {"enum": ["Prefix", "Exact", "ImplementationSpecific"]}
+                  }
+                }
+              }
+            }
+          }
+        },
+        "tls": {"type": "array"}
+      }
+    },
+    "autoscaling": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["enabled"],
+      "properties": {
+        "enabled": {"type": "boolean"},
+        "minReplicas": {"type": "integer", "minimum": 1},
+        "maxReplicas": {"type": "integer", "minimum": 1},
+        "targetCPUUtilizationPercentage": {"type": "integer", "minimum": 1, "maximum": 100}
+      }
+    },
+    "test": {
+      "type": "object",
+      "additionalProperties": false,
+      "properties": {"timeoutSeconds": {"type": "integer", "minimum": 1}}
+    }
+  }
+}

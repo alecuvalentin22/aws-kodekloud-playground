@@ -1,0 +1,11 @@
+# Patterns of files NOT to put in the packaged .tgz (same idea as .gitignore).
+.git/
+.gitignore
+*.swp
+*.bak
+*.tmp
+*~
+.DS_Store
+# Per-environment files are applied with -f at install time; they are not part
+# of the package that is pushed to the registry.
+values-*.yaml

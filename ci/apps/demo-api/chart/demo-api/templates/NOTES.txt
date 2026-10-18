@@ -1,0 +1,17 @@
+{{ include "demo-api.fullname" . }} {{ .Chart.Version }} (image {{ include "demo-api.image" . }}) is installed as release "{{ .Release.Name }}" in namespace "{{ .Release.Namespace }}".
+
+Check it:
+  kubectl -n {{ .Release.Namespace }} get deploy,svc,pods -l app.kubernetes.io/instance={{ .Release.Name }}
+  helm -n {{ .Release.Namespace }} test {{ .Release.Name }}
+
+Reach it without an Ingress:
+  kubectl -n {{ .Release.Namespace }} port-forward svc/{{ include "demo-api.fullname" . }} 8080:{{ .Values.service.port }}
+  curl -s localhost:8080/healthz
+{{- if .Values.ingress.enabled }}
+{{ range .Values.ingress.hosts }}
+Ingress host: http://{{ .host }}/
+{{- end }}
+{{- end }}
+
+If this was Argo CD rendering the chart, `helm list` shows NOTHING: Argo runs
+`helm template` and applies the YAML, so there is no release record to roll back.

@@ -1,0 +1,45 @@
+# Wave 9, last. demo-api deployed from its OWN Helm chart in this repo
+# (ci/apps/demo-api/chart/demo-api) into namespace demo-helm: the "GitOps with a
+# first-party chart" counterpart of the third-party charts above. It runs next to
+# the Jenkins-deployed demo-api in demo-ci (plain manifests, kubectl apply) and
+# does not touch it.
+#
+# Argo CD runs `helm template` with values-staging.yaml and applies the output.
+# Consequences, all worth saying out loud:
+#   - `helm list -n demo-helm` is EMPTY: there is no release record (no
+#     sh.helm.release.v1.* Secret). Argo's own Application is the record.
+#   - there is no `helm rollback`: to go back, `git revert` the commit.
+#   - to deploy a new image: change image.tag in values-staging.yaml, push.
+#
+# The image is one that already exists in the platform registry (the node-IP
+# address, because containerd pulls it): the tag Jenkins pushed for demo-ci.
+apiVersion: argoproj.io/v1alpha1
+kind: Application
+metadata:
+  name: demo-api-helm
+  namespace: argocd
+  annotations:
+    argocd.argoproj.io/sync-wave: "9"
+spec:
+  project: homelab
+  destination:
+    server: https://kubernetes.default.svc
+    namespace: demo-helm
+  source:
+    repoURL: https://github.com/alecuvalentin22/aws-kodekloud-playground.git
+    targetRevision: feat/playground
+    path: ci/apps/demo-api/chart/demo-api
+    helm:
+      # Argo's default release name would be the Application name
+      # (demo-api-helm); naming the release demo-api keeps the object names the
+      # same as everywhere else (Deployment/Service "demo-api").
+      releaseName: demo-api
+      valueFiles:
+        - values-staging.yaml
+  syncPolicy:
+    automated: {prune: true, selfHeal: true}
+    syncOptions:
+      - CreateNamespace=true
+      - ServerSideApply=true
+      - ServerSideDiff=true
+      - FailOnSharedResource=true

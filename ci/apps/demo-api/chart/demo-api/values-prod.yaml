@@ -1,0 +1,29 @@
+# Production-shaped overrides. NOT deployed anywhere in this lab: it exists to
+# show what a second environment's file looks like and that it lints/renders.
+# image.tag deliberately stays the default -- a real pipeline passes
+# --set image.tag=<release tag> after the staging deploy went green.
+replicaCount: 3
+
+resources:
+  requests: {cpu: 100m, memory: 128Mi}
+  limits: {memory: 256Mi}
+
+# Autoscaling takes over the replica count; the Deployment then omits
+# `replicas` so a helm upgrade never fights the HPA.
+autoscaling:
+  enabled: true
+  minReplicas: 3
+  maxReplicas: 8
+  targetCPUUtilizationPercentage: 70
+
+ingress:
+  enabled: true
+  className: nginx
+  hosts:
+    - host: demo-api.example.com
+      paths:
+        - path: /
+          pathType: Prefix
+
+service:
+  type: ClusterIP

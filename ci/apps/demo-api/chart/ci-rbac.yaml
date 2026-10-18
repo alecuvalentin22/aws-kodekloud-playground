@@ -1,0 +1,65 @@
+# What Jenkinsfile.helm needs in its TARGET namespace. NOT part of the chart
+# (it sits next to it, so `helm package` does not ship it) and NOT applied by
+# anything automatically: ci/jenkins/rbac.yaml gives the agent `deployer` in
+# demo-ci only, and that Role cannot do what Helm does:
+#
+#   - Helm stores every release revision as a Secret (sh.helm.release.v1.*), so
+#     it needs secrets create/get/list/update/delete -- rights `kubectl apply`
+#     never needed. That is the price of `helm rollback`/`--atomic`.
+#   - the chart creates a ServiceAccount, a ConfigMap, and (optionally) an
+#     Ingress and an HPA, so the old Role (deployments/services/pods/configmaps)
+#     would answer "forbidden".
+#   - `helm test` creates and deletes a pod and reads its log.
+#   - `--wait` watches the pods, replicasets and deployments it owns.
+#
+# Still one namespace, still no cluster-scoped rights. Apply it by hand with
+# cluster-admin (the pipeline must not be able to grant itself this):
+#
+#   kubectl apply -f ci/apps/demo-api/chart/ci-rbac.yaml
+#   kubectl delete -f ci/apps/demo-api/chart/ci-rbac.yaml     # to remove it again
+apiVersion: v1
+kind: Namespace
+metadata:
+  name: demo-helm-ci
+---
+apiVersion: rbac.authorization.k8s.io/v1
+kind: Role
+metadata:
+  name: helm-deployer
+  namespace: demo-helm-ci
+rules:
+  - apiGroups: [""]
+    resources: [secrets]
+    verbs: [get, list, watch, create, update, patch, delete]
+  - apiGroups: [""]
+    resources: [services, configmaps, serviceaccounts, pods]
+    verbs: [get, list, watch, create, update, patch, delete]
+  - apiGroups: [""]
+    resources: [pods/log]
+    verbs: [get]
+  - apiGroups: [""]
+    resources: [events]
+    verbs: [get, list, watch]
+  - apiGroups: [apps]
+    resources: [deployments, replicasets]
+    verbs: [get, list, watch, create, update, patch, delete]
+  - apiGroups: [networking.k8s.io]
+    resources: [ingresses]
+    verbs: [get, list, watch, create, update, patch, delete]
+  - apiGroups: [autoscaling]
+    resources: [horizontalpodautoscalers]
+    verbs: [get, list, watch, create, update, patch, delete]
+---
+apiVersion: rbac.authorization.k8s.io/v1
+kind: RoleBinding
+metadata:
+  name: jenkins-agent-helm-deployer
+  namespace: demo-helm-ci
+subjects:
+  - kind: ServiceAccount
+    name: jenkins-agent
+    namespace: jenkins
+roleRef:
+  apiGroup: rbac.authorization.k8s.io
+  kind: Role
+  name: helm-deployer

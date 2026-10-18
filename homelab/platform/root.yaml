@@ -16,6 +16,7 @@
 #   6  lan-ingress (the Wi-Fi names)
 #   7  homepage (the start page)
 #   8  plane (the interview tracker, playground/tracker/)
+#   9  demo-api-helm (demo-api from its own chart, ci/apps/demo-api/chart/, namespace demo-helm)
 #
 # selfHeal re-creates any child somebody deletes; prune removes children whose
 # file is deleted from git.

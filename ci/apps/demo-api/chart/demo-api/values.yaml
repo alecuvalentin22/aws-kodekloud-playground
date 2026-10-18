@@ -1,0 +1,116 @@
+# Defaults. Every key here is validated by values.schema.json, so a typo in an
+# override file or a --set fails at install time instead of silently doing
+# nothing. Per-environment differences live in values-<env>.yaml.
+
+# Names. Empty = derived from the chart name and the release name (see
+# templates/_helpers.tpl).
+nameOverride: ""
+fullnameOverride: ""
+
+# Plain Helm convention for "how many pods". Ignored when autoscaling is on
+# (the HPA owns the number then).
+replicaCount: 2
+revisionHistoryLimit: 5
+
+image:
+  # The platform registry on the home lab (a node IP + NodePort, because
+  # containerd on the node pulls it and cannot resolve cluster DNS).
+  # Jenkins overrides this with --set image.repository=$PLATFORM_REGISTRY/...
+  repository: 10.77.0.31:30500/platform-lab/demo-api
+  # REQUIRED by the schema and must not be "latest": a tag that moves makes two
+  # deploys of the same chart different. CI overrides it with the tag it built.
+  tag: main-488bac7e-3
+  pullPolicy: IfNotPresent
+imagePullSecrets: []
+
+serviceAccount:
+  create: true
+  name: ""
+  annotations: {}
+  # The app never talks to the Kubernetes API, so it gets no API token.
+  automount: false
+
+# Non-secret settings. They become a ConfigMap and are injected as environment
+# variables. Changing one rolls the pods (checksum annotation in the
+# Deployment). Secrets do NOT belong here: values end up in the release record
+# and in git.
+config:
+  # /healthz answers 500 while this is "true". The playground's broken-deploy
+  # drill flips it; here it is the easy way to make a release unhealthy on
+  # purpose and watch --atomic undo it.
+  FAIL_HEALTH: "false"
+
+# Extra raw container env entries (valueFrom, secretKeyRef, ...).
+env: []
+
+# Same behaviour as the original k8s/deployment.yaml: never go below the
+# current replica count while rolling, so a bad image stalls instead of
+# causing an outage.
+strategy:
+  type: RollingUpdate
+  rollingUpdate:
+    maxUnavailable: 0
+    maxSurge: 1
+
+service:
+  type: ClusterIP
+  port: 80
+  # Only used when type is NodePort. Left empty so two releases never fight over
+  # the same node port (the old manifest hard-coded 30095).
+  nodePort: null
+
+# The container listens here. Named "http" so probes and the Service refer to
+# the name, not the number.
+containerPort: 8080
+
+livenessProbe:
+  httpGet: {path: /healthz, port: http}
+  initialDelaySeconds: 10
+  periodSeconds: 10
+readinessProbe:
+  httpGet: {path: /healthz, port: http}
+  periodSeconds: 5
+  failureThreshold: 3
+
+resources:
+  requests: {cpu: 50m, memory: 64Mi}
+  limits: {memory: 256Mi}
+
+podAnnotations: {}
+# Added to every object (and pod) on top of the standard labels. Backstage
+# uses backstage.io/kubernetes-id to show these objects on the demo-api page.
+backstageKubernetesId: demo-api
+podLabels: {}
+
+podSecurityContext:
+  runAsNonRoot: true
+  seccompProfile: {type: RuntimeDefault}
+securityContext:
+  allowPrivilegeEscalation: false
+  readOnlyRootFilesystem: false
+  capabilities: {drop: [ALL]}
+
+nodeSelector: {}
+tolerations: []
+affinity: {}
+
+ingress:
+  enabled: false
+  className: ""
+  annotations: {}
+  hosts:
+    - host: demo-api.example.com
+      paths:
+        - path: /
+          pathType: Prefix
+  tls: []
+
+autoscaling:
+  enabled: false
+  minReplicas: 2
+  maxReplicas: 4
+  targetCPUUtilizationPercentage: 80
+
+# `helm test` pod (templates/tests/test-connection.yaml).
+test:
+  timeoutSeconds: 5
