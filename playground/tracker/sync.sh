@@ -231,7 +231,7 @@ for l in $(printf '%s\n' "$DRILL_ROWS" | awk -F'\t' 'NF{print "track:" $4; print
 done
 
 # --- 4. modules (epics) -----------------------------------------------------------------------
-MODULE_KEYS="day1 day2 day3 day4 day5 day6 day7 jenkins2 jagents aws-cloudops github more exercises"
+MODULE_KEYS="day1 day2 day3 day4 day5 day6 day7 jenkins2 jagents helm aws-cloudops github more exercises"
 module_name() {
   case $1 in
     day1) echo "Day 1 — Jenkins pipelines" ;;
@@ -243,6 +243,7 @@ module_name() {
     day7) echo "Day 7 — Mock interview" ;;
     jenkins2) echo "Jenkins: pipelines II" ;;
     jagents) echo "Jenkins: static agents" ;;
+    helm) echo "Helm: packaging and releases" ;;
     aws-cloudops) echo "AWS: cloud-ops" ;;
     github) echo "GitHub tier" ;;
     more) echo "More local drills" ;;
@@ -260,6 +261,7 @@ module_desc() {
     day7) echo "play start with no number gives a random drill you have not solved, and you are not told which. Do two, talking out loud, then re-read your journal and practise each STAR story in under two minutes." ;;
     jenkins2) echo "After Day 4: writing and releasing a shared-library step (09), pipelines that cannot fail, per-stage workspaces, approvals that hold agents, credential scope, triggers, multibranch discovery, the parameter trap, downstream jobs (41-48). On the box: play start NN." ;;
     jagents) echo "Static (permanent) agents next to the dynamic pod agents: an agent that went offline, workspace leftovers between builds, a full agent disk (51-53). Needs playground/setup/static-agent.sh up." ;;
+    helm) echo "demo-api packaged as a Helm chart (ci/apps/demo-api/chart): a Service that matches no pods after a helpers change, a config change that restarts nothing, a release that went down while the pipeline said green (81-83). Start with the exercise Package your own service as a Helm chart. On the box: play start NN." ;;
     aws-cloudops) echo "Cloud operations on the AWS account, no Jenkins needed: volumes and AZs, Terraform drift/import/locks, IAM trust and deny, S3 versioning and guardrails, CloudTrail forensics, CloudWatch alarms, ECR tags, DNS, network ACLs, STS sessions. Same KodeKloud session as Day 6." ;;
     github) echo "Real GitHub, Actions and GHCR on your own account: pull requests, required checks, shared workflows. Needs the GitHub token and playground/setup/up-github.sh (see playground/setup/GITHUB.md)." ;;
     more) echo "Extra local drills outside the 7-day plan, run on the lab box like days 1 to 4. After the plan: replay anything under 80 points (play list shows your best scores)." ;;
@@ -269,7 +271,7 @@ module_desc() {
 module_for_drill() {   # id needs
   case $1 in
     01|02) echo day1 ;; 08|03) echo day2 ;; 05|04) echo day3 ;; 07|06) echo day4 ;;
-    09|4[1-8]) echo jenkins2 ;; 5[1-3]) echo jagents ;;
+    09|4[1-8]) echo jenkins2 ;; 5[1-3]) echo jagents ;; 8[1-9]) echo helm ;;
     1[1-6]) echo day6 ;;
     *) case $2 in homelab) echo day5 ;; aws) echo aws-cloudops ;; github) echo github ;; *) echo more ;; esac ;;
   esac
