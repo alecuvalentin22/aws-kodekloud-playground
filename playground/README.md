@@ -207,6 +207,7 @@ on the Wi-Fi (`HOMELAB_ADMIN_PASSWORD` or a hidden prompt; nothing installed).
 | [`exercises/jenkins-job-types/`](exercises/jenkins-job-types/README.md) | one job of every kind: freestyle, scripted vs declarative, multibranch, parameterized, upstream/downstream, matrix, Job DSL, triggers | when to use which; CPS; jobs as code; 15 interview Q&A |
 | [`exercises/full-cicd/`](exercises/full-cicd/README.md) | build -> test -> image -> staging -> smoke test -> approval -> prod -> automatic rollback, in one declarative pipeline | why each stage exists; `input` outside agents; `stash`; `rollout undo` in `post { failure }` |
 | [`exercises/static-vs-dynamic-agents/`](exercises/static-vs-dynamic-agents/README.md) | one pipeline on `static-01` and on a pod: persistence, queueing, cold start, offline behaviour, leftover credentials | static vs dynamic trade-offs and how each breaks (static agent: `setup/static-agent.sh up`) |
+| [`exercises/helm-chart/`](exercises/helm-chart/README.md) | package a small service as your own Helm chart: `helm create` + trim, helpers/checksum/probes, values schema, env files, lint/template/dry-run, push to the OCI registry, install with `--atomic`, a config upgrade and a broken upgrade that rolls back | chart vs release, release state in Secrets, `template` vs `install`, why Argo CD has no `helm rollback`, values precedence, OCI vs classic repos, when not to use Helm; 15 Q&A |
 
 ## Playing on the home lab
 
