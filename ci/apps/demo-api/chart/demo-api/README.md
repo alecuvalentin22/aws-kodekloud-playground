@@ -330,3 +330,13 @@ Local: Helm 3.20.0. CI runs Helm 4.2.1 (the `alpine/k8s:1.33.13` agent container
     deleted; `play doctor` green; `demo-api` `main` still green.
 - Not exercised: the ECR login branch of `Jenkinsfile.helm`, the `prod` environment (no ingress controller or
   metrics-server in kind), Helm 3 as the *CI* Helm.
+- **Home lab (RKE2 + Argo CD)**: after `project.yaml` (new destination `demo-helm`) was applied by hand and the
+  commit pushed, `homelab-platform` created `demo-api-helm`: **Synced / Healthy** in about a minute, two
+  pods Running in `demo-helm`, image `10.77.0.31:30500/platform-lab/demo-api:main-488bac7e-3` (the tag the
+  Jenkins-deployed `demo-ci` pods run), `GET /` answers `{"app":"demo-api","version":"main-488bac7e-3"}`.
+  `helm list -n demo-helm` printed **no releases** and `kubectl -n demo-helm get secret` is empty.
+  The `helm test` pod is not applied by Argo (it is not among the Application's resources).
+  Values change: `replicaCount: 3` plus a new `config` key pushed to git -> Argo re-rendered, the ConfigMap
+  hash changed, a new ReplicaSet rolled 3 new pods (ConfigMap shows the new key). `git revert` of that commit
+  -> back to 2 pods and the original ReplicaSet within ~1 minute (Argo's default poll, here nudged with a
+  hard refresh). `demo-ci/demo-api` (Jenkins, plain manifests) was untouched.

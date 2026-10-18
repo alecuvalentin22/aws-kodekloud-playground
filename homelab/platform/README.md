@@ -41,6 +41,7 @@ Docker"); the job description itself is not in the repo.
 | 4 | `72-monitoring` | uptime Probes, Argo CD ServiceMonitors, Grafana dashboards (folder "Home lab") | n/a (kustomize) | Monitoring / observability |
 | 7 | `74-homepage` | start page at `http://192.168.0.23/` | Homepage v2.4.0 (**2026-09-17**) | developer portal / front door |
 | 8 | `80-plane` | Plane CE, the Jira-like tracker for the interview drills ([Tracker (Plane)](#tracker-plane)) | chart plane-ce 1.8.4 (**2026-09-29**), Plane v1.4.2 (**2026-08-23**) | working from tickets (Jira) |
+| 9 | `90-demo-api-helm` | demo-api from its **own** Helm chart (`ci/apps/demo-api/chart/demo-api`, `values-staging.yaml`) into namespace `demo-helm`; Argo renders it (`helm list` is empty). See the chart's README | n/a (chart 0.1.0, image `main-488bac7e-3`) | packaging your own app with Helm, GitOps |
 
 Every chart version is the one in `versions.env`. The two pins that
 `versions.env` does not have were looked up on 2026-10-16:
