@@ -162,8 +162,8 @@ player_clone() {
 
 # --- reading the cluster --------------------------------------------------
 
-# objs_json -- stdin: YAML documents; stdout: one JSON array of the objects (kubectl, dry-run: nothing is created)
-objs_json() { K create --dry-run=client -f - -o json 2>/dev/null | jq -c '(.items // [.])'; }
+# objs_json -- stdin: YAML documents; stdout: one JSON array of the objects (kubectl prints one JSON object per document; dry-run: nothing is created)
+objs_json() { K create --dry-run=client -f - -o json 2>/dev/null | jq -s -c 'map(if .kind == "List" then .items[] else . end)'; }
 
 # sel_matches -- stdin: JSON array of objects. Succeeds when the Service has a selector and every
 # key of it is a label of the Deployment's POD TEMPLATE with the same value.
