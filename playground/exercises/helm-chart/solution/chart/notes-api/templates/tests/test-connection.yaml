@@ -1,0 +1,41 @@
+# `helm test <release>` creates this pod, waits for it to finish and reports its
+# exit code. The hook annotation keeps it out of install/upgrade. It asks the
+# SERVICE (not a pod) for /healthz, so it proves Service selector -> pod -> app,
+# which --wait (pods Ready) does not. It reuses the app image (python is in it),
+# so the test needs no second image. The scaffold's `busybox` + `wget` pulls an
+# unpinned image from Docker Hub and only fetches "/".
+apiVersion: v1
+kind: Pod
+metadata:
+  name: {{ include "notes-api.fullname" . }}-test-connection
+  # Deliberately NOT the standard labels: those include the Service's selector
+  # labels, which would send real traffic to this pod.
+  labels:
+    helm.sh/chart: {{ include "notes-api.chart" . }}
+    app.kubernetes.io/name: {{ include "notes-api.name" . }}-test
+    app.kubernetes.io/instance: {{ .Release.Name }}
+    app.kubernetes.io/component: test
+    app.kubernetes.io/managed-by: {{ .Release.Service }}
+  annotations:
+    "helm.sh/hook": test
+    # Leave the finished pod (so `kubectl logs` can read it); replace it on the next run.
+    "helm.sh/hook-delete-policy": before-hook-creation
+spec:
+  restartPolicy: Never
+  automountServiceAccountToken: false
+  securityContext:
+    {{- toYaml .Values.podSecurityContext | nindent 4 }}
+  containers:
+    - name: probe
+      image: {{ include "notes-api.image" . | quote }}
+      imagePullPolicy: {{ .Values.image.pullPolicy }}
+      securityContext:
+        {{- toYaml .Values.securityContext | nindent 8 }}
+      command: ["python", "-c"]
+      args:
+        - |
+          import json, urllib.request
+          url = "http://{{ include "notes-api.fullname" . }}:{{ .Values.service.port }}/healthz"
+          body = json.load(urllib.request.urlopen(url, timeout={{ .Values.test.timeoutSeconds }}))
+          print(url, body)
+          assert body == {"status": "ok"}, body

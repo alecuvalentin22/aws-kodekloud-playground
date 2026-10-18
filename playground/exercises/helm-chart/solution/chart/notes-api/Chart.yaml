@@ -1,0 +1,15 @@
+# REFERENCE SOLUTION. Compare with yours after you have written your own.
+apiVersion: v2
+name: notes-api
+description: notes-api, a tiny HTTP service with a /healthz endpoint and config-driven behaviour.
+# application = installable. (library = only helpers other charts import.)
+type: application
+# version = the version of THIS PACKAGING (templates, values, schema). SemVer.
+# It becomes the OCI tag, so it must be unique per published chart: bump it
+# whenever anything in this directory changes.
+version: 0.1.0
+# appVersion = the version of the SOFTWARE inside. Information only (helm list
+# prints it). It does NOT choose the image: values.yaml image.tag does.
+appVersion: "1.0.0"
+kubeVersion: ">=1.25.0-0"
+keywords: [notes, platform-lab]

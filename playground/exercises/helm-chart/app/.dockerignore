@@ -1,0 +1,6 @@
+__pycache__/
+*.pyc
+test_app.py
+chart/
+*.tgz
+.git/

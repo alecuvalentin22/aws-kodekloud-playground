@@ -1,0 +1,5 @@
+# Only what DIFFERS from values.yaml. This is the file you install with.
+replicaCount: 2
+
+config:
+  LOG_LEVEL: debug     # staging is where you want to see every request

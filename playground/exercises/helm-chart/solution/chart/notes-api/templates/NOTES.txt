@@ -1,0 +1,8 @@
+{{ include "notes-api.fullname" . }} chart {{ .Chart.Version }} (image {{ include "notes-api.image" . }}) is installed as release "{{ .Release.Name }}" in namespace "{{ .Release.Namespace }}".
+
+  kubectl -n {{ .Release.Namespace }} get deploy,svc,pods -l app.kubernetes.io/instance={{ .Release.Name }}
+  helm -n {{ .Release.Namespace }} test {{ .Release.Name }}
+
+Reach it:
+  kubectl -n {{ .Release.Namespace }} port-forward svc/{{ include "notes-api.fullname" . }} 8080:{{ .Values.service.port }}
+  curl -s localhost:8080/healthz

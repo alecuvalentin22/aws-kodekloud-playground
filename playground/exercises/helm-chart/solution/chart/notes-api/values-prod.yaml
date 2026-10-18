@@ -1,0 +1,10 @@
+# Production-shaped. Not deployed in this exercise: it must lint and render.
+replicaCount: 3
+
+config:
+  MAX_NOTE_LENGTH: "1000"
+  LOG_LEVEL: warn
+
+resources:
+  requests: {cpu: 100m, memory: 64Mi}
+  limits: {memory: 256Mi}

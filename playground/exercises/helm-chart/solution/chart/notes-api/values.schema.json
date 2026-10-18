@@ -1,0 +1,63 @@
+{
+  "$schema": "http://json-schema.org/draft-07/schema#",
+  "title": "notes-api chart values",
+  "description": "Checked by helm lint, template, install and upgrade. A value that does not match stops the command BEFORE anything reaches the cluster.",
+  "type": "object",
+  "additionalProperties": false,
+  "required": ["image", "service", "replicaCount"],
+  "properties": {
+    "nameOverride": {"type": "string"},
+    "fullnameOverride": {"type": "string"},
+    "replicaCount": {"type": "integer", "minimum": 0, "maximum": 20},
+    "image": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["repository", "tag"],
+      "properties": {
+        "repository": {"type": "string", "minLength": 1},
+        "tag": {
+          "type": "string",
+          "description": "A real, fixed tag: never empty, never 'latest'.",
+          "pattern": "^[A-Za-z0-9_][A-Za-z0-9._-]{0,127}$",
+          "not": {"const": "latest"}
+        },
+        "pullPolicy": {"enum": ["Always", "IfNotPresent", "Never"]}
+      }
+    },
+    "config": {
+      "type": "object",
+      "description": "Becomes the ConfigMap. Closed on purpose: a misspelt setting name would otherwise be silently ignored by the app. The price: a new setting needs a schema edit too.",
+      "additionalProperties": false,
+      "properties": {
+        "MAX_NOTE_LENGTH": {"type": ["integer", "string"], "pattern": "^[1-9][0-9]*$", "minimum": 1},
+        "READ_ONLY": {"enum": [true, false, "true", "false"]},
+        "LOG_LEVEL": {"enum": ["debug", "info", "warn", "error"]}
+      }
+    },
+    "service": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["type", "port"],
+      "properties": {
+        "type": {"enum": ["ClusterIP", "NodePort", "LoadBalancer"]},
+        "port": {"type": "integer", "minimum": 1, "maximum": 65535}
+      }
+    },
+    "containerPort": {"type": "integer", "minimum": 1, "maximum": 65535},
+    "strategy": {"type": "object"},
+    "livenessProbe": {"type": "object"},
+    "readinessProbe": {"type": "object"},
+    "resources": {
+      "type": "object",
+      "additionalProperties": false,
+      "properties": {"requests": {"type": "object"}, "limits": {"type": "object"}}
+    },
+    "podSecurityContext": {"type": "object"},
+    "securityContext": {"type": "object"},
+    "test": {
+      "type": "object",
+      "additionalProperties": false,
+      "properties": {"timeoutSeconds": {"type": "integer", "minimum": 1}}
+    }
+  }
+}

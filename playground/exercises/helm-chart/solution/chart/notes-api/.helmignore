@@ -1,0 +1,9 @@
+# What `helm package` must NOT put in the .tgz.
+# Environment files are chosen at install time (-f values-prod.yaml); the
+# package itself is environment-agnostic.
+values-*.yaml
+.git/
+.gitignore
+*.swp
+*.bak
+*.tmp
