@@ -73,7 +73,7 @@ cm=$(K -n "$NS" get cm "$FULL" -o jsonpath='{.data.FAIL_HEALTH}')
 [[ $cm == true ]] || { echo "expected FAIL_HEALTH=true in the ConfigMap, found '$cm'"; exit 1; }
 eps=99
 for _ in $(seq 1 30); do
-  eps=$(K -n "$NS" get endpointslices -l "kubernetes.io/service-name=$FULL" -o json | jq '[.items[].endpoints[]? | select((.conditions.ready // true) == true)] | length')
+  eps=$(ready_eps)
   [[ $eps == 0 ]] && break; sleep 2
 done
 [[ $eps == 0 ]] || { echo "the Service still has $eps ready endpoints; the break did not take"; exit 1; }

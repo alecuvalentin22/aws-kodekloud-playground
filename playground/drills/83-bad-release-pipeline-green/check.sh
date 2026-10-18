@@ -27,7 +27,7 @@ ok=0
 for _ in $(seq 1 20); do serving && { ok=1; break; }; sleep 3; done
 (( ok )) || { c_bad "staging is not serving: the pods are not Ready or GET /healthz through the Service fails (kubectl -n $NS get pods,endpointslices)"; exit 1; }
 replicas=$(K -n "$NS" get deploy "$FULL" -o jsonpath='{.spec.replicas}')
-ready=$(K -n "$NS" get endpointslices -l "kubernetes.io/service-name=$FULL" -o json | jq '[.items[].endpoints[]? | select((.conditions.ready // true) == true)] | length')
+ready=$(ready_eps)
 (( ${ready:-0} >= ${replicas:-1} )) || { c_bad "Service $FULL has ${ready:-0} ready endpoint(s) for $replicas replicas"; exit 1; }
 c_ok "staging serves again: $ready ready endpoints, /healthz ok through the Service (release revision $rev)"
 

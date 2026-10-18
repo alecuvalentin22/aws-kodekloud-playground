@@ -49,8 +49,7 @@ if [[ -z $replicas || $replicas -lt 2 ]]; then c_bad "deployment $FULL runs ${re
 K -n "$NS" rollout status "deploy/$FULL" --timeout=60s >/dev/null 2>&1 || { c_bad "deployment $FULL is not fully rolled out"; exit 1; }
 ready=0
 for _ in 1 2 3 4 5 6 7 8 9 10 11 12; do
-  ready=$(K -n "$NS" get endpointslices -l "kubernetes.io/service-name=$FULL" -o json 2>/dev/null \
-          | jq '[.items[].endpoints[]? | select((.conditions.ready // true) == true)] | length')
+  ready=$(ready_eps)
   (( ${ready:-0} >= replicas )) && break
   sleep 2
 done

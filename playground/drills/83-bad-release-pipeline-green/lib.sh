@@ -173,6 +173,13 @@ sel_matches() {
          | ($s | length) > 0 and ($s | to_entries | all(.value == $l[.key]))' >/dev/null
 }
 
+# ready_eps -- number of READY endpoints behind the Service (null "ready" means ready; false does not;
+# beware jq's // treats false as absent, so no `// true` here)
+ready_eps() {
+  K -n "$NS" get endpointslices -l "kubernetes.io/service-name=$FULL" -o json 2>/dev/null \
+    | jq '[.items[].endpoints[]? | select(.conditions.ready != false)] | length'
+}
+
 rel_field() { HELM -n "$NS" status "$REL" -o json 2>/dev/null | jq -r "$1"; }   # .version  .info.status
 live_chart_base() {   # chart version of the running release without the pipeline's -build.N suffix
   HELM -n "$NS" list -o json 2>/dev/null | jq -r --arg r "$REL" '.[]|select(.name==$r)|.chart' \
