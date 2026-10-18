@@ -95,6 +95,9 @@ is a set of real incident stories in your own words.
 | 51 | "build-01 is offline and the release only runs there" | jenkins | static (inbound) agents: agent vs controller log, a stale node secret a restart can't fix, the "temporarily offline" flag, why not to move a host-bound job to the controller |
 | 52 | "Works on the first build, fails on the second" | jenkins | static workspaces persist: ignored files survive checkout, a cache with no key, stale `dist/`, cleaning at the start vs only in `post`, why pods hide it |
 | 53 | "Static agent disk full, every static build red" | jenkins | the disk-space monitor, ENOSPC, orphaned workspaces, `cleanWs` + build discarders, not loosening the threshold |
+| 81 | "Pods are Ready, but nothing answers on the Service" | helm | Service selector vs pod labels, one helper for identity labels, chart name vs release fullname, immutable Deployment selectors, `helm test` as the Service check |
+| 82 | "Changed the config, nothing restarted" | helm | env from a ConfigMap is read at start; the `checksum/config` annotation; hash vs random/`now` annotations; `rollout restart` is a one-off |
+| 83 | "A bad release took the service down and the pipeline said green" | helm | `--atomic`/`--rollback-on-failure` + `--wait` + `--timeout`; "deployed" only means the API accepted the YAML; `helm history`/`rollback` vs uninstall; proving the gate with a broken deploy |
 
 Home-lab tier (`NEEDS=homelab`: they break the home lab's RKE2 cluster itself, so
 `play` runs them from the **Mac**, `playground/play start 21`; see "Playing on the home lab"):
