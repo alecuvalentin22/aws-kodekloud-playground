@@ -16,8 +16,10 @@ diffs"). Check:  helm -n helm-drill-82 get manifest demo-api | grep -n checksum
 ---
 Put it back in templates/deployment.yaml, under spec.template.metadata.annotations:
   checksum/config: {{ include (print $.Template.BasePath "/configmap.yaml") . | sha256sum }}
-Bump `version:` in Chart.yaml, push, run the job: this upgrade changes the
-template (the annotation is new), so the pods roll and pick up 2026.10.2.
+Bump `version:` in Chart.yaml, push, run the helm-drill-82 job (or helm upgrade): this
+upgrade changes the template (the annotation is new), so the pods roll and pick up 2026.10.2.
+Careful: Jenkinsfile.helm packages every build as <version>-build.N and helm.sh/chart is a
+pod LABEL, so any pipeline deploy rolls the pods; that proves nothing about config. 
 `kubectl rollout restart` would show the new label today and break again on the
 next config change; a random or `now` annotation would restart every pod on every
 upgrade, even when nothing changed. The check changes the config itself and

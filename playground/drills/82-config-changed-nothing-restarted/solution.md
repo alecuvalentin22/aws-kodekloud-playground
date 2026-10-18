@@ -6,12 +6,16 @@ ROOT CAUSE
   when the POD TEMPLATE changes. A ConfigMap edit changes the ConfigMap object and
   nothing in the template, so:
 
-    helm upgrade   -> ConfigMap now says 2026.10.2        (true, "deployed", green)
+    helm upgrade   -> ConfigMap now says 2026.10.2        (true, "deployed")
     Deployment     -> template identical, no new ReplicaSet, no new pods
     pods           -> still carry the env they started with (2026.10.1)
 
-  Nothing failed, so nothing was red: the pipeline did exactly what it was told.
-  The only wrong thing was the assumption "config change = restart". Env vars from
+  Nothing failed, so nothing was red: helm did exactly what it was told. The only
+  wrong thing was the assumption "config change = restart". (Why a values-only
+  helm upgrade and not the Jenkins job? Jenkinsfile.helm packages every build as
+  0.1.0-build.N and helm.sh/chart is a pod label, so a pipeline deploy changes the
+  template and rolls the pods whatever the config did. The bug shows on deploys that
+  keep the chart version: helm upgrade by hand, Argo CD, a values-only rerun.) Env vars from
   a ConfigMap are never refreshed in a running container (files mounted from a
   ConfigMap volume are eventually refreshed, but the app would still have to re-read
   them).
@@ -74,9 +78,9 @@ SAY THIS IN THE INTERVIEW
   ConfigMap is read when the container starts and Kubernetes only restarts pods
   when the pod template changes. Somebody had removed the checksum/config
   annotation from the Deployment, which is the thing that makes a config change a
-  template change. The pipeline was green because nothing failed; it just did not
-  roll anything. I put the annotation back, hashed from the rendered ConfigMap,
-  bumped the chart version and let the pipeline roll it. I did not just restart
+  template change. helm said deployed because nothing failed; it just did not roll
+  anything. I put the annotation back, hashed from the rendered ConfigMap,
+  bumped the chart version and deployed it. I did not just restart
   the pods, because that fixes today's label and leaves the next config change
   silent, and I did not use a random annotation, which restarts everything on
   every upgrade. Then I changed the config again to prove the pods roll by

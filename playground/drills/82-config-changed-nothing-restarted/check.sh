@@ -77,11 +77,17 @@ served=$(svc_get / | jq -r .version 2>/dev/null)
 [[ $served == "$cm" ]] || { c_bad "GET / through the Service answers version '$served', ConfigMap says '$cm'"; exit 1; }
 c_ok "every pod runs VERSION=$cm and GET / answers it"
 
-# 5. The real proof: change the config once more, through Helm, and watch the pods.
-#    (Reverted afterwards with helm rollback.)
+# 5. The real proof: change the config once more through Helm, WITHOUT changing the chart version
+#    (the version is a pod label; a new one would roll the pods by itself), and watch the pods.
+#    Reverted afterwards with helm rollback.
 probe="check82-$(date +%s)"; before=$(rel_field .version)
-c_dim "  proving a config-only change rolls the pods: helm upgrade --set config.VERSION=$probe, then rollback"
-if ! up=$(HELM -n "$NS" upgrade "$REL" "$scratch/chart/demo-api" --reuse-values --set "config.VERSION=$probe" \
+livefull=$(HELM -n "$NS" list -o json 2>/dev/null | jq -r --arg r "$REL" '.[]|select(.name==$r)|.chart' | sed -E 's/^demo-api-//')
+pkgdir="$scratch/pkg"; mkdir -p "$pkgdir"
+if ! HELM package "$scratch/chart/demo-api" --version "$livefull" -d "$pkgdir" >/dev/null 2>&1; then
+  c_bad "cannot package the chart on main as version $livefull (helm lint chart/demo-api)"; exit 1
+fi
+c_dim "  proving a config-only change rolls the pods: helm upgrade --set config.VERSION=$probe (chart $livefull unchanged), then rollback"
+if ! up=$(HELM -n "$NS" upgrade "$REL" "$pkgdir/demo-api-$livefull.tgz" --reuse-values --set "config.VERSION=$probe" \
           --wait --timeout 150s --description "drill $N check: does a config-only change roll the pods?" 2>&1); then
   c_bad "the proof upgrade failed:"; tail -5 <<<"$up" | sed 's/^/      /'
   HELM -n "$NS" rollback "$REL" "$before" --wait --timeout 150s >/dev/null 2>&1; exit 1

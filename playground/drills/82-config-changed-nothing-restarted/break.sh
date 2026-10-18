@@ -2,8 +2,8 @@
 # Lena removes the checksum/config annotation from the Deployment's pod template
 # ("it restarts staging on every config tweak, and the diffs are noisy"). Without
 # it a ConfigMap change never changes the template, so no pod restarts: the next
-# release label (a values change) reaches the ConfigMap, helm says deployed, the
-# pipeline is green, and GET / keeps answering with the old label.
+# release label (a values change) reaches the ConfigMap, helm says deployed, and
+# GET / keeps answering with the old label.
 set -euo pipefail
 source "$(dirname "$0")/../../lib/common.sh"; load_creds
 source "$(dirname "$0")/lib.sh"
@@ -54,15 +54,20 @@ HELM -n "$NS" upgrade "$REL" "$u/chart/demo-api" -f "$u/chart/demo-api/values-st
   --wait --timeout 150s --description "deployment: drop checksum/config" >/dev/null
 rm -rf "$u"
 
-# 4. Sam bumps the release label (values only) and the pipeline deploys it: green.
+# 4. Sam bumps the release label (values only) and deploys it with helm from the repo, the
+#    way the release train always did: same chart version, only the ConfigMap changes.
+#    (Jenkinsfile.helm cannot show this bug: it packages every build as 0.1.0-build.N, and
+#    helm.sh/chart is a pod label, so a pipeline deploy rolls the pods whatever the config did.)
 as_teammate "Sam (release train)" "$REPO" "staging: release label 2026.10.2" <<'SH'
 sed -i.bak 's/VERSION: "2026.10.1"/VERSION: "2026.10.2"/' chart/demo-api/values-staging.yaml && rm -f chart/demo-api/values-staging.yaml.bak
 grep -q '2026.10.2' chart/demo-api/values-staging.yaml
 SH
-job_scm "$TAG"
-out="$STATE/scratch/break$N.console"
-job_run "$out" 420 "IMAGE_TAG=$TAG"
-[[ $JOB_RESULT == SUCCESS ]] || { echo "the first run of $JOB ended $JOB_RESULT -- see $JENKINS_URL/job/$JOB/$JOB_NUM/console"; tail -25 "$out"; exit 1; }
+u="$STATE/scratch/up$N"; rm -rf "$u"; git clone -q "$(repo_url "$REPO")" "$u"
+HELM -n "$NS" upgrade "$REL" "$u/chart/demo-api" -f "$u/chart/demo-api/values-staging.yaml" \
+  --set image.repository="$REGISTRY/platform-lab/demo-api" --set image.tag="$TAG" \
+  --wait --timeout 150s --description "staging: release label 2026.10.2 (helm CLI from the release-train repo)" >/dev/null
+rm -rf "$u"
+job_scm "$TAG"     # the pipeline is there for the fix; nothing has run it yet
 
 # 5. Make sure the incident is what the ticket says.
 rev=$(HELM -n "$NS" status "$REL" -o json | jq -r .version)
@@ -70,7 +75,6 @@ rev=$(HELM -n "$NS" status "$REL" -o json | jq -r .version)
 cm=$(K -n "$NS" get cm "$FULL" -o jsonpath='{.data.VERSION}')
 live=$(svc_get / | jq -r .version)
 [[ $cm == 2026.10.2 && $live == 2026.10.1 ]] || { echo "expected ConfigMap 2026.10.2 / served 2026.10.1, found $cm / $live"; exit 1; }
-rm -f "$out"
 
 printf 'BREAK_REV=%s\nBASE_VER=%s\nV1_UID=%s\nTAG=%s\n' "$rev" 0.1.0 "$V1_UID" "$TAG" > "$SF"
 player_clone
