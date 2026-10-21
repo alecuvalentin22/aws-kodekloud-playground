@@ -1,5 +1,8 @@
 # AGENTS.md — instructions for an AI assistant working on this repo
 
+> **Home lab, interview playground, tracker board:** read [`homelab/AGENTS.md`](homelab/AGENTS.md) first. This file is about the AWS/EKS lab on KodeKloud.
+
+
 Read this before doing anything. It encodes an afternoon of failures against a
 real KodeKloud AWS playground on 2026-08-18, so you do not repeat them.
 
